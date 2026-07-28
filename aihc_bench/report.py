@@ -72,6 +72,7 @@ def generate_summary(catalog: Dict[str, Any], platform_id: str = "aarch64-darwin
                     if ghc_backend
                     and point["compiler_family"] == "ghc"
                     and point["compiler_version"] == ghc_version
+                    and point.get("compiler_variant", "gmp") == "gmp"
                     and point["backend"] == ghc_backend
                 ),
                 None,

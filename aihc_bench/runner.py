@@ -276,6 +276,7 @@ def measure_cells(
             "configuration": cell.configuration["id"],
             "compiler_family": cell.configuration["compiler_family"],
             "compiler_version": cell.commit_sha if cell.configuration["compiler_version"] == "commit" else cell.configuration["compiler_version"],
+            "compiler_variant": cell.configuration.get("compiler_variant", "default"),
             "backend": cell.configuration["backend"],
             "gc": cell.configuration["gc"],
             "optimization": "O2",

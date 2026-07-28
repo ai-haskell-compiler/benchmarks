@@ -14,10 +14,12 @@ def envelope(platform="aarch64-darwin"):
             ("aihc", commit["sha"], "native", "semispace", 80_000_000),
             ("aihc", commit["sha"], "wasm", "semispace", 90_000_000),
             ("ghc", "9.14.1", "native", "ghc-rts", 100_000_000),
+            ("ghc", "9.14.1", "native", "ghc-rts", 50_000_000),
         ]:
+            variant = "native-bignum" if family == "ghc" and estimate == 50_000_000 else ("gmp" if family == "ghc" else "default")
             results.append({
-                "benchmark": benchmark, "configuration": f"{family}-{backend}", "compiler_family": family,
-                "compiler_version": version, "backend": backend, "gc": gc, "optimization": "O2",
+                "benchmark": benchmark, "configuration": f"{family}-{variant}-{backend}", "compiler_family": family,
+                "compiler_version": version, "compiler_variant": variant, "backend": backend, "gc": gc, "optimization": "O2",
                 "compile": {"status": "compiled"},
                 "measurement": {"status": "converged", "metrics": [{"metric": "wall_time", "unit": "ns", "estimate": estimate, "samples": [estimate]}]},
             })

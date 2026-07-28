@@ -23,7 +23,9 @@
       };
     in {
       ghc-9-12-4 = ghcWrapper "ghc-9.12.4" pkgs.haskell.compiler.ghc9124;
+      ghc-9-12-4-native-bignum = ghcWrapper "ghc-9.12.4-native-bignum" pkgs.haskell.compiler.native-bignum.ghc9124;
       ghc-9-14-1 = ghcWrapper "ghc-9.14.1" pkgs.haskell.compiler.ghc9141;
+      ghc-9-14-1-native-bignum = ghcWrapper "ghc-9.14.1-native-bignum" pkgs.haskell.compiler.native-bignum.ghc9141;
       wasmtime = pkgs.writeShellApplication {
         name = "aihc-bench-wasmtime";
         runtimeInputs = [pkgs.wasmtime];

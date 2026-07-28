@@ -1,6 +1,6 @@
 const COLORS = ["#c7f36b", "#ff8d5c", "#71c8e8", "#b9a1ff", "#f4f0df", "#e8ca71", "#63d7b0"];
 const state = { catalog: null, payload: null, revisions: null, points: [], plotted: [] };
-const ids = ["platform", "benchmark", "metric", "compiler", "version", "backend", "gc"];
+const ids = ["platform", "benchmark", "metric", "compiler", "version", "variant", "backend", "gc"];
 const elements = Object.fromEntries(ids.map(id => [id, document.getElementById(`${id}-filter`)]));
 
 document.addEventListener("DOMContentLoaded", start);
@@ -66,6 +66,7 @@ function populatePointFilters(query) {
   const dimensions = [...points, ...outcomes];
   setOptions(elements.compiler, unique(dimensions.map(point => point.compiler_family)), query.get("compiler"), "All compilers");
   setOptions(elements.version, unique(dimensions.map(point => point.compiler_version).filter(version => version.length < 20)), query.get("version"), "All versions");
+  setOptions(elements.variant, unique(dimensions.map(variantOf)), query.get("variant"), "All variants");
   setOptions(elements.backend, unique(dimensions.map(point => point.backend)), query.get("backend"), "All backends");
   setOptions(elements.gc, unique(dimensions.map(point => point.gc)), query.get("gc"), "All collectors");
 }
@@ -75,6 +76,7 @@ function applyPointFilters() {
   state.points = points.filter(point =>
     matches(elements.compiler.value, point.compiler_family) &&
     matches(elements.version.value, point.compiler_version) &&
+    matches(elements.variant.value, variantOf(point)) &&
     matches(elements.backend.value, point.backend) &&
     matches(elements.gc.value, point.gc)
   );
@@ -115,7 +117,7 @@ function drawChart(points) {
   ctx.font = "11px SFMono-Regular, monospace"; ctx.strokeStyle = "#344136"; ctx.fillStyle = "#a9b0a6"; ctx.lineWidth = 1;
   for (let i = 0; i <= 5; i++) { const value = yMin + ((yMax - yMin) * i / 5); const py = y(value); ctx.beginPath(); ctx.moveTo(margin.left, py); ctx.lineTo(width - margin.right, py); ctx.stroke(); ctx.fillText(formatValue(value, state.payload.metric), 8, py + 4); }
   ctx.fillText(`#${xMin + 1}`, margin.left, height - 15); ctx.fillText(`#${xMax + 1}`, width - margin.right - 48, height - 15);
-  const groups = groupBy(points, point => `${point.compiler_family} ${shortVersion(point.compiler_version)} · ${point.backend} · ${point.gc}`);
+  const groups = groupBy(points, point => `${point.compiler_family} ${shortVersion(point.compiler_version)} · ${variantOf(point)} · ${point.backend} · ${point.gc}`);
   const legend = document.getElementById("legend"); legend.innerHTML = ""; state.plotted = [];
   [...groups.entries()].forEach(([name, values], index) => {
     const color = COLORS[index % COLORS.length]; values.sort((a,b) => a.commit.ordinal - b.commit.ordinal);
@@ -143,24 +145,26 @@ function updateTable(points) {
   const outcomes = (latestRevision?.outcomes || []).filter(outcome =>
     outcome.benchmark === elements.benchmark.value &&
     matches(elements.compiler.value, outcome.compiler_family) && matches(elements.version.value, outcome.compiler_version) &&
+    matches(elements.variant.value, variantOf(outcome)) &&
     matches(elements.backend.value, outcome.backend) && matches(elements.gc.value, outcome.gc)
   );
   const rows = new Map(outcomes.map(outcome => [outcome.configuration, { outcome, point: latestByConfig.get(outcome.configuration) }]));
   latestByConfig.forEach((point, key) => { if (!rows.has(key)) rows.set(key, { point, outcome: null }); });
-  if (!rows.size) { body.innerHTML = '<tr><td colspan="6">No measurements match these filters.</td></tr>'; return; }
+  if (!rows.size) { body.innerHTML = '<tr><td colspan="7">No measurements match these filters.</td></tr>'; return; }
   body.innerHTML = [...rows.entries()].sort((a,b) => a[0].localeCompare(b[0])).map(([, row]) => {
     const point = row.point, outcome = row.outcome; const source = point || outcome; const commit = point?.commit || latestRevision?.commit;
     const status = point?.status || outcome?.measurement_status || outcome?.compile_status || "unavailable";
-    return `<tr><td>${escapeHtml(source.compiler_family)} ${escapeHtml(shortVersion(source.compiler_version))}</td><td>${escapeHtml(source.backend)}</td><td>${escapeHtml(source.gc)}</td>
+    return `<tr><td>${escapeHtml(source.compiler_family)} ${escapeHtml(shortVersion(source.compiler_version))}</td><td>${escapeHtml(variantOf(source))}</td><td>${escapeHtml(source.backend)}</td><td>${escapeHtml(source.gc)}</td>
       <td>${commit ? `<a href="https://github.com/ai-haskell-compiler/aihc/commit/${commit.sha}">${commit.sha.slice(0,10)}</a>` : "—"}</td>
       <td>${point ? formatValue(point.estimate, state.payload.metric) : "—"}</td><td class="${status === 'converged' ? 'status-ok' : ''}">${escapeHtml(status)}</td></tr>`;
   }).join("");
 }
 
-function resetFilters() { ["compiler","version","backend","gc"].forEach(id => elements[id].value = "all"); applyPointFilters(); }
+function resetFilters() { ["compiler","version","variant","backend","gc"].forEach(id => elements[id].value = "all"); applyPointFilters(); }
 function setOptions(select, values, preferred, allLabel) { const current = preferred || select.value; select.innerHTML = allLabel ? `<option value="all">${allLabel}</option>` : ""; values.forEach(value => select.add(new Option(label(value), value))); select.value = [...select.options].some(o => o.value === current) ? current : select.options[0]?.value || ""; }
 function updateUrl() { const query = new URLSearchParams(); ids.forEach(id => { if (elements[id].value && elements[id].value !== "all") query.set(id, elements[id].value); }); history.replaceState(null, "", `${location.pathname}?${query}`); }
 function matches(filter, value) { return filter === "all" || filter === value; }
+function variantOf(point) { return point.compiler_variant || (point.compiler_family === "ghc" ? "gmp" : "default"); }
 function unique(values) { return [...new Set(values)].sort(); }
 function label(value) { return String(value || "").replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase()); }
 function shortVersion(value) { return value.length > 18 ? value.slice(0, 8) : value; }

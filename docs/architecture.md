@@ -26,6 +26,12 @@ a numeric optimization flag, so its side of the profile uses the compiler's
 default optimizing pipeline. Adding an AIHC optimization flag changes the
 configuration and therefore creates a new experiment ID.
 
+GHC 9 and newer replace the former `integer-simple` package with the `native`
+backend of `ghc-bignum`. The matrix calls this variant `native-bignum` and tests
+it as a separately built GHC toolchain alongside the default GMP variant. The
+code-generation backend remains an independent dimension, so both variants are
+tested with native and LLVM code generation.
+
 For AIHC revisions whose CLI advertises `prepare-runtime`, the runner creates a
 store scoped to the experiment, platform, and commit. It prepares each selected
 target/GC runtime and installs `aihc-base` for all selected targets before the
@@ -50,7 +56,7 @@ unavailable_reason
 results[]
   benchmark
   configuration
-  compiler_family / compiler_version
+  compiler_family / compiler_version / compiler_variant
   backend / gc / optimization
   compile
   measurement

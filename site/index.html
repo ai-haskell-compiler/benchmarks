@@ -67,6 +67,7 @@
           <label>Metric<select id="metric-filter" name="metric"></select></label>
           <label>Compiler<select id="compiler-filter" name="compiler"><option value="all">All compilers</option></select></label>
           <label>Version<select id="version-filter" name="version"><option value="all">All versions</option></select></label>
+          <label>Variant<select id="variant-filter" name="variant"><option value="all">All variants</option></select></label>
           <label>Backend<select id="backend-filter" name="backend"><option value="all">All backends</option></select></label>
           <label>GC<select id="gc-filter" name="gc"><option value="all">All collectors</option></select></label>
         </form>
@@ -96,8 +97,8 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Compiler</th><th>Backend</th><th>GC</th><th>Revision</th><th id="value-heading">Value</th><th>Status</th></tr></thead>
-            <tbody id="detail-body"><tr><td colspan="6">No results loaded.</td></tr></tbody>
+            <thead><tr><th>Compiler</th><th>Variant</th><th>Backend</th><th>GC</th><th>Revision</th><th id="value-heading">Value</th><th>Status</th></tr></thead>
+            <tbody id="detail-body"><tr><td colspan="7">No results loaded.</td></tr></tbody>
           </table>
         </div>
       </section>

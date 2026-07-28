@@ -45,6 +45,9 @@ def build_bundle(
                         "configuration": result["configuration"],
                         "compiler_family": result["compiler_family"],
                         "compiler_version": result["compiler_version"],
+                        "compiler_variant": result.get(
+                            "compiler_variant", "gmp" if result["compiler_family"] == "ghc" else "default"
+                        ),
                         "backend": result["backend"],
                         "gc": result["gc"],
                         "compile_status": result.get("compile", {}).get("status"),
@@ -65,6 +68,9 @@ def build_bundle(
                         "configuration": result["configuration"],
                         "compiler_family": result["compiler_family"],
                         "compiler_version": result["compiler_version"],
+                        "compiler_variant": result.get(
+                            "compiler_variant", "gmp" if result["compiler_family"] == "ghc" else "default"
+                        ),
                         "backend": result["backend"],
                         "gc": result["gc"],
                         "optimization": result["optimization"],
