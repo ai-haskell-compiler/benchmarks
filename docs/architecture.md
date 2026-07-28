@@ -26,6 +26,13 @@ a numeric optimization flag, so its side of the profile uses the compiler's
 default optimizing pipeline. Adding an AIHC optimization flag changes the
 configuration and therefore creates a new experiment ID.
 
+For AIHC revisions whose CLI advertises `prepare-runtime`, the runner creates a
+store scoped to the experiment, platform, and commit. It prepares each selected
+target/GC runtime and installs `aihc-base` for all selected targets before the
+parallel compilation phase. Older revisions retain their original self-contained
+compile path. A store preparation failure is recorded on the AIHC result cells
+without preventing the GHC baselines from running.
+
 ## Result envelope
 
 Each completed attempt produces a versioned JSON envelope:

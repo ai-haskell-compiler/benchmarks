@@ -31,7 +31,7 @@
       };
       default = pkgs.writeShellApplication {
         name = "aihc-bench";
-        runtimeInputs = [pkgs.python3 pkgs.git pkgs.awscli2 pkgs.github-cli pkgs.wasmtime pkgs.wasm-tools pkgs.clang pkgs.llvmPackages_19.lld pkgs.binaryen];
+        runtimeInputs = [pkgs.python3 pkgs.git pkgs.awscli2 pkgs.github-cli pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen];
         text = ''
           export AIHC_BENCH_WASM_CLANG=${wasmClang}/bin
           export PYTHONPATH=${./.}
@@ -54,7 +54,7 @@
         type = "app";
         program = "${pkgs.lib.getExe (pkgs.writeShellApplication {
           name = "aihc-bench";
-          runtimeInputs = [pkgs.python3 pkgs.git pkgs.awscli2 pkgs.github-cli pkgs.wasmtime pkgs.wasm-tools pkgs.clang pkgs.llvmPackages_19.lld pkgs.binaryen];
+          runtimeInputs = [pkgs.python3 pkgs.git pkgs.awscli2 pkgs.github-cli pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen];
           text = ''
             export AIHC_BENCH_WASM_CLANG=${wasmClang}/bin
             export PYTHONPATH=${./.}
@@ -66,7 +66,7 @@
 
     devShells = forAllSystems (pkgs: {
       default = pkgs.mkShell {
-        packages = [pkgs.python3 pkgs.nodejs pkgs.git];
+        packages = [pkgs.python3 pkgs.nodejs pkgs.git pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen];
       };
     });
   };

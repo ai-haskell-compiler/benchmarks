@@ -44,6 +44,7 @@
       "compiler_version": "commit",
       "backend": "native",
       "gc": "semispace",
+      "aihc_target": "{aihc_native_target}",
       "artifact_suffix": "",
       "compile": ["nix", "run", "{worktree}#aihc", "--", "compile", "{source}", "--output", "{artifact}", "--target", "{aihc_native_target}", "--gc", "semispace"],
       "run": ["{artifact}"]
@@ -54,6 +55,7 @@
       "compiler_version": "commit",
       "backend": "wasm",
       "gc": "semispace",
+      "aihc_target": "wasm32-wasip3",
       "artifact_suffix": ".wasm",
       "compile_path_env": "AIHC_BENCH_WASM_CLANG",
       "compile": ["nix", "run", "{worktree}#aihc", "--", "compile", "{source}", "--output", "{artifact}", "--target", "wasm32-wasip3", "--gc", "semispace", "--use-wasm-opt"],
@@ -65,8 +67,10 @@
       "compiler_version": "commit",
       "backend": "llvm",
       "gc": "semispace",
-      "available": false,
-      "unavailable_reason": "backend_not_implemented"
+      "aihc_target": "llvm",
+      "artifact_suffix": "",
+      "compile": ["nix", "run", "{worktree}#aihc", "--", "compile", "{source}", "--output", "{artifact}", "--target", "llvm", "--gc", "semispace"],
+      "run": ["{artifact}"]
     },
     {
       "id": "ghc-9.12.4-native-O2",
