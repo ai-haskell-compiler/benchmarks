@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Interactive historical performance results for the AIHC Haskell compiler.">
+    <meta property="og:title" content="AIHC Performance Atlas">
+    <meta property="og:description" content="Explore native, WebAssembly, and LLVM benchmark results across every AIHC main-branch revision.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="https://ai-haskell-compiler.github.io/benchmarks/og.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://ai-haskell-compiler.github.io/benchmarks/og.png">
+    <meta name="theme-color" content="#101712">
+    <title>AIHC Performance Atlas</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="wordmark" href="./" aria-label="AIHC Performance Atlas home">
+        <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>AIHC <strong>Performance Atlas</strong></span>
+      </a>
+      <nav>
+        <a href="https://github.com/ai-haskell-compiler/aihc">AIHC</a>
+        <a href="https://github.com/ai-haskell-compiler/benchmarks">Data &amp; methodology</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <p class="eyebrow">A compiler, measured in public</p>
+        <h1>Follow every optimization.<br><em>Catch every regression.</em></h1>
+        <p class="lede">Runtime and memory measurements across AIHC’s entire main-branch history, compared with GHC 9.12 and 9.14.</p>
+        <div class="status-line" id="status-line" role="status">Loading the published catalog…</div>
+      </section>
+
+      <section class="summary-grid" aria-label="Selected result summary">
+        <article>
+          <span>Latest revision</span>
+          <strong id="latest-revision">—</strong>
+          <small id="latest-date">No data loaded</small>
+        </article>
+        <article>
+          <span>Coverage</span>
+          <strong id="coverage">—</strong>
+          <small>terminal main-branch revisions</small>
+        </article>
+        <article>
+          <span>Environment</span>
+          <strong id="environment">—</strong>
+          <small id="environment-detail">Select a platform</small>
+        </article>
+      </section>
+
+      <section class="explorer" aria-labelledby="explorer-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Results explorer</p>
+            <h2 id="explorer-title">Performance over time</h2>
+          </div>
+          <button id="reset-filters" type="button">Reset filters</button>
+        </div>
+
+        <form class="filters" id="filters">
+          <label>Platform<select id="platform-filter" name="platform"></select></label>
+          <label>Benchmark<select id="benchmark-filter" name="benchmark"></select></label>
+          <label>Metric<select id="metric-filter" name="metric"></select></label>
+          <label>Compiler<select id="compiler-filter" name="compiler"><option value="all">All compilers</option></select></label>
+          <label>Version<select id="version-filter" name="version"><option value="all">All versions</option></select></label>
+          <label>Backend<select id="backend-filter" name="backend"><option value="all">All backends</option></select></label>
+          <label>GC<select id="gc-filter" name="gc"><option value="all">All collectors</option></select></label>
+        </form>
+
+        <div class="chart-shell">
+          <div class="chart-title">
+            <div>
+              <strong id="chart-heading">Waiting for data</strong>
+              <span id="chart-subtitle">Commit order · lower is better</span>
+            </div>
+            <div class="legend" id="legend"></div>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="timeline" role="img" aria-label="Historical benchmark result chart"></canvas>
+            <div class="tooltip" id="tooltip" hidden></div>
+            <div class="empty-chart" id="empty-chart" hidden>No measurements match these filters.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="detail" aria-labelledby="detail-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Latest matching measurements</p>
+            <h2 id="detail-title">Configuration detail</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Compiler</th><th>Backend</th><th>GC</th><th>Revision</th><th id="value-heading">Value</th><th>Status</th></tr></thead>
+            <tbody id="detail-body"><tr><td colspan="6">No results loaded.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="method">
+        <p class="eyebrow">Measurement protocol</p>
+        <h2>Sequential where it matters.</h2>
+        <div class="method-grid">
+          <p><span>01</span>Every first-parent commit on <code>main</code> receives a terminal result, including early revisions without a usable compiler.</p>
+          <p><span>02</span>Programs compile in parallel. Executions run sequentially with complete process and Wasmtime startup included.</p>
+          <p><span>03</span>Run buckets double from 1 to 64 until adjacent wall-time means agree within 1%. Every raw sample remains available.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer><span>AIHC benchmarks</span><span id="generated-at">Catalog not loaded</span></footer>
+    <script src="app.js" defer></script>
+  </body>
+</html>
