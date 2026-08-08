@@ -1,0 +1,122 @@
+# Architecture
+
+## Invariants
+
+- The history is the first-parent chain of `origin/main`, including the root.
+- Every commit receives one terminal record per experiment and host platform.
+- Unavailable compilers are data, not missing data.
+- A terminal result is never retried unless its active record is manually forgotten.
+- Compilation is parallel, followed by a full barrier, followed by sequential execution.
+- Process startup is part of wall time and peak RSS.
+- Raw result objects are immutable. Publication changes only catalogs and content-addressed views.
+
+## Local state
+
+SQLite stores discovered commits and the active terminal result for each
+`(experiment, platform, commit)` key. The experiment ID hashes every semantic
+input: benchmark definitions, matrix, optimization profile, and measurement
+settings. Local paths and publishing locations do not affect it.
+
+The planner benchmarks an unmeasured `HEAD` first. Every later selection
+maximizes its minimum first-parent ordinal distance from a terminal commit,
+breaking ties toward the newer revision.
+
+The `O2` experiment profile passes `-O2` to GHC. AIHC does not currently expose
+a numeric optimization flag, so its side of the profile uses the compiler's
+default optimizing pipeline. Adding an AIHC optimization flag changes the
+configuration and therefore creates a new experiment ID.
+
+GHC 9 and newer replace the former `integer-simple` package with the `native`
+backend of `ghc-bignum`. The matrix calls this variant `native-bignum` and tests
+it as a separately built GHC toolchain alongside the default GMP variant. The
+code-generation backend remains an independent dimension, so both variants are
+tested with native and LLVM code generation.
+
+For AIHC revisions whose CLI advertises `prepare-runtime`, the runner creates a
+store scoped to the experiment, platform, and commit. It prepares each selected
+target/GC runtime and installs `aihc-base` for all selected targets before the
+parallel compilation phase. Older revisions retain their original self-contained
+compile path. A store preparation failure is recorded on the AIHC result cells
+without preventing the GHC baselines from running.
+
+## Result envelope
+
+Each completed attempt produces a versioned JSON envelope:
+
+```text
+schema_version
+run_id
+created_at
+experiment_id
+platform
+environment
+aihc_commit
+compiler_status
+unavailable_reason
+results[]
+  benchmark
+  configuration
+  compiler_family / compiler_version / compiler_variant
+  backend / gc / optimization
+  compile
+  measurement
+    status
+    bucket_sizes
+    samples[]
+    metrics[]
+```
+
+Metrics carry their own name, unit, estimate, and samples, allowing allocations
+and other measurements to be added without changing the envelope.
+
+## Measurement
+
+The runner directly starts the benchmark process and calls `wait4`, measuring
+monotonic elapsed time and child `rusage`. `ru_maxrss` is normalized to bytes;
+Darwin reports bytes and Linux reports KiB.
+
+Wall-time bucket sizes are 1, 2, 4, 8, 16, 32, and 64. Adjacent means converge
+when their symmetric relative difference is at most 1%. The published estimate
+is the pooled mean of the final two wall-time buckets. Peak RSS uses the median
+of those same invocations. Failure and non-convergence preserve all samples.
+
+## Publication
+
+The publisher creates three kinds of R2 objects:
+
+- `raw/v1/.../*.json.gz`: immutable canonical envelopes.
+- `views/v1/<content-hash>.json`: browser-oriented time series.
+- `revisions/v1/<content-hash>.json`: terminal revision indexes.
+
+It then uploads `catalog/candidate.json` last with `Cache-Control: no-cache` and
+optionally dispatches the results-update workflow. GitHub Actions only reads the
+public catalog; it has no R2 write credentials. The workflow regenerates the
+README and checked-in site catalog and opens or refreshes one review PR. Pages
+deploys only after that PR is merged.
+
+The bucket has anonymous read access. Write credentials exist only in the local
+publisher environment. A suitable CORS policy is:
+
+```json
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "https://ai-haskell-compiler.github.io",
+          "http://localhost:8000"
+        ],
+        "methods": ["GET", "HEAD"]
+      },
+      "maxAgeSeconds": 3600
+    }
+  ]
+}
+```
+
+## Platform independence
+
+Apple Arm64 and Linux AMD64 keep separate local databases and publish separate
+series. Publishing merges catalog entries by experiment, platform, benchmark,
+and metric, so one platform cannot replace the other. Absolute values are never
+combined across environment IDs.

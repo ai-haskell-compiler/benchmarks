@@ -1,0 +1,39 @@
+name: Update benchmark results
+
+on:
+  workflow_dispatch:
+    inputs:
+      catalog_url:
+        description: Public URL of the candidate R2 catalog
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v21
+      - name: Generate checked-in reports
+        run: nix run . -- report --catalog '${{ inputs.catalog_url }}'
+      - name: Validate generated site
+        run: python3 scripts/build-site.py
+      - name: Open or refresh review PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          branch: automation/benchmark-results
+          delete-branch: true
+          commit-message: "chore(benchmarks): update published results"
+          title: "chore(benchmarks): update published results"
+          body: |
+            Updates the generated README summary and the approved public catalog.
+
+            Raw result shards and content-addressed views are publicly readable in R2.
+            Merging this PR makes the candidate catalog active on GitHub Pages.
+          add-paths: |
+            README.md
+            site/data/catalog.json

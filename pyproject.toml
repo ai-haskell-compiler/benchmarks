@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aihc-bench"
+version = "0.3.0"
+description = "Historical benchmark runner and report generator for AIHC"
+requires-python = ">=3.9"
+license = { text = "Unlicense" }
+
+[project.scripts]
+aihc-bench = "aihc_bench.cli:main"
+
+[tool.setuptools]
+packages = ["aihc_bench"]

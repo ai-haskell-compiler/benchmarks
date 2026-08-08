@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "suite_id": "aihc-core-v1",
+  "aihc_ref": "origin/main",
+  "aihc_compiler_marker": "bin/aihc/aihc.cabal",
+  "optimization": "O2",
+  "optimization_note": "GHC uses -O2; AIHC uses its current default optimizing pipeline because it has no numeric optimization flag.",
+  "reference": {
+    "platform": "aarch64-darwin",
+    "compiler": "aihc",
+    "minimum_seconds": 0.1,
+    "maximum_seconds": 1.0
+  },
+  "measurement": {
+    "relative_threshold": 0.01,
+    "maximum_bucket_size": 64,
+    "process_timeout_seconds": 20,
+    "compile_timeout_seconds": 900
+  },
+  "platforms": {
+    "aarch64-darwin": {
+      "aihc_native_target": "apple-arm64"
+    },
+    "x86_64-linux": {
+      "aihc_native_target": "linux-amd64"
+    }
+  },
+  "benchmarks": [
+    {
+      "id": "integer-factorial-v1",
+      "source": "benchmarks/integer-factorial/Main.hs",
+      "expected_stdout": "ok\n"
+    },
+    {
+      "id": "integer-fibonacci-v1",
+      "source": "benchmarks/integer-fibonacci/Main.hs",
+      "expected_stdout": "ok\n"
+    }
+  ],
+  "configurations": [
+    {
+      "id": "aihc-native-semispace-O2",
+      "compiler_family": "aihc",
+      "compiler_version": "commit",
+      "compiler_variant": "default",
+      "backend": "native",
+      "gc": "semispace",
+      "aihc_target": "{aihc_native_target}",
+      "artifact_suffix": "",
+      "compile": ["nix", "run", "{worktree}#aihc", "--", "compile", "{source}", "--output", "{artifact}", "--target", "{aihc_native_target}", "--gc", "semispace"],
+      "run": ["{artifact}"]
+    },
+    {
+      "id": "aihc-wasm-semispace-O2",
+      "compiler_family": "aihc",
+      "compiler_version": "commit",
+      "compiler_variant": "default",
+      "backend": "wasm",
+      "gc": "semispace",
+      "aihc_target": "wasm32-wasip3",
+      "artifact_suffix": ".wasm",
+      "compile_path_env": "AIHC_BENCH_WASM_CLANG",
+      "compile": ["nix", "run", "{worktree}#aihc", "--", "compile", "{source}", "--output", "{artifact}", "--target", "wasm32-wasip3", "--gc", "semispace", "--use-wasm-opt"],
+      "run": ["wasmtime", "run", "-C", "cache=n", "-S", "cli", "{artifact}"]
+    },
+    {
+      "id": "aihc-llvm-semispace-O2",
+      "compiler_family": "aihc",
+      "compiler_version": "commit",
+      "compiler_variant": "default",
+      "backend": "llvm",
+      "gc": "semispace",
+      "aihc_target": "llvm",
+      "artifact_suffix": "",
+      "compile": ["nix", "run", "{worktree}#aihc", "--", "compile", "{source}", "--output", "{artifact}", "--target", "llvm", "--gc", "semispace"],
+      "run": ["{artifact}"]
+    },
+    {
+      "id": "ghc-9.12.4-native-O2",
+      "compiler_family": "ghc",
+      "compiler_version": "9.12.4",
+      "compiler_variant": "gmp",
+      "backend": "native",
+      "gc": "ghc-rts",
+      "artifact_suffix": "",
+      "compile": ["nix", "run", "path:{root}#ghc-9-12-4", "--", "-package-env", "-", "-O2", "-fasm", "-fforce-recomp", "-outputdir", "{build_dir}", "{source}", "-o", "{artifact}"],
+      "run": ["{artifact}"]
+    },
+    {
+      "id": "ghc-9.12.4-llvm-O2",
+      "compiler_family": "ghc",
+      "compiler_version": "9.12.4",
+      "compiler_variant": "gmp",
+      "backend": "llvm",
+      "gc": "ghc-rts",
+      "artifact_suffix": "",
+      "compile": ["nix", "run", "path:{root}#ghc-9-12-4", "--", "-package-env", "-", "-O2", "-fllvm", "-fforce-recomp", "-outputdir", "{build_dir}", "{source}", "-o", "{artifact}"],
+      "run": ["{artifact}"]
+    },
+    {
+      "id": "ghc-9.14.1-native-O2",
+      "compiler_family": "ghc",
+      "compiler_version": "9.14.1",
+      "compiler_variant": "gmp",
+      "backend": "native",
+      "gc": "ghc-rts",
+      "artifact_suffix": "",
+      "compile": ["nix", "run", "path:{root}#ghc-9-14-1", "--", "-package-env", "-", "-O2", "-fasm", "-fforce-recomp", "-outputdir", "{build_dir}", "{source}", "-o", "{artifact}"],
+      "run": ["{artifact}"]
+    },
+    {
+      "id": "ghc-9.14.1-llvm-O2",
+      "compiler_family": "ghc",
+      "compiler_version": "9.14.1",
+      "compiler_variant": "gmp",
+      "backend": "llvm",
+      "gc": "ghc-rts",
+      "artifact_suffix": "",
+      "compile": ["nix", "run", "path:{root}#ghc-9-14-1", "--", "-package-env", "-", "-O2", "-fllvm", "-fforce-recomp", "-outputdir", "{build_dir}", "{source}", "-o", "{artifact}"],
+      "run": ["{artifact}"]
+    },
+    {
+      "id": "ghc-9.12.4-native-bignum-native-O2",
+      "compiler_family": "ghc",
+      "compiler_version": "9.12.4",
+      "compiler_variant": "native-bignum",
+      "backend": "native",
+      "gc": "ghc-rts",
+      "artifact_suffix": "",
+      "compile": ["nix", "run", "path:{root}#ghc-9-12-4-native-bignum", "--", "-package-env", "-", "-O2", "-fasm", "-fforce-recomp", "-outputdir", "{build_dir}", "{source}", "-o", "{artifact}"],
+      "run": ["{artifact}"]
+    },
+    {
+      "id": "ghc-9.12.4-native-bignum-llvm-O2",
+      "compiler_family": "ghc",
+      "compiler_version": "9.12.4",
+      "compiler_variant": "native-bignum",
+      "backend": "llvm",
+      "gc": "ghc-rts",
+      "artifact_suffix": "",
+      "compile": ["nix", "run", "path:{root}#ghc-9-12-4-native-bignum", "--", "-package-env", "-", "-O2", "-fllvm", "-fforce-recomp", "-outputdir", "{build_dir}", "{source}", "-o", "{artifact}"],
+      "run": ["{artifact}"]
+    },
+    {
+      "id": "ghc-9.14.1-native-bignum-native-O2",
+      "compiler_family": "ghc",
+      "compiler_version": "9.14.1",
+      "compiler_variant": "native-bignum",
+      "backend": "native",
+      "gc": "ghc-rts",
+      "artifact_suffix": "",
+      "compile": ["nix", "run", "path:{root}#ghc-9-14-1-native-bignum", "--", "-package-env", "-", "-O2", "-fasm", "-fforce-recomp", "-outputdir", "{build_dir}", "{source}", "-o", "{artifact}"],
+      "run": ["{artifact}"]
+    },
+    {
+      "id": "ghc-9.14.1-native-bignum-llvm-O2",
+      "compiler_family": "ghc",
+      "compiler_version": "9.14.1",
+      "compiler_variant": "native-bignum",
+      "backend": "llvm",
+      "gc": "ghc-rts",
+      "artifact_suffix": "",
+      "compile": ["nix", "run", "path:{root}#ghc-9-14-1-native-bignum", "--", "-package-env", "-", "-O2", "-fllvm", "-fforce-recomp", "-outputdir", "{build_dir}", "{source}", "-o", "{artifact}"],
+      "run": ["{artifact}"]
+    }
+  ],
+  "publishing": {
+    "bucket": "aihc-benchmarks",
+    "public_base_url": "https://benchmarks-data.example.invalid",
+    "candidate_catalog_key": "catalog/candidate.json"
+  }
+}

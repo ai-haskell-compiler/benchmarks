@@ -1,0 +1,6 @@
+/.cache/
+/.state/
+/dist/
+/result-bundles/
+__pycache__/
+*.pyc
