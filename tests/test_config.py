@@ -61,10 +61,14 @@ class ConfigTests(unittest.TestCase):
         config = load_config(Path(__file__).resolve().parents[1] / "benchmark.json")
         profiles = {(item["compiler_family"], item["optimization"]) for item in config["configurations"]}
         self.assertEqual(profiles, {("aihc", "O0"), ("aihc", "O2"), ("ghc", "O0"), ("ghc", "O2")})
+        baselines = {(item["backend"], item["optimization"]) for item in config["configurations"] if item.get("baseline")}
+        self.assertEqual(baselines, {("native", "O0"), ("native", "O2"), ("llvm", "O0"), ("llvm", "O2")})
         for item in config["configurations"]:
             self.assertIn(item.get("runtime_stats"), {"ghc", "aihc"})
             if item["compiler_family"] == "ghc":
                 self.assertIn("-rtsopts", item["compile"])
+                self.assertTrue(item["compile"][0].startswith("{toolchains}/bin/ghc-"))
+                self.assertNotIn("nix", item["compile"])
             if item["compiler_family"] == "aihc" and item["optimization"] == "O0":
                 self.assertEqual(item["requires"], ["optimization-flag"])
 

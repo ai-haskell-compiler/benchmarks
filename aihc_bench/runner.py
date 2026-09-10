@@ -192,6 +192,7 @@ def build_cells(
     capabilities = capabilities or {name: name != "optimization-flag" for name in CAPABILITIES}
     platform_values = config["platforms"][platform_id]
     build_command = "build-exe" if capabilities.get("build-exe") else "compile"
+    toolchains = os.environ.get("AIHC_BENCH_TOOLCHAINS", "")
     cells: List[Cell] = []
     for benchmark in config["benchmarks"]:
         source = (root / benchmark["source"]).resolve()
@@ -213,6 +214,7 @@ def build_cells(
                 "build_dir": str(build_dir),
                 "commit": commit["sha"],
                 "aihc_build_command": build_command,
+                "toolchains": toolchains,
                 "stats_file": str(stats_file),
                 "stats_dir": str(stats_dir),
                 **{key: str(value) for key, value in platform_values.items()},
@@ -333,6 +335,7 @@ def measure_cells(
             "backend": cell.configuration["backend"],
             "gc": cell.configuration["gc"],
             "optimization": cell.configuration["optimization"],
+            "baseline": bool(cell.configuration.get("baseline", False)),
             "compile": compile_result,
         }
         if compile_result["status"] != "compiled":

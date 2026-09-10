@@ -17,6 +17,7 @@ from .planner import build_plan
 from .publisher import PublishError, publish
 from .report import generate_summary, load_json, update_readme
 from .runner import run_commit
+from .uploader import UploadError, load_credentials, register, save_credentials, upload_pending
 
 
 def main(argv: Optional[list] = None) -> None:
@@ -36,7 +37,7 @@ def main(argv: Optional[list] = None) -> None:
             _dispatch(arguments, root, config, platform_id, experiment, database, machine)
         finally:
             database.close()
-    except (ConfigError, GitError, PublishError, ValueError) as error:
+    except (ConfigError, GitError, PublishError, UploadError, ValueError) as error:
         parser.exit(2, f"error: {error}\n")
 
 
@@ -58,6 +59,26 @@ def _dispatch(
         update_readme((root / arguments.readme).resolve(), summary)
         write_catalog(catalog, (root / arguments.site_catalog).resolve())
         print(f"updated {arguments.readme} and {arguments.site_catalog}")
+        return
+
+    if arguments.command == "register":
+        admin_token = os.environ.get("AIHC_BENCH_ADMIN_TOKEN")
+        if not admin_token:
+            raise ValueError("set AIHC_BENCH_ADMIN_TOKEN to the Worker's admin token")
+        server = arguments.server or config["publishing"]["server_url"]
+        token = register(server, admin_token, machine["machine_id"], arguments.display_name)
+        path = save_credentials((root / arguments.state).resolve().parent, server, token)
+        print(f"registered {machine['machine_id']} with {server}; token stored in {path}")
+        return
+
+    if arguments.command == "upload":
+        credentials = load_credentials((root / arguments.state).resolve().parent)
+        if not credentials:
+            raise ValueError("no upload credentials; run `aihc-bench register` first")
+        summary = upload_pending(
+            database, experiment, platform_id, credentials, database.commits(), dry_run=arguments.dry_run, limit=arguments.limit
+        )
+        print(f"uploaded {summary['uploaded']} runs ({summary['skipped']} already known, {summary['pending']} still pending)")
         return
 
     if arguments.command in {"plan", "run"}:
@@ -98,6 +119,12 @@ def _dispatch(
             inherited = database.propagate_inherited(experiment, platform_id)
             if inherited:
                 print(f"propagated the result to {inherited} same-tree commits")
+            if arguments.upload:
+                credentials = load_credentials((root / arguments.state).resolve().parent)
+                if not credentials:
+                    raise ValueError("no upload credentials; run `aihc-bench register` first")
+                summary = upload_pending(database, experiment, platform_id, credentials, database.commits())
+                print(f"uploaded {summary['uploaded']} runs ({summary['pending']} still pending)")
             completed += 1
             if not arguments.all or (arguments.limit and completed >= arguments.limit):
                 break
@@ -176,6 +203,10 @@ def _doctor(
         print(f"{executable:10} {resolved or 'missing'}")
         if not resolved:
             failures.append(executable)
+    toolchains = os.environ.get("AIHC_BENCH_TOOLCHAINS")
+    print(f"toolchains: {toolchains or 'missing (run through the flake so AIHC_BENCH_TOOLCHAINS is set)'}")
+    if not toolchains or not (Path(toolchains) / "bin").is_dir():
+        failures.append("toolchains")
     if not (repository / ".git").exists() and not (repository / "HEAD").exists():
         failures.append("aihc repository")
         print("repository does not appear to be a Git checkout")
@@ -224,6 +255,15 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--jobs", type=int, default=max(1, os.cpu_count() or 1))
     run.add_argument("--all", action="store_true", help="continue until all commits are terminal")
     run.add_argument("--limit", type=int, default=0, help="maximum commits for --all; zero means unlimited")
+    run.add_argument("--upload", action="store_true", help="upload results to the Worker after each commit")
+
+    register_parser = subparsers.add_parser("register", help="register this machine with the Worker and store its upload token")
+    register_parser.add_argument("--server", help="Worker URL; defaults to publishing.server_url")
+    register_parser.add_argument("--display-name")
+
+    upload_parser = subparsers.add_parser("upload", help="upload results the Worker has not acknowledged")
+    upload_parser.add_argument("--dry-run", action="store_true")
+    upload_parser.add_argument("--limit", type=int, default=0)
 
     forget = subparsers.add_parser("forget", help="make a terminal commit eligible for retry")
     forget.add_argument("commit")

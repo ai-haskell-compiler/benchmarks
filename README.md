@@ -57,13 +57,36 @@ are within 1%. Peak heap, bytes allocated, GC count and GC time come from GHC's
 it. Compile time and artifact size are recorded per compilation. All raw
 samples and the stopping reason are retained.
 
-## Publishing
+## Uploading
 
-Publishing requires `R2_ACCOUNT_ID`, `AWS_ACCESS_KEY_ID`, and
-`AWS_SECRET_ACCESS_KEY`. Set `R2_PUBLIC_BASE_URL` to the bucket's public custom
-domain; `R2_BUCKET` can override the configured bucket name. The bucket is publicly
-readable but the credentials granting write access remain local to the
-publisher.
+Results are served by a Cloudflare Worker at
+[fast.aihc.app](https://fast.aihc.app), whose source lives in `web/`. Each
+machine uploads with its own token:
+
+```console
+AIHC_BENCH_ADMIN_TOKEN=... nix run . -- register --display-name "My laptop"
+nix run . -- upload
+nix run . -- run --all --upload
+```
+
+`register` stores the issued token in `.state/upload.json`. `upload` pushes
+the commit list and every run the Worker has not acknowledged; `run --upload`
+does the same after each commit. Uploads are idempotent.
+
+The legacy `publish` command writes the R2 catalog used by the GitHub Pages
+site and will be removed once the Worker serves the full site.
+
+## Deploying the Worker
+
+```console
+cd web && npm ci && npm run check && npm test
+npm run migrate && npm run deploy
+```
+
+Pushes to `main` that touch `web/` deploy through GitHub Actions using the
+`CLOUDFLARE_API_TOKEN` repository secret. The Worker needs one secret of its
+own, `ADMIN_TOKEN`, set with `wrangler secret put ADMIN_TOKEN`; it authorizes
+`register` and nothing else.
 
 See [docs/architecture.md](docs/architecture.md) for the data contract and
-publication lifecycle.
+[docs/design.md](docs/design.md) for the Worker API.

@@ -259,10 +259,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-12-4",
-        "--",
+        "{toolchains}/bin/ghc-9.12.4",
         "-package-env",
         "-",
         "-O2",
@@ -294,10 +291,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-12-4",
-        "--",
+        "{toolchains}/bin/ghc-9.12.4",
         "-package-env",
         "-",
         "-O2",
@@ -329,10 +323,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-14-1",
-        "--",
+        "{toolchains}/bin/ghc-9.14.1",
         "-package-env",
         "-",
         "-O2",
@@ -351,7 +342,8 @@
         "-t{stats_file}",
         "--machine-readable",
         "-RTS"
-      ]
+      ],
+      "baseline": true
     },
     {
       "id": "ghc-9.14.1-llvm-O2",
@@ -364,10 +356,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-14-1",
-        "--",
+        "{toolchains}/bin/ghc-9.14.1",
         "-package-env",
         "-",
         "-O2",
@@ -386,7 +375,8 @@
         "-t{stats_file}",
         "--machine-readable",
         "-RTS"
-      ]
+      ],
+      "baseline": true
     },
     {
       "id": "ghc-9.12.4-native-bignum-native-O2",
@@ -399,10 +389,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-12-4-native-bignum",
-        "--",
+        "{toolchains}/bin/ghc-9.12.4-native-bignum",
         "-package-env",
         "-",
         "-O2",
@@ -434,10 +421,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-12-4-native-bignum",
-        "--",
+        "{toolchains}/bin/ghc-9.12.4-native-bignum",
         "-package-env",
         "-",
         "-O2",
@@ -469,10 +453,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-14-1-native-bignum",
-        "--",
+        "{toolchains}/bin/ghc-9.14.1-native-bignum",
         "-package-env",
         "-",
         "-O2",
@@ -504,10 +485,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-14-1-native-bignum",
-        "--",
+        "{toolchains}/bin/ghc-9.14.1-native-bignum",
         "-package-env",
         "-",
         "-O2",
@@ -539,10 +517,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-12-4",
-        "--",
+        "{toolchains}/bin/ghc-9.12.4",
         "-package-env",
         "-",
         "-O0",
@@ -574,10 +549,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-12-4",
-        "--",
+        "{toolchains}/bin/ghc-9.12.4",
         "-package-env",
         "-",
         "-O0",
@@ -609,10 +581,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-14-1",
-        "--",
+        "{toolchains}/bin/ghc-9.14.1",
         "-package-env",
         "-",
         "-O0",
@@ -631,7 +600,8 @@
         "-t{stats_file}",
         "--machine-readable",
         "-RTS"
-      ]
+      ],
+      "baseline": true
     },
     {
       "id": "ghc-9.14.1-llvm-O0",
@@ -644,10 +614,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-14-1",
-        "--",
+        "{toolchains}/bin/ghc-9.14.1",
         "-package-env",
         "-",
         "-O0",
@@ -666,7 +633,8 @@
         "-t{stats_file}",
         "--machine-readable",
         "-RTS"
-      ]
+      ],
+      "baseline": true
     },
     {
       "id": "ghc-9.12.4-native-bignum-native-O0",
@@ -679,10 +647,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-12-4-native-bignum",
-        "--",
+        "{toolchains}/bin/ghc-9.12.4-native-bignum",
         "-package-env",
         "-",
         "-O0",
@@ -714,10 +679,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-12-4-native-bignum",
-        "--",
+        "{toolchains}/bin/ghc-9.12.4-native-bignum",
         "-package-env",
         "-",
         "-O0",
@@ -749,10 +711,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-14-1-native-bignum",
-        "--",
+        "{toolchains}/bin/ghc-9.14.1-native-bignum",
         "-package-env",
         "-",
         "-O0",
@@ -784,10 +743,7 @@
       "artifact_suffix": "",
       "runtime_stats": "ghc",
       "compile": [
-        "nix",
-        "run",
-        "path:{root}#ghc-9-14-1-native-bignum",
-        "--",
+        "{toolchains}/bin/ghc-9.14.1-native-bignum",
         "-package-env",
         "-",
         "-O0",
@@ -813,5 +769,6 @@
     "bucket": "aihc-benchmarks",
     "public_base_url": "https://benchmarks-data.example.invalid",
     "candidate_catalog_key": "catalog/candidate.json"
-  }
+  },
+  "toolchains_note": "GHC binaries come from AIHC_BENCH_TOOLCHAINS, exported by the flake; their versions are pinned by flake.lock, which is part of the experiment ID."
 }

@@ -47,6 +47,16 @@ pipeline. AIHC `O0` configurations require the `optimization-flag` capability
 and are recorded as unavailable on commits whose `build-exe --help` does not
 advertise one, so the history stays honest until the flag exists.
 
+## Toolchains
+
+The flake builds the GHC wrappers once and exports their directory as
+`AIHC_BENCH_TOOLCHAINS`; compile templates reference
+`{toolchains}/bin/ghc-<version>`. The runner never invokes `nix run` on this
+repository itself: doing so copied the working tree, including `.cache`,
+into the Nix store on every compile and raced with the AIHC store
+preparation writing there. The toolchain versions are pinned by `flake.lock`,
+which is part of the experiment ID.
+
 ## Compiler capabilities
 
 The AIHC command line changed over the history, so the runner probes each
@@ -144,7 +154,27 @@ unavailable metrics.
 
 ## Publication
 
-The publisher creates three kinds of R2 objects:
+Results are uploaded to the Worker in `web/`. `POST /api/upload` verifies the
+machine's bearer token, checks that the envelope names the same machine,
+stores the gzip envelope in R2 under
+`raw/v2/<machine>/<commit>/<run_id>.json.gz`, and indexes the run and its
+metric estimates in D1. Inherited runs are indexed under
+`<source run_id>~<sha12>` and point at the source envelope instead of storing
+a copy. `POST /api/commits` upserts the first-parent history so the Worker
+never runs Git. Uploads are idempotent on `run_id`, and the local database
+records `uploaded_at` only after the Worker acknowledged the run, so an
+interrupted upload resumes where it stopped.
+
+Read endpoints (`/api/overview`, `/api/series`, `/api/commit/<sha>`,
+`/api/compare`, `/api/coverage`, `/api/commits`, `/api/machines`,
+`/api/experiments`) are public, cached for one minute, and default to the
+experiment of the most recent upload. `/api/raw/<key>` streams envelopes from
+R2. The D1 schema is `web/migrations/0001_init.sql`.
+
+### Legacy catalog publication
+
+The previous static catalog flow still exists behind `publish` and creates
+three kinds of R2 objects:
 
 - `raw/v1/.../*.json.gz`: immutable canonical envelopes.
 - `views/v1/<content-hash>.json`: browser-oriented time series.

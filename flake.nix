@@ -37,6 +37,15 @@
           test -e "$out/include/wasm32-wasip1/stdlib.h"
           test -e "$out/lib/wasm32-wasip1/libc.a"
         '';
+      toolchains = pkgs.symlinkJoin {
+        name = "aihc-bench-toolchains";
+        paths = [
+          (ghcWrapper "ghc-9.12.4" pkgs.haskell.compiler.ghc9124)
+          (ghcWrapper "ghc-9.12.4-native-bignum" pkgs.haskell.compiler.native-bignum.ghc9124)
+          (ghcWrapper "ghc-9.14.1" pkgs.haskell.compiler.ghc9141)
+          (ghcWrapper "ghc-9.14.1-native-bignum" pkgs.haskell.compiler.native-bignum.ghc9141)
+        ];
+      };
     in {
       ghc-9-12-4 = ghcWrapper "ghc-9.12.4" pkgs.haskell.compiler.ghc9124;
       ghc-9-12-4-native-bignum = ghcWrapper "ghc-9.12.4-native-bignum" pkgs.haskell.compiler.native-bignum.ghc9124;
@@ -47,12 +56,14 @@
         runtimeInputs = [pkgs.wasmtime];
         text = ''exec wasmtime "$@"'';
       };
+      inherit toolchains;
       default = pkgs.writeShellApplication {
         name = "aihc-bench";
         runtimeInputs = [pkgs.python3 pkgs.git pkgs.awscli2 pkgs.github-cli pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen];
         text = ''
           export AIHC_BENCH_WASM_CLANG=${wasmClang}/bin
           export AIHC_WASM_SYSROOT=${wasiSysroot}
+          export AIHC_BENCH_TOOLCHAINS=${toolchains}
           export PYTHONPATH=${./.}
           exec python3 -m aihc_bench "$@"
         '';
@@ -60,6 +71,21 @@
     });
 
     apps = forAllSystems (pkgs: let
+      ghcWrapper = name: compiler:
+        pkgs.writeShellApplication {
+          inherit name;
+          runtimeInputs = [compiler pkgs.llvmPackages_19.llvm];
+          text = ''exec ghc "$@"'';
+        };
+      toolchains = pkgs.symlinkJoin {
+        name = "aihc-bench-toolchains";
+        paths = [
+          (ghcWrapper "ghc-9.12.4" pkgs.haskell.compiler.ghc9124)
+          (ghcWrapper "ghc-9.12.4-native-bignum" pkgs.haskell.compiler.native-bignum.ghc9124)
+          (ghcWrapper "ghc-9.14.1" pkgs.haskell.compiler.ghc9141)
+          (ghcWrapper "ghc-9.14.1-native-bignum" pkgs.haskell.compiler.native-bignum.ghc9141)
+        ];
+      };
       wasmClang = pkgs.writeShellApplication {
         name = "clang";
         text = ''
@@ -92,6 +118,7 @@
           text = ''
             export AIHC_BENCH_WASM_CLANG=${wasmClang}/bin
             export AIHC_WASM_SYSROOT=${wasiSysroot}
+            export AIHC_BENCH_TOOLCHAINS=${toolchains}
             export PYTHONPATH=${./.}
             exec python3 -m aihc_bench "$@"
           '';

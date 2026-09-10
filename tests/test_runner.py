@@ -61,7 +61,7 @@ class RunnerTests(unittest.TestCase):
                     "gc": "ghc-rts",
                     "optimization": "O2",
                     "runtime_stats": "ghc",
-                    "compile": ["ghc", "{source}", "-o", "{artifact}"],
+                    "compile": ["{toolchains}/bin/ghc-9.14.1", "{source}", "-o", "{artifact}"],
                     "run": ["{artifact}", "+RTS", "-t{stats_file}", "--machine-readable", "-RTS"],
                 },
             ],
@@ -70,6 +70,10 @@ class RunnerTests(unittest.TestCase):
 
     def build(self, root, capabilities=None, store=None):
         (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
+        with patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": "/toolchains"}):
+            return self._build(root, capabilities, store)
+
+    def _build(self, root, capabilities, store):
         return build_cells(
             self.config,
             "test-platform",
@@ -148,6 +152,7 @@ class RunnerTests(unittest.TestCase):
             wasm = cells["aihc-wasm-O2"]
             self.assertIn(f"AIHC_RTS_STATS={wasm.stats_file}", wasm.run_command)
             ghc = cells["ghc-native-O2"]
+            self.assertEqual(ghc.compile_command[0], "/toolchains/bin/ghc-9.14.1")
             self.assertEqual(ghc.run_environment, {})
             self.assertIn(f"-t{ghc.stats_file}", ghc.run_command)
             self.assertEqual(ghc.stats_format, "ghc")

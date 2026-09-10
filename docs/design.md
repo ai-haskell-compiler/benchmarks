@@ -313,6 +313,14 @@ Gaps whose endpoints have status `unavailable` on one side carry `signal = 0`.
 All responses are JSON with `Cache-Control: public, max-age=300` except upload.
 
 ```text
+POST /api/machines
+  Authorization: Bearer <ADMIN_TOKEN secret>
+  Body: {machine_id, display_name}. Issues or rotates the machine's token.
+
+POST /api/commits
+  Authorization: Bearer <machine token>
+  Body: {commits: [{sha, ordinal, committed_at, subject, tree_key}]}
+
 POST /api/upload
   Authorization: Bearer <machine token>
   Body: gzip envelope
@@ -376,7 +384,8 @@ Every filter state is reflected in the URL so views can be linked.
    new experiment ID, so it should land before any long overnight run.
 2. **Planner.** Tree keys, inherited results, warmup and scored gaps (done).
 3. **Worker.** D1 migrations, upload endpoint, read endpoints, `wrangler deploy`
-   workflow, `fast.aihc.app` custom domain. Local uploader with `uploaded_at`.
+   workflow, `fast.aihc.app` custom domain, local uploader with `uploaded_at`
+   (done; `web/`).
 4. **Site.** Overview and timeline first, then commit, compare and coverage.
 5. **Removal.** Delete `pages.yml`, `results-update.yml`, `scripts/build-site.py`,
    the catalog builder and the README summary generator once the site is live.

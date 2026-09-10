@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "aihc-fast",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-22",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page"
+  },
+  "routes": [{ "pattern": "fast.aihc.app", "custom_domain": true }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "aihc-benchmarks",
+      "database_id": "ab776a46-7858-4681-9a87-62e61ef2c7a2",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "RAW", "bucket_name": "aihc-benchmarks" }],
+  "observability": { "enabled": true }
+}

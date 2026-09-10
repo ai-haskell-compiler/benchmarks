@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS attempts (
   environment_json TEXT NOT NULL,
   machine_id TEXT,
   inherited_from TEXT,
+  uploaded_at TEXT,
   result_json TEXT,
   started_at TEXT NOT NULL,
   finished_at TEXT,
@@ -45,7 +46,7 @@ CREATE INDEX IF NOT EXISTS attempts_lookup
 
 MIGRATIONS = {
     "commits": {"tree_key": "TEXT"},
-    "attempts": {"machine_id": "TEXT", "inherited_from": "TEXT"},
+    "attempts": {"machine_id": "TEXT", "inherited_from": "TEXT", "uploaded_at": "TEXT"},
 }
 
 
@@ -112,7 +113,7 @@ class Database:
                 "ON CONFLICT(experiment_id, platform, commit_sha) DO UPDATE SET "
                 "run_id=excluded.run_id, status='running', unavailable_reason=NULL, detail=NULL, "
                 "environment_json=excluded.environment_json, machine_id=excluded.machine_id, inherited_from=NULL, "
-                "result_json=NULL, started_at=excluded.started_at, finished_at=NULL",
+                "uploaded_at=NULL, result_json=NULL, started_at=excluded.started_at, finished_at=NULL",
                 (experiment_id, platform_id, commit_sha, run_id, json.dumps(environment, sort_keys=True), machine_id, utc_now()),
             )
 
@@ -200,6 +201,23 @@ class Database:
                 )
                 written += 1
         return written
+
+    def pending_uploads(self, experiment_id: str, platform_id: str) -> List[Dict[str, Any]]:
+        """Terminal attempts the Worker has not acknowledged, sources before inherited copies."""
+        rows = self.connection.execute(
+            "SELECT a.*, c.ordinal FROM attempts a JOIN commits c ON c.sha=a.commit_sha "
+            "WHERE experiment_id=? AND platform=? AND status != 'running' AND result_json IS NOT NULL AND uploaded_at IS NULL "
+            "ORDER BY (inherited_from IS NOT NULL), finished_at, c.ordinal",
+            (experiment_id, platform_id),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_uploaded(self, experiment_id: str, platform_id: str, commit_sha: str, uploaded_at: str) -> None:
+        with self.connection:
+            self.connection.execute(
+                "UPDATE attempts SET uploaded_at=? WHERE experiment_id=? AND platform=? AND commit_sha=?",
+                (uploaded_at, experiment_id, platform_id, commit_sha),
+            )
 
     def forget(self, experiment_id: str, platform_id: str, commit_sha: str) -> bool:
         """Drop a commit's result together with every result inherited from it."""
