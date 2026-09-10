@@ -168,10 +168,10 @@ records `uploaded_at` only after the Worker acknowledged the run, so an
 interrupted upload resumes where it stopped.
 
 Read endpoints (`/api/overview`, `/api/series`, `/api/commit/<sha>`,
-`/api/compare`, `/api/coverage`, `/api/commits`, `/api/machines`,
-`/api/experiments`) are public, cached for one minute, and default to the
-experiment of the most recent upload. `/api/raw/<key>` streams envelopes from
-R2. The D1 schema is `web/migrations/0001_init.sql`.
+`/api/coverage`, `/api/commits`, `/api/machines`, `/api/experiments`) are
+public, cached for one minute, and default to the experiment of the most recent
+upload. `/api/raw/<key>` streams envelopes from R2. The D1 schema is
+`web/migrations/0001_init.sql`.
 
 ### Legacy catalog publication
 

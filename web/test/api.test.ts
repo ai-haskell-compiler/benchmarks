@@ -150,14 +150,6 @@ describe("fast.aihc.app API", () => {
     expect(body.measurements.some((row: any) => row.configuration === "aihc-native-semispace-O0")).toBe(false);
   });
 
-  it("compares two commits", async () => {
-    const { body } = await get(`/api/compare?machine=${MACHINE}&a=${"0".repeat(8)}&b=${"3".repeat(8)}`);
-    const cell = body.results.find((row: any) => row.configuration === "aihc-native-semispace-O2" && row.metric === "wall_time");
-    expect(cell.a.estimate).toBe(90);
-    expect(cell.b.estimate).toBe(180);
-    expect(cell.ratio).toBe(2);
-  });
-
   it("reports coverage per ordinal", async () => {
     const { body } = await get(`/api/coverage?machine=${MACHINE}`);
     expect(body).toMatchObject({ total: 4, statuses: "MI.M" });
@@ -176,7 +168,7 @@ describe("fast.aihc.app API", () => {
     const response = await SELF.fetch("https://fast.aihc.app/");
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("AIHC benchmarks");
-    for (const page of ["/timeline.html", "/commit.html", "/compare.html", "/coverage.html", "/site.js", "/site.css", "/vendor/uPlot.iife.min.js"]) {
+    for (const page of ["/timeline.html", "/commit.html", "/coverage.html", "/site.js", "/site.css", "/vendor/uPlot.iife.min.js"]) {
       expect((await SELF.fetch(`https://fast.aihc.app${page}`)).status, page).toBe(200);
     }
     expect((await SELF.fetch("https://fast.aihc.app/missing")).status).toBe(404);

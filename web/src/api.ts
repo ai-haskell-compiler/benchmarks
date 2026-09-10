@@ -68,8 +68,6 @@ export async function handleApi(request: Request, env: Bindings, url: URL, ctx: 
       case "commit":
         if (segments.length === 2) return cached(await commitDetail(env, segments[1], url));
         break;
-      case "compare":
-        return cached(await compare(env, url));
       case "coverage":
         return cached(await coverage(env, url));
     }
@@ -482,54 +480,6 @@ async function commitDetail(env: Bindings, sha: string, url: URL): Promise<unkno
       return { ...rest, parent_estimate: parent, ratio_to_parent: parent && row.estimate ? row.estimate / parent : null };
     });
   return { experiment, commit, runs: runs.results, measurements };
-}
-
-async function compare(env: Bindings, url: URL): Promise<unknown> {
-  const experiment = await activeExperiment(env, url);
-  const machine = requireParam(url, "machine");
-  const a = await resolveCommit(env, requireParam(url, "a"));
-  const b = await resolveCommit(env, requireParam(url, "b"));
-  const rows = await env.DB.prepare(
-    "SELECT m.benchmark, m.configuration, m.compiler_family, m.backend, m.optimization, m.metric, m.unit, m.status, m.estimate, m.commit_ordinal, " +
-      "r.inherited_from IS NOT NULL AS inherited FROM measurements m JOIN runs r ON r.run_id = m.run_id " +
-      "WHERE m.machine_id = ? AND m.experiment_id = ? AND m.commit_ordinal IN (?, ?) ORDER BY m.benchmark, m.configuration, m.metric",
-  )
-    .bind(machine, experiment, a.ordinal, b.ordinal)
-    .all<{ benchmark: string; configuration: string; compiler_family: string; backend: string; optimization: string; metric: string; unit: string; status: string; estimate: number | null; commit_ordinal: number; inherited: number }>();
-  const cells = new Map<string, Json>();
-  for (const row of rows.results) {
-    const key = `${row.benchmark}|${row.configuration}|${row.metric}`;
-    const cell = cells.get(key) ?? {
-      benchmark: row.benchmark,
-      configuration: row.configuration,
-      compiler_family: row.compiler_family,
-      backend: row.backend,
-      optimization: row.optimization,
-      metric: row.metric,
-      unit: row.unit,
-      a: null,
-      b: null,
-    };
-    const side = { estimate: row.estimate, status: row.status, inherited: row.inherited === 1 };
-    if (row.commit_ordinal === a.ordinal) cell.a = side;
-    if (row.commit_ordinal === b.ordinal) cell.b = side;
-    cells.set(key, cell);
-  }
-  const results = [...cells.values()].map((cell) => {
-    const left = cell.a as { estimate: number | null } | null;
-    const right = cell.b as { estimate: number | null } | null;
-    const ratio = left?.estimate && right?.estimate ? right.estimate / left.estimate : null;
-    return { ...cell, ratio };
-  });
-  return { experiment, machine, a, b, results };
-}
-
-async function resolveCommit(env: Bindings, sha: string): Promise<{ sha: string; ordinal: number; subject: string }> {
-  const commit = await env.DB.prepare("SELECT sha, ordinal, subject FROM commits WHERE sha = ? OR sha LIKE ? ORDER BY ordinal DESC LIMIT 1")
-    .bind(sha, `${sha}%`)
-    .first<{ sha: string; ordinal: number; subject: string }>();
-  if (!commit) throw new HttpError(404, `unknown commit ${sha}`);
-  return commit;
 }
 
 /** One character per commit ordinal: M measured, I inherited, U unavailable, . unmeasured. */

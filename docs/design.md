@@ -342,10 +342,6 @@ GET  /api/commit/<sha>
   Every measurement for the commit across machines, with delta to the
   first parent and links to the R2 envelopes.
 
-GET  /api/compare?a=<sha>&b=<sha>&machine=
-  Per benchmark, configuration and metric: both estimates, ratio, and whether
-  either side is inherited or unavailable.
-
 GET  /api/coverage?machine=
   Bitmap of measured, inherited, unavailable and unmeasured ordinals.
 
@@ -358,7 +354,8 @@ already has whenever it uploads. The Worker never runs Git.
 
 ## Site
 
-Five pages, vanilla JavaScript, uPlot for charts.
+Four pages, vanilla JavaScript, uPlot for charts. Comparing two arbitrary
+commits is a CLI-only feature; the site links commits to their parents instead.
 
 - **Overview** (`/`): the `/api/overview` scorecard. One card per machine
   with `cpu_brand`, a ratio per benchmark and profile, and a 90-commit
@@ -371,8 +368,6 @@ Five pages, vanilla JavaScript, uPlot for charts.
 - **Commit** (`/commit/<sha>`): the `/api/commit` table with deltas to the
   parent, colored by significance, and links to GitHub and to the raw
   envelopes.
-- **Compare** (`/compare?a=&b=`): the same table as the CLI, computed from
-  `/api/compare`.
 - **Coverage** (`/coverage`): one row per machine, one cell per commit,
   colored by status. It doubles as the planner's progress display.
 
@@ -389,8 +384,8 @@ Every filter state is reflected in the URL so views can be linked.
 3. **Worker.** D1 migrations, upload endpoint, read endpoints, `wrangler deploy`
    workflow, `fast.aihc.app` custom domain, local uploader with `uploaded_at`
    (done; `web/`).
-4. **Site.** Overview, timeline, commit, compare and coverage pages served
-   from `web/public` (done).
+4. **Site.** Overview, timeline, commit and coverage pages served from
+   `web/public` (done).
 5. **Removal.** Delete `pages.yml`, `results-update.yml`, `scripts/build-site.py`,
    the catalog builder and the README summary generator once the site is live.
 6. **compare.** Last, because it depends on nothing above except the shared
