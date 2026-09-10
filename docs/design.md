@@ -388,5 +388,5 @@ Every filter state is reflected in the URL so views can be linked.
    `web/public` (done).
 5. **Removal.** `pages.yml`, `results-update.yml`, `scripts/build-site.py`,
    the catalog builder and the README summary generator are deleted (done).
-6. **compare.** Last, because it depends on nothing above except the shared
-   measurement engine and the `O0` configurations.
+6. **compare.** Interleaved A/B measurement with bootstrap intervals, stored
+   in `adhoc_runs` and never uploaded (done).

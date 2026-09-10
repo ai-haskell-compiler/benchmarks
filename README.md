@@ -45,6 +45,21 @@ historical compiler is terminal until its record is deliberately removed:
 nix run . -- forget <commit> --aihc-repo /path/to/aihc
 ```
 
+## Comparing two builds
+
+```console
+nix run . -- compare HEAD~5 HEAD --aihc-repo /path/to/aihc
+nix run . -- compare main --worktree /path/to/aihc \
+  --bench integer-fibonacci-v1 --rounds 20
+```
+
+`compare` builds both compilers, compiles the selected benchmarks with each, and
+runs them in interleaved A, B, A, B rounds, after one discarded warm-up round,
+so machine drift affects both sides equally. It prints medians, the change of B
+relative to A, and a bootstrap 95% interval on that change; `--markdown` formats
+the table for a pull request. Results are stored locally in `adhoc_runs` and
+never uploaded.
+
 ## Measurement
 
 The runner measures complete process invocations, including native startup and

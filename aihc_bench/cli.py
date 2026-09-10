@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from .compare import CompareError, format_report, resolve_side, run_compare, select_configuration, worktree_side
 from .config import ConfigError, detect_platform, experiment_id, load_config
 from .database import Database
 from .git_history import GitError, commits, fetch
@@ -34,7 +35,7 @@ def main(argv: Optional[list] = None) -> None:
             _dispatch(arguments, root, config, platform_id, experiment, database, machine)
         finally:
             database.close()
-    except (ConfigError, GitError, UploadError, ValueError) as error:
+    except (CompareError, ConfigError, GitError, UploadError, ValueError) as error:
         parser.exit(2, f"error: {error}\n")
 
 
@@ -50,6 +51,30 @@ def _dispatch(
     if arguments.command == "doctor":
         _doctor(arguments, root, config, platform_id, experiment, machine)
         return
+    if arguments.command == "compare":
+        repository = _repository(arguments)
+        if arguments.b is None and not arguments.worktree:
+            raise ValueError("give a second commit or --worktree PATH")
+        if arguments.b is not None and arguments.worktree:
+            raise ValueError("--worktree replaces the second commit; give one or the other")
+        cache = root / ".cache" / "compare"
+        side_a = resolve_side(repository, arguments.a, cache)
+        side_b = worktree_side(Path(arguments.worktree)) if arguments.worktree else resolve_side(repository, arguments.b, cache)
+        selected = select_configuration(config, benchmarks=arguments.bench, configurations=arguments.config_ids, profile=arguments.profile)
+        report = run_compare(
+            config=selected,
+            platform_id=platform_id,
+            root=root,
+            aihc_repository=repository,
+            sides=(side_a, side_b),
+            rounds=arguments.rounds,
+            jobs=arguments.jobs,
+            log=lambda message: print(message, file=sys.stderr),
+        )
+        database.record_adhoc(report)
+        print(format_report(report, markdown=arguments.markdown))
+        return
+
     if arguments.command == "register":
         admin_token = os.environ.get("AIHC_BENCH_ADMIN_TOKEN")
         if not admin_token:
@@ -226,6 +251,18 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--all", action="store_true", help="continue until all commits are terminal")
     run.add_argument("--limit", type=int, default=0, help="maximum commits for --all; zero means unlimited")
     run.add_argument("--upload", action="store_true", help="upload results to the Worker after each commit")
+
+    compare = subparsers.add_parser("compare", help="benchmark two AIHC builds against each other, locally")
+    compare.add_argument("a", help="commit, branch or tag for side A")
+    compare.add_argument("b", nargs="?", help="commit, branch or tag for side B")
+    compare.add_argument("--worktree", help="use this AIHC checkout, including uncommitted changes, as side B")
+    compare.add_argument("--aihc-repo")
+    compare.add_argument("--bench", action="append", default=[], metavar="ID", help="benchmark id; repeatable, default all")
+    compare.add_argument("--config", dest="config_ids", action="append", default=[], metavar="ID", help="configuration id; repeatable, default every AIHC configuration")
+    compare.add_argument("--profile", choices=["O0", "O2"])
+    compare.add_argument("--rounds", type=int, default=10, help="interleaved A/B rounds per cell")
+    compare.add_argument("--jobs", type=int, default=max(1, os.cpu_count() or 1))
+    compare.add_argument("--markdown", action="store_true", help="print a Markdown table")
 
     register_parser = subparsers.add_parser("register", help="register this machine with the Worker and store its upload token")
     register_parser.add_argument("--server", help="Worker URL; defaults to publishing.server_url")

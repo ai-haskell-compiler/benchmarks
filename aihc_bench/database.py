@@ -42,6 +42,15 @@ CREATE TABLE IF NOT EXISTS attempts (
 
 CREATE INDEX IF NOT EXISTS attempts_lookup
   ON attempts(experiment_id, platform, status);
+
+-- Ad-hoc comparisons stay local: the uploader never reads this table.
+CREATE TABLE IF NOT EXISTS adhoc_runs (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  a_label TEXT NOT NULL,
+  b_label TEXT NOT NULL,
+  report_json TEXT NOT NULL
+);
 """
 
 MIGRATIONS = {
@@ -218,6 +227,23 @@ class Database:
                 "UPDATE attempts SET uploaded_at=? WHERE experiment_id=? AND platform=? AND commit_sha=?",
                 (uploaded_at, experiment_id, platform_id, commit_sha),
             )
+
+    def record_adhoc(self, report: Dict[str, Any]) -> None:
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO adhoc_runs(id, created_at, a_label, b_label, report_json) VALUES (?, ?, ?, ?, ?)",
+                (
+                    report["id"],
+                    report["created_at"],
+                    report["sides"][0]["label"],
+                    report["sides"][1]["label"],
+                    json.dumps(report, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+
+    def adhoc_runs(self) -> List[Dict[str, Any]]:
+        rows = self.connection.execute("SELECT id, created_at, a_label, b_label FROM adhoc_runs ORDER BY created_at").fetchall()
+        return [dict(row) for row in rows]
 
     def forget(self, experiment_id: str, platform_id: str, commit_sha: str) -> bool:
         """Drop a commit's result together with every result inherited from it."""
