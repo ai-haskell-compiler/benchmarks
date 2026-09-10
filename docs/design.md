@@ -269,13 +269,18 @@ scored selection over three stages.
 
 ### Stage 0: tree keys
 
-Each commit gets `tree_key = git rev-parse <sha>:<path>` combined over the
-compiler-relevant paths, currently `bin/aihc`, `core-libs`, `components` and
-`flake.lock`. A commit whose `tree_key` equals its first parent's inherits the
-parent's results for every configuration, recorded with status `inherited` and
-the parent's `run_id`. Inherited results count as measured for coverage and are
-never selected for measurement. Docs, CI and test-only commits therefore cost
-nothing.
+Each commit gets a `tree_key`: a hash of the Git object IDs of the
+compiler-relevant paths, read for the whole history with one
+`git cat-file --batch-check` call. The paths are `aihc_tree_paths` in
+`benchmark.json`, by default `bin/aihc`, `components`, `core-libs`,
+`tooling`, `cabal.project`, `flake.nix`, `flake.lock` and `scripts/nix`, and
+they are part of the experiment ID. A commit whose `tree_key` equals a
+measured commit's inherits that commit's results for every configuration,
+recorded with status `inherited`, the source's `run_id` and an
+`inherited_from` field; the nearest source by ordinal wins. Inherited results
+count as measured for coverage and are never selected for measurement, and
+`forget` drops them together with their source. Docs, CI and test-only
+commits therefore cost nothing.
 
 ### Stage 1: recent warmup
 
@@ -291,7 +296,7 @@ Consider every maximal run of unmeasured commits between two measured commits
 signal  = max over (benchmark, configuration, metric in {wall_time, allocated_bytes})
           of |log(estimate_right / estimate_left)|
 score   = width * (1 + 8 * signal) * (1 + recency)
-recency = 1 - ordinal_of_gap_midpoint / ordinal_of_head        (in [0, 1])
+recency = ordinal_of_gap_midpoint / ordinal_of_head            (in [0, 1])
 ```
 
 Select the midpoint of the highest-scoring gap. Ties break toward the newer
@@ -369,8 +374,7 @@ Every filter state is reflected in the URL so views can be linked.
    `O0` configurations (done in this repository). Land the AIHC runtime hook
    and `-O0` flag in the AIHC repository (tracked separately). This starts a
    new experiment ID, so it should land before any long overnight run.
-2. **Planner.** Tree keys, inherited results, warmup and scored gaps. Testable
-   entirely offline against the existing planner tests.
+2. **Planner.** Tree keys, inherited results, warmup and scored gaps (done).
 3. **Worker.** D1 migrations, upload endpoint, read endpoints, `wrangler deploy`
    workflow, `fast.aihc.app` custom domain. Local uploader with `uploaded_at`.
 4. **Site.** Overview and timeline first, then commit, compare and coverage.

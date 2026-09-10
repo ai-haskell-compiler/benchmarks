@@ -1,9 +1,24 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List
+
+# Paths whose content determines the compiler that a commit builds. Commits
+# that leave all of them untouched produce the same compiler as their parent
+# and inherit its results.
+DEFAULT_TREE_PATHS = (
+    "bin/aihc",
+    "components",
+    "core-libs",
+    "tooling",
+    "cabal.project",
+    "flake.nix",
+    "flake.lock",
+    "scripts/nix",
+)
 
 
 class GitError(RuntimeError):
@@ -14,7 +29,7 @@ def fetch(repository: Path) -> None:
     _git(repository, "fetch", "--prune", "origin", "main")
 
 
-def commits(repository: Path, ref: str) -> List[Dict[str, Any]]:
+def commits(repository: Path, ref: str, tree_paths: Iterable[str] = DEFAULT_TREE_PATHS) -> List[Dict[str, Any]]:
     output = _git(repository, "log", "--first-parent", "--reverse", "--format=%H%x09%cI%x09%s", ref)
     history: List[Dict[str, Any]] = []
     for ordinal, line in enumerate(output.splitlines()):
@@ -22,7 +37,47 @@ def commits(repository: Path, ref: str) -> List[Dict[str, Any]]:
         history.append({"sha": sha, "ordinal": ordinal, "committed_at": committed_at, "subject": subject})
     if not history:
         raise GitError(f"no commits found at {ref}")
+    keys = tree_keys(repository, [commit["sha"] for commit in history], tree_paths)
+    for commit in history:
+        commit["tree_key"] = keys[commit["sha"]]
     return history
+
+
+def tree_keys(repository: Path, shas: List[str], tree_paths: Iterable[str]) -> Dict[str, str]:
+    """Hash the object IDs of ``tree_paths`` for every commit in one Git call.
+
+    A path missing from a commit hashes as ``missing``, so adding or removing a
+    tracked directory changes the key like any other edit.
+    """
+    paths = list(tree_paths)
+    if not paths:
+        return {sha: "no-paths" for sha in shas}
+    queries = "".join(f"{sha}:{path}\n" for sha in shas for path in paths)
+    process = subprocess.run(
+        ["git", "-C", str(repository), "cat-file", "--batch-check=%(objectname)"],
+        input=queries,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if process.returncode != 0:
+        raise GitError(process.stderr.strip() or "git cat-file failed")
+    lines = process.stdout.splitlines()
+    expected = len(shas) * len(paths)
+    if len(lines) != expected:
+        raise GitError(f"git cat-file returned {len(lines)} lines for {expected} queries")
+    keys: Dict[str, str] = {}
+    index = 0
+    for sha in shas:
+        hasher = hashlib.sha256()
+        for path in paths:
+            line = lines[index]
+            index += 1
+            object_id = "missing" if line.endswith(" missing") else line.split()[0]
+            hasher.update(f"{path}={object_id}\n".encode("utf-8"))
+        keys[sha] = hasher.hexdigest()[:16]
+    return keys
 
 
 def path_exists(repository: Path, sha: str, path: str) -> bool:

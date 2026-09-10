@@ -33,9 +33,13 @@ SQLite stores discovered commits and the active terminal result for each
 input: benchmark definitions, matrix, optimization profile, and measurement
 settings. Local paths and publishing locations do not affect it.
 
-The planner benchmarks an unmeasured `HEAD` first. Every later selection
-maximizes its minimum first-parent ordinal distance from a terminal commit,
-breaking ties toward the newer revision.
+The planner benchmarks an unmeasured `HEAD` first, then fills in the newest
+20 commits, then bisects gaps between measured commits. A gap's score is its
+width times `1 + 8 * signal` times `1 + recency`, where the signal is the
+largest relative change in wall time or allocated bytes between the gap's
+measured endpoints. Commits whose compiler-relevant tree matches a measured
+commit inherit its result instead of being measured; see
+[design.md](design.md) for the tree-key definition.
 
 Every configuration carries an `optimization` profile, `O0` or `O2`. GHC
 receives the matching flag. AIHC `O2` uses the compiler's default optimizing

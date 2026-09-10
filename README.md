@@ -25,9 +25,14 @@ nix run . -- run --aihc-repo /path/to/aihc --jobs 8
 from the CPU model and a hashed hardware identifier and frozen in
 `.state/machine.json`; pass `--machine <id>` to override it.
 
-Run one maximally spaced commit with `run`, or continue until every commit has
-a terminal result with `run --all`. Compilations within a revision are parallel;
-benchmark executions are sequential.
+Run one commit with `run`, or continue until every commit has a terminal
+result with `run --all`. The planner measures an unmeasured `HEAD` first, then
+the newest 20 commits, then bisects the gap with the highest score, where a
+gap scores by its width, by the change observed between its measured
+endpoints, and by recency. Commits that leave the compiler-relevant paths
+untouched inherit their neighbour's result instead of being measured.
+`plan` reports measured and inherited coverage separately. Compilations
+within a revision are parallel; benchmark executions are sequential.
 
 Every configuration is measured in an `O2` and an `O0` profile. AIHC `O2` uses
 the default optimizing pipeline; AIHC `O0` is recorded as unavailable until a

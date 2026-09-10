@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS commits (
   sha TEXT PRIMARY KEY,
   ordinal INTEGER NOT NULL,
   committed_at TEXT NOT NULL,
-  subject TEXT NOT NULL
+  subject TEXT NOT NULL,
+  tree_key TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS commits_ordinal ON commits(ordinal);
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS attempts (
   detail TEXT,
   environment_json TEXT NOT NULL,
   machine_id TEXT,
+  inherited_from TEXT,
   result_json TEXT,
   started_at TEXT NOT NULL,
   finished_at TEXT,
@@ -40,6 +42,11 @@ CREATE TABLE IF NOT EXISTS attempts (
 CREATE INDEX IF NOT EXISTS attempts_lookup
   ON attempts(experiment_id, platform, status);
 """
+
+MIGRATIONS = {
+    "commits": {"tree_key": "TEXT"},
+    "attempts": {"machine_id": "TEXT", "inherited_from": "TEXT"},
+}
 
 
 class Database:
@@ -52,25 +59,33 @@ class Database:
         self._migrate()
 
     def _migrate(self) -> None:
-        columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(attempts)")}
-        if "machine_id" not in columns:
-            with self.connection:
-                self.connection.execute("ALTER TABLE attempts ADD COLUMN machine_id TEXT")
+        for table, columns in MIGRATIONS.items():
+            existing = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
+            for column, kind in columns.items():
+                if column not in existing:
+                    with self.connection:
+                        self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
     def close(self) -> None:
         self.connection.close()
 
     def replace_commits(self, commits: Iterable[Dict[str, Any]]) -> None:
-        rows = [(item["sha"], item["ordinal"], item["committed_at"], item["subject"]) for item in commits]
+        rows = [
+            (item["sha"], item["ordinal"], item["committed_at"], item["subject"], item.get("tree_key"))
+            for item in commits
+        ]
         with self.connection:
             self.connection.executemany(
-                "INSERT INTO commits(sha, ordinal, committed_at, subject) VALUES (?, ?, ?, ?) "
-                "ON CONFLICT(sha) DO UPDATE SET ordinal=excluded.ordinal, committed_at=excluded.committed_at, subject=excluded.subject",
+                "INSERT INTO commits(sha, ordinal, committed_at, subject, tree_key) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(sha) DO UPDATE SET ordinal=excluded.ordinal, committed_at=excluded.committed_at, "
+                "subject=excluded.subject, tree_key=COALESCE(excluded.tree_key, commits.tree_key)",
                 rows,
             )
 
     def commits(self) -> List[Dict[str, Any]]:
-        rows = self.connection.execute("SELECT sha, ordinal, committed_at, subject FROM commits ORDER BY ordinal").fetchall()
+        rows = self.connection.execute(
+            "SELECT sha, ordinal, committed_at, subject, tree_key FROM commits ORDER BY ordinal"
+        ).fetchall()
         return [dict(row) for row in rows]
 
     def terminal_attempts(self, experiment_id: str, platform_id: str) -> List[Dict[str, Any]]:
@@ -96,8 +111,8 @@ class Database:
                 "VALUES (?, ?, ?, ?, 'running', ?, ?, ?) "
                 "ON CONFLICT(experiment_id, platform, commit_sha) DO UPDATE SET "
                 "run_id=excluded.run_id, status='running', unavailable_reason=NULL, detail=NULL, "
-                "environment_json=excluded.environment_json, machine_id=excluded.machine_id, result_json=NULL, "
-                "started_at=excluded.started_at, finished_at=NULL",
+                "environment_json=excluded.environment_json, machine_id=excluded.machine_id, inherited_from=NULL, "
+                "result_json=NULL, started_at=excluded.started_at, finished_at=NULL",
                 (experiment_id, platform_id, commit_sha, run_id, json.dumps(environment, sort_keys=True), machine_id, utc_now()),
             )
 
@@ -127,11 +142,71 @@ class Database:
                 ),
             )
 
+    def propagate_inherited(self, experiment_id: str, platform_id: str) -> int:
+        """Copy measured results to commits that build the same compiler.
+
+        Every commit whose ``tree_key`` matches a measured, non-inherited
+        commit and that has no measurement of its own receives an
+        ``inherited`` attempt carrying a copy of the source envelope. The
+        nearest source by ordinal wins. Returns the number of attempts written.
+        """
+        commits = self.commits()
+        by_key: Dict[str, List[Dict[str, Any]]] = {}
+        attempts = {attempt["commit_sha"]: attempt for attempt in self.terminal_attempts(experiment_id, platform_id)}
+        for commit in commits:
+            attempt = attempts.get(commit["sha"])
+            if commit.get("tree_key") and attempt and not attempt.get("inherited_from") and attempt.get("result_json"):
+                by_key.setdefault(commit["tree_key"], []).append({**commit, "attempt": attempt})
+
+        written = 0
+        with self.connection:
+            for commit in commits:
+                key = commit.get("tree_key")
+                if not key or key not in by_key:
+                    continue
+                current = attempts.get(commit["sha"])
+                if current and not current.get("inherited_from"):
+                    continue
+                source = min(by_key[key], key=lambda item: (abs(item["ordinal"] - commit["ordinal"]), -item["ordinal"]))
+                if current and current.get("inherited_from") == source["sha"]:
+                    continue
+                attempt = source["attempt"]
+                envelope = json.loads(attempt["result_json"])
+                envelope["aihc_commit"] = {k: v for k, v in commit.items() if k != "tree_key"}
+                envelope["inherited_from"] = source["sha"]
+                self.connection.execute(
+                    "INSERT INTO attempts(experiment_id, platform, commit_sha, run_id, status, unavailable_reason, detail, "
+                    "environment_json, machine_id, inherited_from, result_json, started_at, finished_at) "
+                    "VALUES (?, ?, ?, ?, 'inherited', ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(experiment_id, platform, commit_sha) DO UPDATE SET "
+                    "run_id=excluded.run_id, status='inherited', unavailable_reason=excluded.unavailable_reason, "
+                    "detail=excluded.detail, environment_json=excluded.environment_json, machine_id=excluded.machine_id, "
+                    "inherited_from=excluded.inherited_from, result_json=excluded.result_json, "
+                    "started_at=excluded.started_at, finished_at=excluded.finished_at",
+                    (
+                        experiment_id,
+                        platform_id,
+                        commit["sha"],
+                        attempt["run_id"],
+                        attempt.get("unavailable_reason"),
+                        attempt.get("detail"),
+                        attempt["environment_json"],
+                        attempt.get("machine_id"),
+                        source["sha"],
+                        json.dumps(envelope, sort_keys=True, separators=(",", ":")),
+                        attempt["started_at"],
+                        attempt.get("finished_at"),
+                    ),
+                )
+                written += 1
+        return written
+
     def forget(self, experiment_id: str, platform_id: str, commit_sha: str) -> bool:
+        """Drop a commit's result together with every result inherited from it."""
         with self.connection:
             cursor = self.connection.execute(
-                "DELETE FROM attempts WHERE experiment_id=? AND platform=? AND commit_sha=?",
-                (experiment_id, platform_id, commit_sha),
+                "DELETE FROM attempts WHERE experiment_id=? AND platform=? AND (commit_sha=? OR inherited_from=?)",
+                (experiment_id, platform_id, commit_sha, commit_sha),
             )
         return cursor.rowcount > 0
 

@@ -13,7 +13,7 @@ from .config import ConfigError, detect_platform, experiment_id, load_config
 from .database import Database
 from .git_history import GitError, commits, fetch
 from .machine import load_machine
-from .planner import select_next
+from .planner import build_plan
 from .publisher import PublishError, publish
 from .report import generate_summary, load_json, update_readme
 from .runner import run_commit
@@ -64,19 +64,12 @@ def _dispatch(
         repository = _repository(arguments)
         if arguments.fetch:
             fetch(repository)
-        history = commits(repository, config.get("aihc_ref", "origin/main"))
+        history = commits(repository, config.get("aihc_ref", "origin/main"), config["aihc_tree_paths"])
         database.replace_commits(history)
+        database.propagate_inherited(experiment, platform_id)
 
     if arguments.command == "plan":
-        terminal = database.terminal_attempts(experiment, platform_id)
-        next_commit = select_next(database.commits(), terminal)
-        print(f"experiment: {experiment}")
-        print(f"platform:   {platform_id}")
-        print(f"complete:   {len(terminal)}/{len(history)}")
-        if next_commit:
-            print(f"next:       {next_commit['sha']}  {next_commit['subject']}")
-        else:
-            print("next:       none")
+        _print_plan(database, experiment, platform_id, len(history))
         return
 
     if arguments.command == "run":
@@ -84,11 +77,12 @@ def _dispatch(
         completed = 0
         while True:
             terminal = database.terminal_attempts(experiment, platform_id)
-            next_commit = select_next(database.commits(), terminal)
+            plan = build_plan(database.commits(), terminal)
+            next_commit = plan["next"]
             if not next_commit:
                 print("all commits have terminal results")
                 break
-            print(f"benchmarking {next_commit['sha'][:12]} ({next_commit['ordinal'] + 1}/{len(history)}): {next_commit['subject']}")
+            print(f"benchmarking {next_commit['sha'][:12]} ({next_commit['ordinal'] + 1}/{len(history)}, {plan['stage']}): {next_commit['subject']}")
             envelope = run_commit(
                 database=database,
                 config=config,
@@ -101,6 +95,9 @@ def _dispatch(
                 jobs=arguments.jobs,
             )
             print(f"recorded {envelope['compiler_status']} result {envelope['run_id']}")
+            inherited = database.propagate_inherited(experiment, platform_id)
+            if inherited:
+                print(f"propagated the result to {inherited} same-tree commits")
             completed += 1
             if not arguments.all or (arguments.limit and completed >= arguments.limit):
                 break
@@ -133,6 +130,26 @@ def _dispatch(
         print(f"prepared catalog with {len(catalog.get('series', []))} result views")
         return
     raise ValueError(f"unsupported command {arguments.command}")
+
+
+def _print_plan(database: Database, experiment: str, platform_id: str, total: int) -> None:
+    terminal = database.terminal_attempts(experiment, platform_id)
+    plan = build_plan(database.commits(), terminal)
+    measured = sum(1 for attempt in terminal if not attempt.get("inherited_from"))
+    inherited = len(terminal) - measured
+    print(f"experiment: {experiment}")
+    print(f"platform:   {platform_id}")
+    print(f"complete:   {len(terminal)}/{total} ({measured} measured, {inherited} inherited)")
+    next_commit = plan["next"]
+    if next_commit:
+        print(f"next:       {next_commit['sha']}  {next_commit['subject']}  [{plan['stage']}]")
+    else:
+        print("next:       none")
+    if plan["gaps"]:
+        print("gaps:       ordinals      width  signal  recency  score")
+        for gap in plan["gaps"][:5]:
+            span = f"{gap['start']['ordinal'] + 1}-{gap['end']['ordinal'] + 1}"
+            print(f"            {span:12} {gap['width']:5}  {gap['signal']:.3f}  {gap['recency']:.3f}  {gap['score']:8.1f}")
 
 
 def _doctor(
@@ -197,7 +214,7 @@ def _parser() -> argparse.ArgumentParser:
     doctor.add_argument("--aihc-repo")
     doctor.add_argument("--machine", help="override and freeze the derived machine id")
 
-    plan = subparsers.add_parser("plan", help="show coverage and the next maximally spaced commit")
+    plan = subparsers.add_parser("plan", help="show coverage, the next commit, and the highest-scoring gaps")
     plan.add_argument("--aihc-repo")
     plan.add_argument("--fetch", action="store_true")
 
