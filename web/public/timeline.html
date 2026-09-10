@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timeline · AIHC benchmarks</title>
+<link rel="stylesheet" href="/site.css">
+<script src="/vendor/uPlot.iife.min.js"></script>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/">AIHC benchmarks</a>
+  <nav>
+    <a href="/">Overview</a>
+    <a href="/timeline.html">Timeline</a>
+    <a href="/compare.html">Compare</a>
+    <a href="/coverage.html">Coverage</a>
+  </nav>
+  <span class="spacer"></span>
+  <a class="external" href="https://github.com/ai-haskell-compiler/aihc">ai-haskell-compiler/aihc</a>
+</header>
+<main>
+  <h1>Timeline</h1>
+  <p class="lede">One point per measured commit, in first-parent order. Hover for the commit, click a point to open it. Dashed lines mark a change of machine environment, such as an OS update.</p>
+  <form class="filters" id="filters" onsubmit="return false">
+    <label>Machine<select id="machine"></select></label>
+    <label>Benchmark<select id="benchmark"></select></label>
+    <label>Metric<select id="metric"></select></label>
+    <label>Profile<select id="profile"><option value="O2">O2 (optimized)</option><option value="O0">O0 (unoptimized)</option></select></label>
+    <label>View<select id="view"><option value="ratio">Ratio to GHC baseline</option><option value="absolute">Absolute</option></select></label>
+    <label class="checks"><input type="checkbox" id="log"> log scale</label>
+    <label class="checks"><input type="checkbox" id="allghc"> all GHC versions</label>
+  </form>
+  <p class="status-line" id="status-line">Loading…</p>
+  <div class="chart-wrap" id="chart-wrap">
+    <div id="chart"></div>
+    <div class="legend" id="legend"></div>
+    <div class="tooltip" id="tooltip" hidden></div>
+    <div class="empty" id="empty" hidden>No measurements match these filters.</div>
+  </div>
+  <h2>Latest value per series</h2>
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Series</th><th>Configuration</th><th>Commit</th><th class="num">Value</th><th class="num">vs previous point</th><th>Status</th></tr></thead>
+      <tbody id="latest-body"></tbody>
+    </table>
+  </div>
+</main>
+<script type="module">
+import { api, el, replaceChildren, formatValue, formatRatio, queryState, pushQuery, fillSelect, setStatus, markCurrentNav, commitIndex, seriesKey, seriesColor, SERIES_SLOTS, METRIC_LABELS, machineLabel, describeConfiguration, commitLink, changeCell } from "/site.js";
+
+markCurrentNav();
+const defaults = { machine: "", benchmark: "", metric: "wall_time", profile: "O2", view: "ratio", log: "", allghc: "" };
+const state = queryState(defaults);
+const controls = Object.fromEntries(["machine", "benchmark", "metric", "profile", "view", "log", "allghc"].map((id) => [id, document.getElementById(id)]));
+const METRICS = Object.keys(METRIC_LABELS);
+let plot = null;
+let machines = [];
+let benchmarks = [];
+let commits = null;
+
+async function start() {
+  try {
+    const [machineList, index] = await Promise.all([api("/api/machines"), commitIndex()]);
+    commits = index;
+    machines = machineList.machines;
+    if (!machines.length) throw new Error("no machines have uploaded results");
+    const labels = Object.fromEntries(machines.map((machine) => [machine.machine_id, machineLabel(machine)]));
+    state.machine = fillSelect(controls.machine, machines.map((machine) => machine.machine_id), state.machine, labels);
+    const overview = await api("/api/overview");
+    benchmarks = [...new Set(overview.machines.flatMap((machine) => machine.ratios.map((row) => row.benchmark)))].sort();
+    state.benchmark = fillSelect(controls.benchmark, benchmarks, state.benchmark);
+    state.metric = fillSelect(controls.metric, METRICS, state.metric, METRIC_LABELS);
+    controls.profile.value = state.profile;
+    controls.view.value = state.view;
+    controls.log.checked = state.log === "1";
+    controls.allghc.checked = state.allghc === "1";
+    for (const [id, control] of Object.entries(controls)) control.addEventListener("change", () => { state[id] = control.type === "checkbox" ? (control.checked ? "1" : "") : control.value; load(); });
+    window.addEventListener("resize", () => plot && plot.setSize(size()));
+    await load();
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+function size() {
+  const wrap = document.getElementById("chart-wrap");
+  return { width: Math.max(320, wrap.clientWidth - 16), height: Math.max(300, Math.min(520, window.innerHeight * 0.5)) };
+}
+
+async function load() {
+  pushQuery(state, defaults);
+  setStatus("Loading…");
+  let data;
+  try {
+    data = await api("/api/series", { machine: state.machine, benchmark: state.benchmark, metric: state.metric, profile: state.profile });
+  } catch (error) {
+    setStatus(error.message, true);
+    return;
+  }
+  const series = buildSeries(data);
+  render(series, data);
+}
+
+/** Turn API series into plotted series: absolute values, or ratios to the baseline with the same backend. */
+function buildSeries(data) {
+  const baselineByBackend = new Map();
+  for (const entry of data.series) if (entry.baseline && entry.compiler_family === "ghc") baselineByBackend.set(entry.backend, new Map(entry.points.map((point) => [point[0], point])));
+  const result = [];
+  for (const entry of data.series) {
+    const isGhc = entry.compiler_family === "ghc";
+    if (isGhc && !entry.baseline && state.allghc !== "1") continue;
+    if (state.view === "ratio") {
+      if (isGhc) continue;
+      const baseline = baselineByBackend.get(entry.backend);
+      if (!baseline) continue;
+      const points = entry.points.map(([ordinal, estimate, status, inherited]) => {
+        const base = baseline.get(ordinal);
+        return [ordinal, estimate && base && base[1] ? estimate / base[1] : null, status, inherited, estimate, base ? base[1] : null];
+      });
+      result.push({ ...entry, points });
+    } else {
+      result.push({ ...entry, points: entry.points.map(([ordinal, estimate, status, inherited]) => [ordinal, estimate, status, inherited, estimate, null]) });
+    }
+  }
+  const slotOrder = SERIES_SLOTS.map((slot) => slot.key);
+  result.sort((a, b) => slotOrder.indexOf(seriesKey(a)) - slotOrder.indexOf(seriesKey(b)) || a.configuration.localeCompare(b.configuration));
+  return result;
+}
+
+function render(series, data) {
+  const empty = document.getElementById("empty");
+  const hasPoints = series.some((entry) => entry.points.some((point) => point[1] !== null));
+  empty.hidden = hasPoints;
+  if (plot) { plot.destroy(); plot = null; }
+  renderLatest(series);
+  if (!hasPoints) { replaceChildren(document.getElementById("legend")); setStatus("Nothing to plot for these filters."); return; }
+
+  const ordinals = [...new Set(series.flatMap((entry) => entry.points.map((point) => point[0])))].sort((a, b) => a - b);
+  const columns = series.map((entry) => {
+    const byOrdinal = new Map(entry.points.map((point) => [point[0], point]));
+    return ordinals.map((ordinal) => { const point = byOrdinal.get(ordinal); return point && point[1] !== null ? point[1] : null; });
+  });
+  const pointMeta = series.map((entry) => new Map(entry.points.map((point) => [point[0], point])));
+  const isRatio = state.view === "ratio";
+  const metric = state.metric;
+  const textColor = getComputedStyle(document.documentElement).getPropertyValue("--text-secondary").trim();
+  const gridColor = getComputedStyle(document.documentElement).getPropertyValue("--grid").trim();
+  const environmentMarks = (data.environments || []).slice(1).map((item) => item.ordinal);
+
+  const uSeries = series.map((entry) => ({
+    label: describeConfiguration(entry),
+    stroke: seriesColor(entry),
+    width: entry.compiler_family === "ghc" && !entry.baseline ? 1 : 2,
+    dash: entry.compiler_family === "ghc" && !entry.baseline ? [4, 4] : undefined,
+    points: { show: true, size: 7, fill: seriesColor(entry) },
+    spanGaps: true,
+  }));
+
+  const options = {
+    ...size(),
+    scales: { x: { time: false }, y: { distr: state.log === "1" ? 3 : 1 } },
+    axes: [
+      { stroke: textColor, grid: { stroke: gridColor }, ticks: { stroke: gridColor }, values: (u, ticks) => ticks.map((tick) => (Number.isInteger(tick) ? `#${tick + 1}` : "")), incrs: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000] },
+      { stroke: textColor, grid: { stroke: gridColor }, ticks: { stroke: gridColor }, size: 70, values: (u, ticks) => ticks.map((tick) => (isRatio ? formatRatio(tick) : formatValue(tick, metric))) },
+    ],
+    legend: { show: false },
+    cursor: { drag: { x: true, y: false } },
+    series: [{ label: "commit" }, ...uSeries],
+    hooks: {
+      draw: [(u) => drawEnvironmentMarks(u, environmentMarks, textColor)],
+      setCursor: [(u) => showTooltip(u, series, pointMeta, ordinals)],
+    },
+  };
+  plot = new uPlot(options, [ordinals, ...columns], document.getElementById("chart"));
+  plot.over.addEventListener("click", () => {
+    const index = plot.cursor.idx;
+    if (index === null || index === undefined) return;
+    const ordinal = ordinals[index];
+    const commit = commits.byOrdinal.get(ordinal);
+    if (commit) location.href = `/commit.html?sha=${commit.sha}`;
+  });
+  plot.over.style.cursor = "pointer";
+  plot.over.addEventListener("mouseleave", () => { document.getElementById("tooltip").hidden = true; });
+  renderLegend(series);
+  setStatus(`${series.length} series · ${ordinals.length} commits · ${isRatio ? "AIHC divided by the GHC baseline with the same backend; lower is better" : `${METRIC_LABELS[metric]}, lower is better`}`);
+}
+
+function drawEnvironmentMarks(u, marks, color) {
+  if (!marks.length) return;
+  const ctx = u.ctx;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.setLineDash([6, 6]);
+  ctx.lineWidth = 1;
+  for (const ordinal of marks) {
+    const x = u.valToPos(ordinal, "x", true);
+    ctx.beginPath(); ctx.moveTo(x, u.bbox.top); ctx.lineTo(x, u.bbox.top + u.bbox.height); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function showTooltip(u, series, pointMeta, ordinals) {
+  const tooltip = document.getElementById("tooltip");
+  const index = u.cursor.idx;
+  if (index === null || index === undefined) { tooltip.hidden = true; return; }
+  const ordinal = ordinals[index];
+  const commit = commits.byOrdinal.get(ordinal);
+  const rows = series.map((entry, position) => {
+    const point = pointMeta[position].get(ordinal);
+    if (!point || point[1] === null) return null;
+    const value = state.view === "ratio" ? formatRatio(point[1]) : formatValue(point[1], state.metric);
+    const detail = state.view === "ratio" ? ` (${formatValue(point[4], state.metric)} vs ${formatValue(point[5], state.metric)})` : "";
+    return el("div", { class: "row" },
+      el("span", {}, el("i", { class: "swatch", style: `background:${seriesColor(entry)}` }), describeConfiguration(entry)),
+      el("span", {}, el("strong", {}, value), detail, point[3] ? " · inherited" : ""),
+    );
+  }).filter(Boolean);
+  replaceChildren(tooltip,
+    el("div", {}, el("strong", { class: "mono" }, commit ? commit.sha.slice(0, 12) : `#${ordinal + 1}`), ` · #${ordinal + 1}`),
+    commit ? el("div", { class: "muted" }, commit.subject) : null,
+    ...rows,
+  );
+  tooltip.hidden = false;
+  const left = u.cursor.left;
+  const wrap = document.getElementById("chart-wrap");
+  const width = tooltip.offsetWidth || 240;
+  tooltip.style.left = `${Math.min(Math.max(8, left + 24), wrap.clientWidth - width - 8)}px`;
+  tooltip.style.top = `${Math.max(8, u.cursor.top)}px`;
+}
+
+function renderLegend(series) {
+  replaceChildren(document.getElementById("legend"), ...series.map((entry, position) => {
+    const dashed = entry.compiler_family === "ghc" && !entry.baseline;
+    const button = el("button", { type: "button", onclick: () => { plot.setSeries(position + 1, { show: !plot.series[position + 1].show }); button.classList.toggle("off", !plot.series[position + 1].show); } },
+      el("i", { class: `swatch${dashed ? " dashed" : ""}`, style: dashed ? `color:${seriesColor(entry)}` : `background:${seriesColor(entry)}` }),
+      describeConfiguration(entry));
+    return button;
+  }));
+}
+
+function renderLatest(series) {
+  const body = document.getElementById("latest-body");
+  replaceChildren(body, ...series.map((entry) => {
+    const valued = entry.points.filter((point) => point[1] !== null);
+    const last = valued.at(-1);
+    const previous = valued.at(-2);
+    const commit = last ? commits.byOrdinal.get(last[0]) : null;
+    const value = last ? (state.view === "ratio" ? formatRatio(last[1]) : formatValue(last[1], state.metric)) : "—";
+    return el("tr", {},
+      el("td", {}, el("i", { class: "swatch", style: `background:${seriesColor(entry)}` }), SERIES_SLOTS.find((slot) => slot.key === seriesKey(entry))?.label ?? seriesKey(entry)),
+      el("td", { class: "mono" }, entry.configuration),
+      el("td", {}, commit ? commitLink(commit) : "—"),
+      el("td", { class: "num" }, value),
+      changeCell(last && previous ? last[1] / previous[1] : null),
+      el("td", { class: "muted" }, last ? `${last[2]}${last[3] ? " · inherited" : ""}` : "no data"),
+    );
+  }));
+}
+
+start();
+</script>
+</body>
+</html>

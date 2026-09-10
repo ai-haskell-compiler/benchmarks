@@ -176,5 +176,9 @@ describe("fast.aihc.app API", () => {
     const response = await SELF.fetch("https://fast.aihc.app/");
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("AIHC benchmarks");
+    for (const page of ["/timeline.html", "/commit.html", "/compare.html", "/coverage.html", "/site.js", "/site.css", "/vendor/uPlot.iife.min.js"]) {
+      expect((await SELF.fetch(`https://fast.aihc.app${page}`)).status, page).toBe(200);
+    }
+    expect((await SELF.fetch("https://fast.aihc.app/missing")).status).toBe(404);
   });
 });

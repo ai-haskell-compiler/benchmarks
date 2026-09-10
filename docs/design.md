@@ -386,7 +386,8 @@ Every filter state is reflected in the URL so views can be linked.
 3. **Worker.** D1 migrations, upload endpoint, read endpoints, `wrangler deploy`
    workflow, `fast.aihc.app` custom domain, local uploader with `uploaded_at`
    (done; `web/`).
-4. **Site.** Overview and timeline first, then commit, compare and coverage.
+4. **Site.** Overview, timeline, commit, compare and coverage pages served
+   from `web/public` (done).
 5. **Removal.** Delete `pages.yml`, `results-update.yml`, `scripts/build-site.py`,
    the catalog builder and the README summary generator once the site is live.
 6. **compare.** Last, because it depends on nothing above except the shared

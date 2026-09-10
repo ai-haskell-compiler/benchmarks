@@ -60,8 +60,8 @@ samples and the stopping reason are retained.
 ## Uploading
 
 Results are served by a Cloudflare Worker at
-[fast.aihc.app](https://fast.aihc.app), whose source lives in `web/`. Each
-machine uploads with its own token:
+[fast.aihc.app](https://fast.aihc.app), whose source and static pages live in
+`web/`. Each machine uploads with its own token:
 
 ```console
 AIHC_BENCH_ADMIN_TOKEN=... nix run . -- register --display-name "My laptop"

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compare · AIHC benchmarks</title>
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/">AIHC benchmarks</a>
+  <nav>
+    <a href="/">Overview</a>
+    <a href="/timeline.html">Timeline</a>
+    <a href="/compare.html">Compare</a>
+    <a href="/coverage.html">Coverage</a>
+  </nav>
+  <span class="spacer"></span>
+  <a class="external" href="https://github.com/ai-haskell-compiler/aihc">ai-haskell-compiler/aihc</a>
+</header>
+<main>
+  <h1>Compare two commits</h1>
+  <p class="lede">Pick two measured commits on one machine. The change column is B relative to A; lower is better, so green means B is faster or smaller.</p>
+  <form class="filters" id="filters" onsubmit="return false">
+    <label>Machine<select id="machine"></select></label>
+    <label>Commit A<input id="a" list="commit-list" placeholder="sha or prefix" class="mono"></label>
+    <label>Commit B<input id="b" list="commit-list" placeholder="sha or prefix" class="mono"></label>
+    <label>Metric<select id="metric"></select></label>
+    <label>Profile<select id="profile"><option value="all">All</option><option value="O2">O2</option><option value="O0">O0</option></select></label>
+    <button type="button" id="go">Compare</button>
+  </form>
+  <datalist id="commit-list"></datalist>
+  <p class="status-line" id="status-line"></p>
+  <div id="result"></div>
+</main>
+<script type="module">
+import { api, el, replaceChildren, formatValue, queryState, pushQuery, fillSelect, setStatus, markCurrentNav, commitIndex, seriesColor, METRIC_LABELS, describeConfiguration, changeCell, machineLabel, commitLink } from "/site.js";
+
+markCurrentNav();
+const defaults = { machine: "", a: "", b: "", metric: "wall_time", profile: "all" };
+const state = queryState(defaults);
+const controls = Object.fromEntries(["machine", "a", "b", "metric", "profile"].map((id) => [id, document.getElementById(id)]));
+let comparison = null;
+
+async function start() {
+  try {
+    const [machineList, commits] = await Promise.all([api("/api/machines"), commitIndex()]);
+    const machines = machineList.machines;
+    if (!machines.length) throw new Error("no machines have uploaded results");
+    state.machine = fillSelect(controls.machine, machines.map((machine) => machine.machine_id), state.machine, Object.fromEntries(machines.map((machine) => [machine.machine_id, machineLabel(machine)])));
+    fillSelect(controls.metric, Object.keys(METRIC_LABELS), state.metric, METRIC_LABELS);
+    controls.profile.value = state.profile;
+    controls.a.value = state.a;
+    controls.b.value = state.b;
+    replaceChildren(document.getElementById("commit-list"), ...commits.list.slice(0, 400).map((commit) => el("option", { value: commit.sha.slice(0, 12) }, `#${commit.ordinal + 1} ${commit.subject}`)));
+    document.getElementById("go").addEventListener("click", load);
+    for (const control of [controls.metric, controls.profile]) control.addEventListener("change", () => { state.metric = controls.metric.value; state.profile = controls.profile.value; if (comparison) renderTable(); });
+    if (state.a && state.b) await load();
+    else setStatus("Choose two commits and press Compare.");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function load() {
+  state.machine = controls.machine.value;
+  state.a = controls.a.value.trim();
+  state.b = controls.b.value.trim();
+  state.metric = controls.metric.value;
+  state.profile = controls.profile.value;
+  pushQuery(state, defaults);
+  if (!state.a || !state.b) { setStatus("Both commits are required.", true); return; }
+  setStatus("Loading…");
+  try {
+    comparison = await api("/api/compare", { machine: state.machine, a: state.a, b: state.b });
+  } catch (error) {
+    setStatus(error.message, true);
+    return;
+  }
+  renderTable();
+}
+
+function renderTable() {
+  pushQuery(state, defaults);
+  const { a, b, results } = comparison;
+  const rows = results.filter((row) => row.metric === state.metric && (state.profile === "all" || row.optimization === state.profile));
+  const benchmarks = [...new Set(rows.map((row) => row.benchmark))].sort();
+  setStatus(`A = #${a.ordinal + 1} ${a.subject} · B = #${b.ordinal + 1} ${b.subject}`);
+  replaceChildren(document.getElementById("result"),
+    el("p", { class: "meta" }, "A ", commitLink(a), " · B ", commitLink(b), " · ", el("a", { href: `/timeline.html?machine=${encodeURIComponent(state.machine)}&metric=${state.metric}` }, "timeline")),
+    ...benchmarks.map((benchmark) => el("div", { class: "table-wrap" },
+      el("h3", {}, benchmark),
+      el("table", { class: "data" },
+        el("thead", {}, el("tr", {}, el("th", {}, "Configuration"), el("th", { class: "num" }, "A"), el("th", { class: "num" }, "B"), el("th", { class: "num" }, "Change"), el("th", {}, "Notes"))),
+        el("tbody", {}, ...rows.filter((row) => row.benchmark === benchmark).sort((x, y) => x.configuration.localeCompare(y.configuration)).map((row) => el("tr", {},
+          el("td", {}, el("i", { class: "swatch", style: `background:${seriesColor(row)}` }), describeConfiguration(row), " ", el("span", { class: "mono muted" }, row.configuration)),
+          el("td", { class: "num" }, formatValue(row.a?.estimate, row.metric)),
+          el("td", { class: "num" }, formatValue(row.b?.estimate, row.metric)),
+          changeCell(row.ratio),
+          el("td", { class: "muted" }, [row.a?.inherited ? "A inherited" : null, row.b?.inherited ? "B inherited" : null, row.a && row.a.status !== "ok" ? `A ${row.a.status}` : null, row.b && row.b.status !== "ok" ? `B ${row.b.status}` : null].filter(Boolean).join(" · ")),
+        ))),
+      ),
+    )),
+    rows.length ? null : el("p", { class: "muted" }, "Neither commit has measurements for this metric and profile."),
+  );
+}
+
+start();
+</script>
+</body>
+</html>
