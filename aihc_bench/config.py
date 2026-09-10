@@ -7,6 +7,15 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 from . import __version__
+from .stats import STATS_FORMATS
+
+CONFIG_SCHEMA_VERSION = 2
+OPTIMIZATION_PROFILES = ("O0", "O2")
+
+# Capabilities the runner probes from the AIHC CLI of each commit. A
+# configuration lists the ones it needs in ``requires``; a commit lacking one
+# records the configuration as unavailable instead of failing it.
+CAPABILITIES = ("build-exe", "compile", "prepare-runtime", "install-offline", "optimization-flag", "build-root")
 
 
 class ConfigError(ValueError):
@@ -23,10 +32,12 @@ def load_config(path: Path) -> Dict[str, Any]:
     missing = sorted(required - set(config))
     if missing:
         raise ConfigError(f"missing configuration keys: {', '.join(missing)}")
-    if config["schema_version"] != 1:
+    if config["schema_version"] != CONFIG_SCHEMA_VERSION:
         raise ConfigError(f"unsupported schema version: {config['schema_version']}")
     _validate_unique(config["benchmarks"], "benchmark")
     _validate_unique(config["configurations"], "configuration")
+    for configuration in config["configurations"]:
+        _validate_configuration(configuration)
     for benchmark in config["benchmarks"]:
         source = (path.parent / benchmark["source"]).resolve()
         if not source.is_file():
@@ -50,6 +61,21 @@ def load_config(path: Path) -> Dict[str, Any]:
     return config
 
 
+def _validate_configuration(configuration: Dict[str, Any]) -> None:
+    identifier = configuration["id"]
+    for key in ("compiler_family", "compiler_version", "backend", "gc", "optimization", "compile", "run"):
+        if key not in configuration:
+            raise ConfigError(f"configuration {identifier} lacks {key}")
+    if configuration["optimization"] not in OPTIMIZATION_PROFILES:
+        raise ConfigError(f"configuration {identifier} has an unknown optimization profile")
+    stats_format = configuration.get("runtime_stats")
+    if stats_format is not None and stats_format not in STATS_FORMATS:
+        raise ConfigError(f"configuration {identifier} has an unknown runtime_stats format")
+    unknown = sorted(set(configuration.get("requires", [])) - set(CAPABILITIES))
+    if unknown:
+        raise ConfigError(f"configuration {identifier} requires unknown capabilities: {', '.join(unknown)}")
+
+
 def _validate_unique(items: Iterable[Dict[str, Any]], kind: str) -> None:
     identifiers: List[str] = [str(item.get("id", "")) for item in items]
     if any(not identifier for identifier in identifiers):
@@ -63,7 +89,6 @@ def experiment_id(config: Dict[str, Any]) -> str:
     semantic = {
         "schema_version": config["schema_version"],
         "suite_id": config["suite_id"],
-        "optimization": config.get("optimization"),
         "measurement": config["measurement"],
         "benchmarks": config["benchmarks"],
         "configurations": config["configurations"],

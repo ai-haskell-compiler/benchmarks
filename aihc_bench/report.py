@@ -53,7 +53,11 @@ def generate_summary(catalog: Dict[str, Any], platform_id: str = "aarch64-darwin
     benchmark_rows: List[Tuple[str, Dict[str, Optional[float]]]] = []
     ghc_version = _latest_ghc_914(views, commit["sha"])
     for benchmark, payload in sorted(views.items()):
-        points = [point for point in payload["points"] if point["commit"]["sha"] == commit["sha"]]
+        points = [
+            point
+            for point in payload["points"]
+            if point["commit"]["sha"] == commit["sha"] and point.get("optimization", "O2") == "O2"
+        ]
         values: Dict[str, Optional[float]] = {}
         for backend in ("native", "wasm", "llvm"):
             aihc = next(

@@ -1,4 +1,4 @@
 """Historical benchmark runner for AIHC."""
 
-__version__ = "0.3.0"
-SCHEMA_VERSION = 1
+__version__ = "0.4.0"
+SCHEMA_VERSION = 2

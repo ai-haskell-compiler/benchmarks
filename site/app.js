@@ -1,6 +1,6 @@
 const COLORS = ["#c7f36b", "#ff8d5c", "#71c8e8", "#b9a1ff", "#f4f0df", "#e8ca71", "#63d7b0"];
 const state = { catalog: null, payload: null, revisions: null, points: [], plotted: [] };
-const ids = ["platform", "benchmark", "metric", "compiler", "version", "variant", "backend", "gc"];
+const ids = ["platform", "benchmark", "metric", "optimization", "compiler", "version", "variant", "backend", "gc"];
 const elements = Object.fromEntries(ids.map(id => [id, document.getElementById(`${id}-filter`)]));
 
 document.addEventListener("DOMContentLoaded", start);
@@ -64,6 +64,7 @@ function populatePointFilters(query) {
   const latest = state.revisions?.revisions?.at(-1);
   const outcomes = (latest?.outcomes || []).filter(outcome => outcome.benchmark === elements.benchmark.value);
   const dimensions = [...points, ...outcomes];
+  setOptions(elements.optimization, unique(dimensions.map(profileOf)), query.get("optimization") || "O2", "All profiles");
   setOptions(elements.compiler, unique(dimensions.map(point => point.compiler_family)), query.get("compiler"), "All compilers");
   setOptions(elements.version, unique(dimensions.map(point => point.compiler_version).filter(version => version.length < 20)), query.get("version"), "All versions");
   setOptions(elements.variant, unique(dimensions.map(variantOf)), query.get("variant"), "All variants");
@@ -74,6 +75,7 @@ function populatePointFilters(query) {
 function applyPointFilters() {
   const points = state.payload?.points || [];
   state.points = points.filter(point =>
+    matches(elements.optimization.value, profileOf(point)) &&
     matches(elements.compiler.value, point.compiler_family) &&
     matches(elements.version.value, point.compiler_version) &&
     matches(elements.variant.value, variantOf(point)) &&
@@ -117,7 +119,7 @@ function drawChart(points) {
   ctx.font = "11px SFMono-Regular, monospace"; ctx.strokeStyle = "#344136"; ctx.fillStyle = "#a9b0a6"; ctx.lineWidth = 1;
   for (let i = 0; i <= 5; i++) { const value = yMin + ((yMax - yMin) * i / 5); const py = y(value); ctx.beginPath(); ctx.moveTo(margin.left, py); ctx.lineTo(width - margin.right, py); ctx.stroke(); ctx.fillText(formatValue(value, state.payload.metric), 8, py + 4); }
   ctx.fillText(`#${xMin + 1}`, margin.left, height - 15); ctx.fillText(`#${xMax + 1}`, width - margin.right - 48, height - 15);
-  const groups = groupBy(points, point => `${point.compiler_family} ${shortVersion(point.compiler_version)} · ${variantOf(point)} · ${point.backend} · ${point.gc}`);
+  const groups = groupBy(points, point => `${point.compiler_family} ${shortVersion(point.compiler_version)} · ${variantOf(point)} · ${point.backend} · ${point.gc} · ${profileOf(point)}`);
   const legend = document.getElementById("legend"); legend.innerHTML = ""; state.plotted = [];
   [...groups.entries()].forEach(([name, values], index) => {
     const color = COLORS[index % COLORS.length]; values.sort((a,b) => a.commit.ordinal - b.commit.ordinal);
@@ -144,6 +146,7 @@ function updateTable(points) {
   const latestRevision = state.revisions?.revisions?.at(-1);
   const outcomes = (latestRevision?.outcomes || []).filter(outcome =>
     outcome.benchmark === elements.benchmark.value &&
+    matches(elements.optimization.value, profileOf(outcome)) &&
     matches(elements.compiler.value, outcome.compiler_family) && matches(elements.version.value, outcome.compiler_version) &&
     matches(elements.variant.value, variantOf(outcome)) &&
     matches(elements.backend.value, outcome.backend) && matches(elements.gc.value, outcome.gc)
@@ -160,16 +163,19 @@ function updateTable(points) {
   }).join("");
 }
 
-function resetFilters() { ["compiler","version","variant","backend","gc"].forEach(id => elements[id].value = "all"); applyPointFilters(); }
+function resetFilters() { ["optimization","compiler","version","variant","backend","gc"].forEach(id => elements[id].value = "all"); applyPointFilters(); }
 function setOptions(select, values, preferred, allLabel) { const current = preferred || select.value; select.innerHTML = allLabel ? `<option value="all">${allLabel}</option>` : ""; values.forEach(value => select.add(new Option(label(value), value))); select.value = [...select.options].some(o => o.value === current) ? current : select.options[0]?.value || ""; }
 function updateUrl() { const query = new URLSearchParams(); ids.forEach(id => { if (elements[id].value && elements[id].value !== "all") query.set(id, elements[id].value); }); history.replaceState(null, "", `${location.pathname}?${query}`); }
 function matches(filter, value) { return filter === "all" || filter === value; }
+function profileOf(point) { return point.optimization || "O2"; }
 function variantOf(point) { return point.compiler_variant || (point.compiler_family === "ghc" ? "gmp" : "default"); }
 function unique(values) { return [...new Set(values)].sort(); }
 function label(value) { return String(value || "").replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase()); }
 function shortVersion(value) { return value.length > 18 ? value.slice(0, 8) : value; }
 function groupBy(values, key) { const map = new Map(); values.forEach(value => { const id = key(value); map.set(id, [...(map.get(id) || []), value]); }); return map; }
-function formatValue(value, metric) { if (metric === "wall_time") return value >= 1e9 ? `${(value/1e9).toFixed(3)} s` : `${(value/1e6).toFixed(2)} ms`; if (metric === "peak_rss") return `${(value/1048576).toFixed(1)} MiB`; return Number(value).toLocaleString(); }
+const TIME_METRICS = new Set(["wall_time", "cpu_time", "gc_time", "compile_time"]);
+const BYTE_METRICS = new Set(["peak_rss", "peak_heap", "allocated_bytes", "artifact_size"]);
+function formatValue(value, metric) { if (TIME_METRICS.has(metric)) return value >= 1e9 ? `${(value/1e9).toFixed(3)} s` : `${(value/1e6).toFixed(2)} ms`; if (BYTE_METRICS.has(metric)) return value >= 1048576 ? `${(value/1048576).toFixed(1)} MiB` : `${(value/1024).toFixed(1)} KiB`; return Number(value).toLocaleString(); }
 function formatDate(value) { return value ? new Date(value).toLocaleDateString(undefined, { year:"numeric", month:"short", day:"numeric" }) : "unknown"; }
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[char])); }
 async function fetchJson(url) { const response = await fetch(url, { cache: "no-cache" }); if (!response.ok) throw new Error(`${response.status} ${response.statusText}`); return response.json(); }

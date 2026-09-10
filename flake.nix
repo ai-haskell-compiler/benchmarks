@@ -8,11 +8,12 @@
     forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs {inherit system;}));
   in {
     packages = forAllSystems (pkgs: let
-      ghcWrapper = name: compiler: pkgs.writeShellApplication {
-        inherit name;
-        runtimeInputs = [compiler pkgs.llvmPackages_19.llvm];
-        text = ''exec ghc "$@"'';
-      };
+      ghcWrapper = name: compiler:
+        pkgs.writeShellApplication {
+          inherit name;
+          runtimeInputs = [compiler pkgs.llvmPackages_19.llvm];
+          text = ''exec ghc "$@"'';
+        };
       wasmClang = pkgs.writeShellApplication {
         name = "clang";
         text = ''
@@ -21,6 +22,21 @@
             "$@"
         '';
       };
+      wasiSysroot = let
+        wasilibc = pkgs.pkgsCross.wasi32.wasilibc;
+      in
+        pkgs.runCommand "aihc-bench-wasi-sysroot" {} ''
+          mkdir -p "$out/include" "$out/lib"
+          ln -s ${wasilibc.dev}/include/* "$out/include/"
+          ln -s ${wasilibc}/lib/* "$out/lib/"
+          for directory in include lib; do
+            if [ ! -e "$out/$directory/wasm32-wasip1" ]; then
+              ln -s wasm32-wasi "$out/$directory/wasm32-wasip1"
+            fi
+          done
+          test -e "$out/include/wasm32-wasip1/stdlib.h"
+          test -e "$out/lib/wasm32-wasip1/libc.a"
+        '';
     in {
       ghc-9-12-4 = ghcWrapper "ghc-9.12.4" pkgs.haskell.compiler.ghc9124;
       ghc-9-12-4-native-bignum = ghcWrapper "ghc-9.12.4-native-bignum" pkgs.haskell.compiler.native-bignum.ghc9124;
@@ -36,6 +52,7 @@
         runtimeInputs = [pkgs.python3 pkgs.git pkgs.awscli2 pkgs.github-cli pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen];
         text = ''
           export AIHC_BENCH_WASM_CLANG=${wasmClang}/bin
+          export AIHC_WASM_SYSROOT=${wasiSysroot}
           export PYTHONPATH=${./.}
           exec python3 -m aihc_bench "$@"
         '';
@@ -51,6 +68,21 @@
             "$@"
         '';
       };
+      wasiSysroot = let
+        wasilibc = pkgs.pkgsCross.wasi32.wasilibc;
+      in
+        pkgs.runCommand "aihc-bench-wasi-sysroot" {} ''
+          mkdir -p "$out/include" "$out/lib"
+          ln -s ${wasilibc.dev}/include/* "$out/include/"
+          ln -s ${wasilibc}/lib/* "$out/lib/"
+          for directory in include lib; do
+            if [ ! -e "$out/$directory/wasm32-wasip1" ]; then
+              ln -s wasm32-wasi "$out/$directory/wasm32-wasip1"
+            fi
+          done
+          test -e "$out/include/wasm32-wasip1/stdlib.h"
+          test -e "$out/lib/wasm32-wasip1/libc.a"
+        '';
     in {
       default = {
         type = "app";
@@ -59,6 +91,7 @@
           runtimeInputs = [pkgs.python3 pkgs.git pkgs.awscli2 pkgs.github-cli pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen];
           text = ''
             export AIHC_BENCH_WASM_CLANG=${wasmClang}/bin
+            export AIHC_WASM_SYSROOT=${wasiSysroot}
             export PYTHONPATH=${./.}
             exec python3 -m aihc_bench "$@"
           '';

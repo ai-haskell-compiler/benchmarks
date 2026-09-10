@@ -10,22 +10,27 @@ def envelope(platform="aarch64-darwin"):
     commit = {"sha": "a" * 40, "ordinal": 7, "committed_at": "2026-07-26T00:00:00Z", "subject": "faster"}
     results = []
     for benchmark in ["fib-v1", "fact-v1"]:
-        for family, version, backend, gc, estimate in [
-            ("aihc", commit["sha"], "native", "semispace", 80_000_000),
-            ("aihc", commit["sha"], "wasm", "semispace", 90_000_000),
-            ("ghc", "9.14.1", "native", "ghc-rts", 100_000_000),
-            ("ghc", "9.14.1", "native", "ghc-rts", 50_000_000),
+        for family, version, backend, gc, profile, estimate in [
+            ("aihc", commit["sha"], "native", "semispace", "O2", 80_000_000),
+            ("aihc", commit["sha"], "native", "semispace", "O0", 300_000_000),
+            ("aihc", commit["sha"], "wasm", "semispace", "O2", 90_000_000),
+            ("ghc", "9.14.1", "native", "ghc-rts", "O2", 100_000_000),
+            ("ghc", "9.14.1", "native", "ghc-rts", "O0", 400_000_000),
+            ("ghc", "9.14.1", "native", "ghc-rts", "O2", 50_000_000),
         ]:
             variant = "native-bignum" if family == "ghc" and estimate == 50_000_000 else ("gmp" if family == "ghc" else "default")
             results.append({
-                "benchmark": benchmark, "configuration": f"{family}-{variant}-{backend}", "compiler_family": family,
-                "compiler_version": version, "compiler_variant": variant, "backend": backend, "gc": gc, "optimization": "O2",
-                "compile": {"status": "compiled"},
-                "measurement": {"status": "converged", "metrics": [{"metric": "wall_time", "unit": "ns", "estimate": estimate, "samples": [estimate]}]},
+                "benchmark": benchmark, "configuration": f"{family}-{variant}-{backend}-{profile}", "compiler_family": family,
+                "compiler_version": version, "compiler_variant": variant, "backend": backend, "gc": gc, "optimization": profile,
+                "compile": {"status": "compiled", "wall_time_ns": 10, "artifact_bytes": 20},
+                "measurement": {"status": "converged", "metrics": [
+                    {"metric": "wall_time", "unit": "ns", "status": "ok", "estimate": estimate, "samples": [estimate]},
+                    {"metric": "peak_heap", "unit": "byte", "status": "unavailable", "estimate": None, "samples": []},
+                ]},
             })
     return {
-        "schema_version": 1, "run_id": "run-1", "created_at": "2026-07-26T00:01:00Z",
-        "experiment_id": "test-exp", "platform": platform,
+        "schema_version": 2, "run_id": "run-1", "created_at": "2026-07-26T00:01:00Z",
+        "experiment_id": "test-exp", "platform": platform, "machine_id": "apple-m4-max-abcdef",
         "environment": {"id": f"{platform}-env", "hardware_model": "Test machine"},
         "aihc_commit": commit, "compiler_status": "available", "unavailable_reason": None, "results": results,
     }
@@ -35,6 +40,7 @@ class CatalogTests(unittest.TestCase):
     def test_bundle_and_readme_share_the_same_views(self):
         with tempfile.TemporaryDirectory() as directory:
             catalog, uploads = build_bundle([envelope()], Path(directory))
+            self.assertEqual({item["metric"] for item in catalog["series"]}, {"wall_time"})
             self.assertEqual(len(catalog["series"]), 2)
             self.assertTrue(uploads)
             summary = generate_summary(catalog)
@@ -42,6 +48,14 @@ class CatalogTests(unittest.TestCase):
             self.assertIn("90.00 ms", summary)
             self.assertIn("— no GHC baseline", summary)
             self.assertIn("`aaaaaaaaaaaa`", summary)
+
+    def test_points_carry_machine_and_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog, uploads = build_bundle([envelope()], Path(directory))
+            import json
+            view = json.loads(Path(uploads[0][0]).read_text())
+            self.assertEqual({point["machine_id"] for point in view["points"]}, {"apple-m4-max-abcdef"})
+            self.assertEqual({point["optimization"] for point in view["points"]}, {"O0", "O2"})
 
     def test_merge_preserves_other_platform(self):
         with tempfile.TemporaryDirectory() as directory:

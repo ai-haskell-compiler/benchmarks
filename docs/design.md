@@ -85,7 +85,8 @@ machine's series.
 
 The versioned envelope is kept. Changes for `schema_version: 2`:
 
-- Add `machine_id` at the top level and `environment_id` inside `environment`.
+- Add `machine_id` and `aihc_capabilities` at the top level. The environment
+  `id` now hashes only descriptive fields, not the hostname.
 - Add `cpu_time_ns` to every sample (from `ru_utime + ru_stime`).
 - Add optional `runtime_stats` to every sample: `peak_heap_bytes`,
   `allocated_bytes`, `gc_count`, `gc_time_ns`. Absent when the runtime did not
@@ -192,17 +193,24 @@ GHC baselines use `+RTS -t<path> --machine-readable -RTS`, which requires
 `-rtsopts` at compile time. The runner maps `max_live_bytes`, `allocated_bytes`,
 `num_GCs` and `GC_cpu_seconds` onto the same fields.
 
-The runner probes for the hook with `aihc --help`, the same way it probes for
-`prepare-runtime`. Commits without the hook record `peak_heap`,
-`allocated_bytes` and `gc_count` with status `unavailable`.
+The runner needs no probe for the hook: the statistics file is removed before
+each invocation, so a runtime that writes nothing yields `peak_heap`,
+`allocated_bytes`, `gc_count` and `gc_time` with status `unavailable`.
+
+The AIHC command line is probed per commit instead. `build-exe` replaced
+`compile` in aihc#1543 and `install --offline` was removed later, so the runner
+reads `--help` for the capabilities `build-exe`, `compile`, `prepare-runtime`,
+`install-offline` and `optimization-flag` and adapts its commands. A
+configuration lists required capabilities in `requires`.
 
 ## Configurations
 
-`optimization` is already a configuration dimension. `benchmark.json` gains
-`O0` variants of every configuration. GHC passes `-O0`; AIHC passes `-O0` once
-the flag exists and is probed like the stats hook. Until then AIHC `O0`
-configurations are recorded as `unavailable`, which keeps the experiment ID
-honest rather than silently measuring the default pipeline twice.
+`optimization` is a configuration dimension. `benchmark.json` has `O0`
+variants of every configuration. GHC passes `-O0`; AIHC passes `-O0` once
+`build-exe --help` advertises an optimization flag (the `optimization-flag`
+capability). Until then AIHC `O0` configurations are recorded as
+`missing_capability:optimization-flag`, which keeps the experiment ID honest
+rather than silently measuring the default pipeline twice.
 
 GHC baselines are split into two roles:
 
@@ -357,9 +365,10 @@ Every filter state is reflected in the URL so views can be linked.
 ## Rollout
 
 1. **Metrics and identity.** Add `machine_id`, CPU time, compile metrics,
-   `schema_version: 2`, and the GHC RTS stats mapping. Land the AIHC runtime
-   hook and `-O0` flag in the AIHC repository. Add `O0` configurations. This
-   starts a new experiment ID, so it should land before any long overnight run.
+   `schema_version: 2`, the GHC RTS stats mapping, capability probing and
+   `O0` configurations (done in this repository). Land the AIHC runtime hook
+   and `-O0` flag in the AIHC repository (tracked separately). This starts a
+   new experiment ID, so it should land before any long overnight run.
 2. **Planner.** Tree keys, inherited results, warmup and scored gaps. Testable
    entirely offline against the existing planner tests.
 3. **Worker.** D1 migrations, upload endpoint, read endpoints, `wrangler deploy`

@@ -9,7 +9,7 @@ source = root / "site"
 destination = root / "dist"
 
 catalog = json.loads((source / "data" / "catalog.json").read_text(encoding="utf-8"))
-if catalog.get("schema_version") != 1:
+if catalog.get("schema_version") not in (1, 2):
     raise SystemExit("site catalog has an unsupported schema version")
 if destination.exists():
     shutil.rmtree(destination)

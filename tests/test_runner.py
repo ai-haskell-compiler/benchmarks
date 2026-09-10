@@ -8,65 +8,149 @@ from unittest.mock import patch
 from aihc_bench.runner import (
     _configured_aihc_targets,
     _prepare_aihc_store,
-    _requires_installed_store,
     build_cells,
+    capabilities_from_help,
+    compile_cells,
+    measure_cells,
+    probe_capabilities,
 )
+
+NEW_HELP = """aihc - command-line interface for the aihc compiler
+
+Available commands:
+  build-exe                Build one Haskell executable
+  install                  Build and install one Cabal library
+  prepare-runtime          Compile and install target entry and runtime archives
+"""
+OLD_HELP = "Available commands:\n  compile   Compile a module\n"
+
+
+def aihc_configuration(backend, profile="O2", **extra):
+    entry = {
+        "id": f"aihc-{backend}-{profile}",
+        "compiler_family": "aihc",
+        "compiler_version": "commit",
+        "backend": backend,
+        "gc": "semispace",
+        "optimization": profile,
+        "aihc_target": {"native": "{aihc_native_target}", "wasm": "wasm32-wasip3", "llvm": "llvm"}[backend],
+        "runtime_stats": "aihc",
+        "requires": ["optimization-flag"] if profile == "O0" else [],
+        "compile": ["aihc", "{aihc_build_command}", "{source}", "--output", "{artifact}"] + (["-O0"] if profile == "O0" else []),
+        "run": ["wasmtime", "--env", "AIHC_RTS_STATS={stats_file}", "{artifact}"] if backend == "wasm" else ["{artifact}"],
+    }
+    entry.update(extra)
+    return entry
 
 
 class RunnerTests(unittest.TestCase):
     def setUp(self):
         self.config = {
             "platforms": {"test-platform": {"aihc_native_target": "test-native"}},
-            "benchmarks": [
-                {"id": "example", "source": "example.hs", "expected_stdout": "ok\n"}
-            ],
+            "benchmarks": [{"id": "example", "source": "example.hs", "expected_stdout": "ok\n"}],
             "configurations": [
+                aihc_configuration("native"),
+                aihc_configuration("wasm", compile_path_env="AIHC_BENCH_WASM_CLANG"),
+                aihc_configuration("llvm"),
+                aihc_configuration("native", "O0"),
                 {
-                    "id": "aihc-native",
-                    "compiler_family": "aihc",
-                    "compiler_version": "commit",
-                    "backend": "native",
-                    "gc": "semispace",
-                    "aihc_target": "{aihc_native_target}",
-                    "compile": ["aihc", "compile", "{source}", "--output", "{artifact}"],
-                    "run": ["{artifact}"],
-                },
-                {
-                    "id": "aihc-wasm",
-                    "compiler_family": "aihc",
-                    "compiler_version": "commit",
-                    "backend": "wasm",
-                    "gc": "semispace",
-                    "aihc_target": "wasm32-wasip3",
-                    "compile_path_env": "AIHC_BENCH_WASM_CLANG",
-                    "compile": ["aihc", "compile", "{source}", "--output", "{artifact}"],
-                    "run": ["wasmtime", "{artifact}"],
-                },
-                {
-                    "id": "aihc-llvm",
-                    "compiler_family": "aihc",
-                    "compiler_version": "commit",
-                    "backend": "llvm",
-                    "gc": "semispace",
-                    "aihc_target": "llvm",
-                    "compile": ["aihc", "compile", "{source}", "--output", "{artifact}"],
-                    "run": ["{artifact}"],
-                },
-                {
-                    "id": "ghc-native",
+                    "id": "ghc-native-O2",
                     "compiler_family": "ghc",
                     "compiler_version": "9.14.1",
                     "backend": "native",
                     "gc": "ghc-rts",
+                    "optimization": "O2",
+                    "runtime_stats": "ghc",
                     "compile": ["ghc", "{source}", "-o", "{artifact}"],
-                    "run": ["{artifact}"],
+                    "run": ["{artifact}", "+RTS", "-t{stats_file}", "--machine-readable", "-RTS"],
                 },
             ],
         }
+        self.capabilities = {"build-exe": True, "compile": False, "prepare-runtime": True, "install-offline": False, "optimization-flag": False, "build-root": False}
 
-    def test_detects_installed_store_cli(self):
-        self.assertTrue(_requires_installed_store("Commands: prepare-runtime", ""))
-        self.assertFalse(_requires_installed_store("Commands: compile", ""))
+    def build(self, root, capabilities=None, store=None):
+        (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
+        return build_cells(
+            self.config,
+            "test-platform",
+            {"sha": "abc123"},
+            root / "worktree",
+            root,
+            "experiment",
+            aihc_store=store,
+            capabilities=capabilities or self.capabilities,
+        )
+
+    def test_reads_capabilities_from_help_text(self):
+        new = capabilities_from_help(NEW_HELP)
+        self.assertTrue(new["build-exe"] and new["prepare-runtime"])
+        self.assertFalse(new["compile"])
+        old = capabilities_from_help(OLD_HELP)
+        self.assertTrue(old["compile"])
+        self.assertFalse(old["build-exe"] or old["prepare-runtime"])
+
+    def test_probe_reads_sub_command_help(self):
+        responses = {
+            ("--help",): subprocess.CompletedProcess([], 0, NEW_HELP, ""),
+            ("build-exe", "--help"): subprocess.CompletedProcess([], 0, "Usage: aihc build-exe [-O LEVEL] [--build-root DIR] --target T", ""),
+            ("install", "--help"): subprocess.CompletedProcess([], 0, "Usage: aihc install [--offline] --target T", ""),
+        }
+
+        def fake_run(command, cwd, timeout, environment=None):
+            return responses[tuple(command[4:])]
+
+        with patch("aihc_bench.runner.run_command", side_effect=fake_run):
+            capabilities, error = probe_capabilities(Path("/wt"), Path("/root"), 30)
+        self.assertIsNone(error)
+        self.assertTrue(capabilities["optimization-flag"])
+        self.assertTrue(capabilities["install-offline"])
+        self.assertTrue(capabilities["build-root"])
+
+        with patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], 1, "", "boom")):
+            capabilities, error = probe_capabilities(Path("/wt"), Path("/root"), 30)
+        self.assertEqual(error, "boom")
+        self.assertFalse(any(capabilities.values()))
+
+    def test_build_command_follows_the_commit_cli(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            new = {cell.configuration["id"]: cell for cell in self.build(root)}
+            self.assertEqual(new["aihc-native-O2"].compile_command[1], "build-exe")
+            old = {cell.configuration["id"]: cell for cell in self.build(root, {**self.capabilities, "build-exe": False, "compile": True})}
+            self.assertEqual(old["aihc-native-O2"].compile_command[1], "compile")
+
+    def test_missing_capability_makes_the_configuration_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = {cell.configuration["id"]: cell for cell in self.build(root)}
+            self.assertIsNone(cells["aihc-native-O0"].compile_command)
+            self.assertEqual(cells["aihc-native-O0"].unavailable_reason, "missing_capability:optimization-flag")
+            enabled = {cell.configuration["id"]: cell for cell in self.build(root, {**self.capabilities, "optimization-flag": True})}
+            self.assertIn("-O0", enabled["aihc-native-O0"].compile_command)
+
+    def test_build_root_is_per_cell_when_supported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = {cell.configuration["id"]: cell for cell in self.build(root, {**self.capabilities, "build-root": True})}
+            native = cells["aihc-native-O2"]
+            self.assertEqual(native.compile_command[-2:], ["--build-root", str(native.build_dir)])
+            self.assertNotIn("--build-root", cells["ghc-native-O2"].compile_command)
+            without = {cell.configuration["id"]: cell for cell in self.build(root)}
+            self.assertNotIn("--build-root", without["aihc-native-O2"].compile_command)
+
+    def test_stats_plumbing_per_family(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = {cell.configuration["id"]: cell for cell in self.build(root)}
+            native = cells["aihc-native-O2"]
+            self.assertEqual(native.run_environment, {"AIHC_RTS_STATS": native.stats_file})
+            self.assertEqual(native.stats_format, "aihc")
+            wasm = cells["aihc-wasm-O2"]
+            self.assertIn(f"AIHC_RTS_STATS={wasm.stats_file}", wasm.run_command)
+            ghc = cells["ghc-native-O2"]
+            self.assertEqual(ghc.run_environment, {})
+            self.assertIn(f"-t{ghc.stats_file}", ghc.run_command)
+            self.assertEqual(ghc.stats_format, "ghc")
 
     def test_expands_configured_aihc_targets(self):
         with patch.dict(os.environ, {"AIHC_BENCH_WASM_CLANG": "/toolchain/bin"}):
@@ -78,22 +162,14 @@ class RunnerTests(unittest.TestCase):
     def test_store_is_added_only_to_aihc_compile_commands(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
             store = root / "store"
-            cells = build_cells(
-                self.config,
-                "test-platform",
-                {"sha": "abc123"},
-                root / "worktree",
-                root,
-                "experiment",
-                aihc_store=store,
-            )
+            cells = self.build(root, store=store)
 
         for cell in cells:
             command = cell.compile_command or []
-            if cell.configuration["compiler_family"] == "aihc":
-                self.assertEqual(command[-2:], ["--store", str(store)])
+            if cell.configuration["compiler_family"] == "aihc" and command:
+                self.assertIn("--store", command)
+                self.assertEqual(command[command.index("--store") + 1], str(store))
             else:
                 self.assertNotIn("--store", command)
 
@@ -108,20 +184,69 @@ class RunnerTests(unittest.TestCase):
                 patch.dict(os.environ, {"AIHC_BENCH_WASM_CLANG": "/toolchain/bin"}),
                 patch("aihc_bench.runner.run_command", return_value=completed) as run,
             ):
-                error = _prepare_aihc_store(self.config, "test-platform", worktree, store, 30)
+                errors = _prepare_aihc_store(self.config, "test-platform", worktree, store, 30, self.capabilities)
+                self.assertEqual(errors, {})
+                self.assertNotIn("--offline", run.call_args_list[3].args[0])
+                run.reset_mock()
+                _prepare_aihc_store(self.config, "test-platform", worktree, store, 30, {**self.capabilities, "install-offline": True})
 
-        self.assertIsNone(error)
-        self.assertEqual(run.call_count, 4)
+        self.assertEqual(run.call_count, 6)
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual(
             [(command[command.index("--target") + 1], command[command.index("--gc") + 1]) for command in commands[:3]],
             [("test-native", "semispace"), ("wasm32-wasip3", "semispace"), ("llvm", "semispace")],
         )
-        self.assertEqual(
-            [commands[3][index + 1] for index, value in enumerate(commands[3]) if value == "--target"],
-            ["test-native", "wasm32-wasip3", "llvm"],
-        )
+        for command, target in zip(commands[3:], ["test-native", "wasm32-wasip3", "llvm"]):
+            self.assertIn("--offline", command)
+            self.assertEqual(command[command.index("--target") + 1], target)
         self.assertEqual(run.call_args_list[1].args[3]["AIHC_WASM_CLANG"], "/toolchain/bin/clang")
+
+    def test_failed_wasm_preparation_only_affects_wasm_cells(self):
+        def fake_run(command, cwd, timeout, environment=None):
+            if "prepare-runtime" in command and "wasm32-wasip3" in command:
+                return subprocess.CompletedProcess(command, 1, "", "no sysroot")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch("aihc_bench.runner.run_command", side_effect=fake_run):
+                errors = _prepare_aihc_store(self.config, "test-platform", root / "worktree", root / "store", 30, self.capabilities)
+            self.assertEqual(list(errors), ["wasm32-wasip3"])
+            self.assertIn("no sysroot", errors["wasm32-wasip3"])
+            (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
+            cells = {cell.configuration["id"]: cell for cell in build_cells(
+                self.config, "test-platform", {"sha": "abc123"}, root / "worktree", root, "experiment",
+                aihc_store=root / "store", aihc_setup_errors=errors, capabilities=self.capabilities,
+            )}
+        self.assertIsNotNone(cells["aihc-wasm-O2"].setup_error)
+        self.assertIsNone(cells["aihc-native-O2"].setup_error)
+        self.assertIsNone(cells["aihc-llvm-O2"].setup_error)
+        self.assertIsNone(cells["ghc-native-O2"].setup_error)
+
+    def test_compile_records_time_and_size_and_measurement_carries_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = [cell for cell in self.build(root) if cell.configuration["id"] in {"ghc-native-O2", "aihc-native-O0"}]
+
+            def fake_compile(command, cwd, timeout, environment=None):
+                Path(command[-1]).write_bytes(b"binary")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
+                compiled = compile_cells(cells, root, 30, 1)
+            by_id = {cell.configuration["id"]: outcome for cell, outcome in compiled}
+            self.assertEqual(by_id["ghc-native-O2"]["artifact_bytes"], 6)
+            self.assertGreater(by_id["ghc-native-O2"]["wall_time_ns"], 0)
+            self.assertEqual(by_id["aihc-native-O0"], {"status": "unavailable", "reason": "missing_capability:optimization-flag"})
+
+            def fake_measure(command, cwd, expected, timeout, threshold, maximum, invoke):
+                return {"status": "converged", "metrics": [{"metric": "wall_time", "unit": "ns", "status": "ok", "estimate": 1, "samples": [1]}]}
+
+            with patch("aihc_bench.runner.measure_adaptively", side_effect=fake_measure):
+                results = {result["configuration"]: result for result in measure_cells(compiled, root, {"process_timeout_seconds": 1, "relative_threshold": 0.01, "maximum_bucket_size": 2})}
+            self.assertEqual(results["ghc-native-O2"]["optimization"], "O2")
+            self.assertEqual([item["metric"] for item in results["ghc-native-O2"]["measurement"]["metrics"]], ["wall_time", "compile_time", "artifact_size"])
+            self.assertEqual(results["aihc-native-O0"]["measurement"], {"status": "unavailable", "reason": "missing_capability:optimization-flag"})
 
 
 if __name__ == "__main__":

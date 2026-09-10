@@ -12,6 +12,7 @@ from .catalog import build_bundle, write_catalog
 from .config import ConfigError, detect_platform, experiment_id, load_config
 from .database import Database
 from .git_history import GitError, commits, fetch
+from .machine import load_machine
 from .planner import select_next
 from .publisher import PublishError, publish
 from .report import generate_summary, load_json, update_readme
@@ -29,9 +30,10 @@ def main(argv: Optional[list] = None) -> None:
             raise ConfigError(f"platform {platform_id!r} is not configured")
         experiment = experiment_id(config)
         state_path = (root / arguments.state).resolve()
+        machine = load_machine(state_path.parent, getattr(arguments, "machine", None))
         database = Database(state_path)
         try:
-            _dispatch(arguments, root, config, platform_id, experiment, database)
+            _dispatch(arguments, root, config, platform_id, experiment, database, machine)
         finally:
             database.close()
     except (ConfigError, GitError, PublishError, ValueError) as error:
@@ -45,9 +47,10 @@ def _dispatch(
     platform_id: str,
     experiment: str,
     database: Database,
+    machine: Dict[str, Any],
 ) -> None:
     if arguments.command == "doctor":
-        _doctor(arguments, root, config, platform_id, experiment)
+        _doctor(arguments, root, config, platform_id, experiment, machine)
         return
     if arguments.command == "report":
         catalog = load_json(arguments.catalog)
@@ -91,6 +94,7 @@ def _dispatch(
                 config=config,
                 experiment_id=experiment,
                 platform_id=platform_id,
+                machine=machine,
                 commit=next_commit,
                 aihc_repository=repository,
                 root=root,
@@ -131,11 +135,24 @@ def _dispatch(
     raise ValueError(f"unsupported command {arguments.command}")
 
 
-def _doctor(arguments: argparse.Namespace, root: Path, config: Dict[str, Any], platform_id: str, experiment: str) -> None:
+def _doctor(
+    arguments: argparse.Namespace,
+    root: Path,
+    config: Dict[str, Any],
+    platform_id: str,
+    experiment: str,
+    machine: Dict[str, Any],
+) -> None:
     repository = _repository(arguments)
     failures = []
+    derivation = machine.get("derivation", {})
     print(f"experiment: {experiment}")
     print(f"platform:   {platform_id}")
+    print(f"machine:    {machine['machine_id']}")
+    print(f"cpu:        {derivation.get('cpu_brand') or 'unknown'}")
+    print(f"identity:   {derivation.get('identifier_source', 'unknown')}{' (overridden)' if derivation.get('overridden') else ''}")
+    if derivation.get("identifier_source") == "hostname":
+        print("warning:    no hardware identifier was readable; the machine id is derived from the hostname")
     print(f"aihc repo:  {repository}")
     for executable in ("git", "nix"):
         resolved = shutil.which(executable)
@@ -176,8 +193,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--platform", choices=["aarch64-darwin", "x86_64-linux"])
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    doctor = subparsers.add_parser("doctor", help="validate the local environment")
+    doctor = subparsers.add_parser("doctor", help="validate the local environment and print the machine id")
     doctor.add_argument("--aihc-repo")
+    doctor.add_argument("--machine", help="override and freeze the derived machine id")
 
     plan = subparsers.add_parser("plan", help="show coverage and the next maximally spaced commit")
     plan.add_argument("--aihc-repo")
@@ -192,6 +210,7 @@ def _parser() -> argparse.ArgumentParser:
 
     forget = subparsers.add_parser("forget", help="make a terminal commit eligible for retry")
     forget.add_argument("commit")
+    forget.add_argument("--aihc-repo", help=argparse.SUPPRESS)
 
     publish_parser = subparsers.add_parser("publish", help="build and optionally upload an R2 result catalog")
     publish_parser.add_argument("--output", default="result-bundles")

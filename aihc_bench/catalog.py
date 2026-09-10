@@ -39,6 +39,7 @@ def build_bundle(
                 "compiler_status": envelope["compiler_status"],
                 "unavailable_reason": envelope.get("unavailable_reason"),
                 "environment": envelope["environment"],
+                "machine_id": envelope.get("machine_id"),
                 "outcomes": [
                     {
                         "benchmark": result["benchmark"],
@@ -50,6 +51,7 @@ def build_bundle(
                         ),
                         "backend": result["backend"],
                         "gc": result["gc"],
+                        "optimization": result.get("optimization", "O2"),
                         "compile_status": result.get("compile", {}).get("status"),
                         "measurement_status": result.get("measurement", {}).get("status"),
                     }
@@ -59,12 +61,15 @@ def build_bundle(
         )
         for result in envelope["results"]:
             for metric in result.get("measurement", {}).get("metrics", []):
+                if metric.get("estimate") is None:
+                    continue
                 grouped[(experiment, platform_id, result["benchmark"], metric["metric"])].append(
                     {
                         "run_id": envelope["run_id"],
                         "created_at": envelope["created_at"],
                         "commit": commit,
                         "environment_id": envelope["environment"]["id"],
+                        "machine_id": envelope.get("machine_id"),
                         "configuration": result["configuration"],
                         "compiler_family": result["compiler_family"],
                         "compiler_version": result["compiler_version"],
@@ -73,8 +78,9 @@ def build_bundle(
                         ),
                         "backend": result["backend"],
                         "gc": result["gc"],
-                        "optimization": result["optimization"],
+                        "optimization": result.get("optimization", "O2"),
                         "status": result["measurement"]["status"],
+                        "metric_status": metric.get("status", "ok"),
                         "unit": metric["unit"],
                         "estimate": metric["estimate"],
                     }

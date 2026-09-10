@@ -2,18 +2,23 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from .config import expand_command
+from .config import CAPABILITIES, expand_command
 from .database import Database
 from .git_history import create_worktree, path_exists, remove_worktree
-from .measurement import measure_adaptively
-from .process import run_command
+from .measurement import compile_metrics, measure_adaptively
+from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
+
+_OPTIMIZATION_FLAG = re.compile(r"(^|[\s\[])-O(?=[0-3\s,\]]|$)|--optimi[sz]ation|--opt-level")
 
 
 @dataclass(frozen=True)
@@ -29,6 +34,9 @@ class Cell:
     run_command: Optional[List[str]]
     unavailable_reason: Optional[str]
     setup_error: Optional[str]
+    stats_file: Optional[str] = None
+    stats_format: Optional[str] = None
+    run_environment: Dict[str, str] = field(default_factory=dict)
 
 
 def run_commit(
@@ -37,27 +45,32 @@ def run_commit(
     config: Dict[str, Any],
     experiment_id: str,
     platform_id: str,
+    machine: Dict[str, Any],
     commit: Dict[str, Any],
     aihc_repository: Path,
     root: Path,
     jobs: int,
 ) -> Dict[str, Any]:
-    environment = environment_record(platform_id)
+    machine_id = machine["machine_id"]
+    environment = environment_record(platform_id, machine.get("derivation", {}).get("cpu_brand", ""))
     run_id = new_run_id()
-    database.start_attempt(experiment_id, platform_id, commit["sha"], run_id, environment)
+    database.start_attempt(experiment_id, platform_id, commit["sha"], run_id, environment, machine_id)
     worktree = root / ".cache" / "aihc-worktree"
     measurement_config = config["measurement"]
+    compile_timeout = float(measurement_config["compile_timeout_seconds"])
 
-    if not path_exists(aihc_repository, commit["sha"], config["aihc_compiler_marker"]):
+    def unavailable(reason: str, detail: Optional[str] = None, capabilities: Optional[Dict[str, bool]] = None) -> Dict[str, Any]:
         envelope = result_envelope(
             experiment_id=experiment_id,
             platform_id=platform_id,
+            machine_id=machine_id,
             environment=environment,
             commit=commit,
             compiler_status="unavailable",
-            unavailable_reason="no_compiler",
+            unavailable_reason=reason,
             results=[],
             run_id=run_id,
+            capabilities=capabilities,
         )
         database.finish_attempt(
             experiment_id,
@@ -65,50 +78,31 @@ def run_commit(
             commit["sha"],
             "unavailable",
             envelope,
-            unavailable_reason="no_compiler",
+            unavailable_reason=reason,
+            detail=detail,
         )
         return envelope
 
+    if not path_exists(aihc_repository, commit["sha"], config["aihc_compiler_marker"]):
+        return unavailable("no_compiler")
+
     try:
         create_worktree(aihc_repository, worktree, commit["sha"])
-        probe = run_command(
-            ["nix", "run", f"{worktree}#aihc", "--", "--help"],
-            root,
-            float(measurement_config["compile_timeout_seconds"]),
-        )
-        if probe.returncode != 0:
-            detail = (probe.stderr or probe.stdout)[-8192:]
-            envelope = result_envelope(
-                experiment_id=experiment_id,
-                platform_id=platform_id,
-                environment=environment,
-                commit=commit,
-                compiler_status="unavailable",
-                unavailable_reason="build_failed",
-                results=[],
-                run_id=run_id,
-            )
-            database.finish_attempt(
-                experiment_id,
-                platform_id,
-                commit["sha"],
-                "unavailable",
-                envelope,
-                unavailable_reason="build_failed",
-                detail=detail,
-            )
-            return envelope
+        capabilities, probe_error = probe_capabilities(worktree, root, compile_timeout)
+        if probe_error is not None:
+            return unavailable("build_failed", probe_error)
 
         aihc_store: Optional[Path] = None
-        aihc_setup_error: Optional[str] = None
-        if _requires_installed_store(probe.stdout, probe.stderr):
+        aihc_setup_errors: Dict[str, str] = {}
+        if capabilities["prepare-runtime"]:
             aihc_store = root / ".cache" / "aihc-stores" / experiment_id / platform_id / commit["sha"]
-            aihc_setup_error = _prepare_aihc_store(
+            aihc_setup_errors = _prepare_aihc_store(
                 config,
                 platform_id,
                 worktree,
                 aihc_store,
-                float(measurement_config["compile_timeout_seconds"]),
+                compile_timeout,
+                capabilities,
             )
 
         cells = build_cells(
@@ -119,45 +113,67 @@ def run_commit(
             root,
             experiment_id,
             aihc_store=aihc_store,
-            aihc_setup_error=aihc_setup_error,
+            aihc_setup_errors=aihc_setup_errors,
+            capabilities=capabilities,
         )
-        compiled = compile_cells(cells, root, float(measurement_config["compile_timeout_seconds"]), jobs)
+        compiled = compile_cells(cells, root, compile_timeout, jobs)
         results = measure_cells(compiled, root, measurement_config)
         envelope = result_envelope(
             experiment_id=experiment_id,
             platform_id=platform_id,
+            machine_id=machine_id,
             environment=environment,
             commit=commit,
             compiler_status="available",
             unavailable_reason=None,
             results=results,
             run_id=run_id,
+            capabilities=capabilities,
         )
         database.finish_attempt(experiment_id, platform_id, commit["sha"], "complete", envelope)
         return envelope
     except subprocess.TimeoutExpired as error:
-        envelope = result_envelope(
-            experiment_id=experiment_id,
-            platform_id=platform_id,
-            environment=environment,
-            commit=commit,
-            compiler_status="unavailable",
-            unavailable_reason="build_failed",
-            results=[],
-            run_id=run_id,
-        )
-        database.finish_attempt(
-            experiment_id,
-            platform_id,
-            commit["sha"],
-            "unavailable",
-            envelope,
-            unavailable_reason="build_failed",
-            detail=f"compiler build timed out: {error}",
-        )
-        return envelope
+        return unavailable("build_failed", f"compiler build timed out: {error}")
     finally:
         remove_worktree(aihc_repository, worktree)
+
+
+def probe_capabilities(worktree: Path, root: Path, timeout_seconds: float) -> Tuple[Dict[str, bool], Optional[str]]:
+    """Build the commit's compiler and read its help text for optional features.
+
+    Returns the capability map and, when the compiler cannot be built at all,
+    the build output as an error.
+    """
+    base = ["nix", "run", f"{worktree}#aihc", "--"]
+    probe = run_command(base + ["--help"], root, timeout_seconds)
+    if probe.returncode != 0:
+        return {name: False for name in CAPABILITIES}, (probe.stderr or probe.stdout)[-8192:]
+    help_text = f"{probe.stdout}\n{probe.stderr}"
+    capabilities = capabilities_from_help(help_text)
+    if capabilities["build-exe"]:
+        build_help = run_command(base + ["build-exe", "--help"], root, timeout_seconds)
+        build_help_text = f"{build_help.stdout}\n{build_help.stderr}"
+        capabilities["optimization-flag"] = bool(_OPTIMIZATION_FLAG.search(build_help_text))
+        capabilities["build-root"] = "--build-root" in build_help_text
+    if _mentions_command(help_text, "install"):
+        install_help = run_command(base + ["install", "--help"], root, timeout_seconds)
+        capabilities["install-offline"] = "--offline" in f"{install_help.stdout}\n{install_help.stderr}"
+    return capabilities, None
+
+
+def capabilities_from_help(help_text: str) -> Dict[str, bool]:
+    return {
+        "build-exe": _mentions_command(help_text, "build-exe"),
+        "compile": _mentions_command(help_text, "compile"),
+        "prepare-runtime": _mentions_command(help_text, "prepare-runtime"),
+        "install-offline": False,
+        "optimization-flag": False,
+        "build-root": False,
+    }
+
+
+def _mentions_command(help_text: str, command: str) -> bool:
+    return re.search(rf"(^|\s){re.escape(command)}(\s|$)", help_text) is not None
 
 
 def build_cells(
@@ -169,23 +185,26 @@ def build_cells(
     experiment_id: str,
     *,
     aihc_store: Optional[Path] = None,
-    aihc_setup_error: Optional[str] = None,
+    aihc_setup_errors: Optional[Dict[str, str]] = None,
+    capabilities: Optional[Dict[str, bool]] = None,
 ) -> List[Cell]:
+    aihc_setup_errors = aihc_setup_errors or {}
+    capabilities = capabilities or {name: name != "optimization-flag" for name in CAPABILITIES}
     platform_values = config["platforms"][platform_id]
+    build_command = "build-exe" if capabilities.get("build-exe") else "compile"
     cells: List[Cell] = []
     for benchmark in config["benchmarks"]:
         source = (root / benchmark["source"]).resolve()
         for configuration in config["configurations"]:
-            version_root = (
-                f"ghc-{configuration['compiler_version']}"
-                if configuration["compiler_family"] == "ghc"
-                else commit["sha"]
-            )
+            family = configuration["compiler_family"]
+            version_root = f"ghc-{configuration['compiler_version']}" if family == "ghc" else commit["sha"]
             artifact_root = root / ".cache" / "artifacts" / experiment_id / platform_id / version_root
             identity = f"{benchmark['id']}--{configuration['id']}"
             suffix = configuration.get("artifact_suffix", "")
             artifact = artifact_root / identity / f"program{suffix}"
             build_dir = artifact.parent / "build"
+            stats_dir = root / ".cache" / "stats" / experiment_id / platform_id / commit["sha"]
+            stats_file = stats_dir / f"{identity}.stats"
             values = {
                 "root": str(root),
                 "worktree": str(worktree),
@@ -193,12 +212,34 @@ def build_cells(
                 "artifact": str(artifact),
                 "build_dir": str(build_dir),
                 "commit": commit["sha"],
+                "aihc_build_command": build_command,
+                "stats_file": str(stats_file),
+                "stats_dir": str(stats_dir),
                 **{key: str(value) for key, value in platform_values.items()},
             }
-            available = configuration.get("available", True)
+            missing = [name for name in configuration.get("requires", []) if not capabilities.get(name)]
+            available = configuration.get("available", True) and not missing
+            if not configuration.get("available", True):
+                reason: Optional[str] = configuration.get("unavailable_reason", "unsupported_configuration")
+            elif missing:
+                reason = f"missing_capability:{missing[0]}"
+            else:
+                reason = None
             compile_command = expand_command(configuration["compile"], values) if available else None
-            if compile_command and configuration["compiler_family"] == "aihc" and aihc_store is not None:
+            if compile_command and family == "aihc" and aihc_store is not None:
                 compile_command.extend(["--store", str(aihc_store)])
+            if compile_command and family == "aihc" and capabilities.get("build-root"):
+                # Each cell compiles in its own build root; the default
+                # .aihc-target inside the worktree races between parallel cells.
+                compile_command.extend(["--build-root", str(build_dir)])
+            stats_format = configuration.get("runtime_stats")
+            setup_error = None
+            if family == "aihc" and available:
+                target = str(configuration.get("aihc_target", "")).format(**platform_values)
+                setup_error = aihc_setup_errors.get(target) or aihc_setup_errors.get("")
+            run_environment: Dict[str, str] = {}
+            if available and family == "aihc" and stats_format == "aihc":
+                run_environment["AIHC_RTS_STATS"] = str(stats_file)
             cells.append(
                 Cell(
                     benchmark=benchmark,
@@ -206,12 +247,15 @@ def build_cells(
                     commit_sha=commit["sha"],
                     artifact=artifact,
                     build_dir=build_dir,
-                    compile_cwd=worktree if configuration["compiler_family"] == "aihc" else root,
+                    compile_cwd=worktree if family == "aihc" else root,
                     compile_environment=_compile_environment(configuration),
                     compile_command=compile_command,
                     run_command=expand_command(configuration["run"], values) if available else None,
-                    unavailable_reason=None if available else configuration.get("unavailable_reason", "unsupported_configuration"),
-                    setup_error=aihc_setup_error if configuration["compiler_family"] == "aihc" else None,
+                    unavailable_reason=reason,
+                    setup_error=setup_error,
+                    stats_file=str(stats_file) if available and stats_format else None,
+                    stats_format=stats_format if available else None,
+                    run_environment=run_environment,
                 )
             )
     return cells
@@ -230,8 +274,11 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float, job
     def compile_one(cell: Cell) -> Tuple[Cell, Dict[str, Any]]:
         cell.build_dir.mkdir(parents=True, exist_ok=True)
         cell.artifact.parent.mkdir(parents=True, exist_ok=True)
+        if cell.stats_file:
+            Path(cell.stats_file).parent.mkdir(parents=True, exist_ok=True)
         if cell.configuration["compiler_family"] == "ghc" and cell.artifact.exists():
-            return cell, {"status": "compiled", "artifact_size": cell.artifact.stat().st_size, "cached": True}
+            return cell, {"status": "compiled", "artifact_bytes": cell.artifact.stat().st_size, "cached": True}
+        start = time.perf_counter_ns()
         try:
             process = run_command(
                 cell.compile_command or [],
@@ -241,15 +288,21 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float, job
             )
         except subprocess.TimeoutExpired:
             return cell, {"status": "compile_timed_out"}
+        wall_time_ns = time.perf_counter_ns() - start
         if process.returncode != 0:
             return cell, {
                 "status": "compile_failed",
                 "exit_code": process.returncode,
+                "wall_time_ns": wall_time_ns,
                 "stderr": process.stderr[-8192:],
             }
         if not cell.artifact.exists():
             return cell, {"status": "compile_failed", "stderr": "compiler did not create the requested artifact"}
-        return cell, {"status": "compiled", "artifact_size": cell.artifact.stat().st_size}
+        return cell, {
+            "status": "compiled",
+            "wall_time_ns": wall_time_ns,
+            "artifact_bytes": cell.artifact.stat().st_size,
+        }
 
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as executor:
         futures = [executor.submit(compile_one, cell) for cell in available]
@@ -279,13 +332,19 @@ def measure_cells(
             "compiler_variant": cell.configuration.get("compiler_variant", "default"),
             "backend": cell.configuration["backend"],
             "gc": cell.configuration["gc"],
-            "optimization": "O2",
+            "optimization": cell.configuration["optimization"],
             "compile": compile_result,
         }
         if compile_result["status"] != "compiled":
-            base["measurement"] = {"status": "unavailable"}
+            base["measurement"] = {"status": "unavailable", "reason": compile_result.get("reason", compile_result["status"])}
             results.append(base)
             continue
+        invoke = partial(
+            run_measured,
+            environment_overrides=cell.run_environment,
+            stats_file=cell.stats_file,
+            stats_format=cell.stats_format,
+        )
         measurement = measure_adaptively(
             cell.run_command or [],
             root,
@@ -293,7 +352,10 @@ def measure_cells(
             float(measurement_config["process_timeout_seconds"]),
             float(measurement_config["relative_threshold"]),
             int(measurement_config["maximum_bucket_size"]),
+            invoke=invoke,
         )
+        if "metrics" in measurement:
+            measurement["metrics"].extend(compile_metrics(compile_result))
         base["measurement"] = measurement
         results.append(base)
     return results
@@ -310,10 +372,6 @@ def _compile_environment(configuration: Dict[str, Any]) -> Dict[str, str]:
     if configuration["compiler_family"] == "aihc" and configuration["backend"] == "wasm":
         environment["AIHC_WASM_CLANG"] = str(Path(prefix) / "clang")
     return environment
-
-
-def _requires_installed_store(stdout: str, stderr: str) -> bool:
-    return "prepare-runtime" in f"{stdout}\n{stderr}"
 
 
 def _configured_aihc_targets(config: Dict[str, Any], platform_id: str) -> List[Tuple[str, str, Dict[str, str]]]:
@@ -341,14 +399,25 @@ def _prepare_aihc_store(
     worktree: Path,
     store: Path,
     timeout_seconds: float,
-) -> Optional[str]:
+    capabilities: Optional[Dict[str, bool]] = None,
+) -> Dict[str, str]:
+    """Prepare runtimes and install ``aihc-base`` per target.
+
+    Returns setup errors keyed by target. A target whose runtime or library
+    preparation fails does not affect the others, so a missing Wasm sysroot
+    leaves the native and LLVM configurations measurable.
+    """
     targets = _configured_aihc_targets(config, platform_id)
+    errors: Dict[str, str] = {}
     if not targets:
-        return None
+        return errors
 
     store.mkdir(parents=True, exist_ok=True)
     base_command = ["nix", "run", f"{worktree}#aihc", "--"]
+    prepared: List[Tuple[str, Dict[str, str]]] = []
     for target, garbage_collector, environment in targets:
+        if target in errors:
+            continue
         command = base_command + [
             "prepare-runtime",
             "--target",
@@ -358,30 +427,21 @@ def _prepare_aihc_store(
             "--store",
             str(store),
         ]
-        error = _run_setup_command(command, worktree, timeout_seconds, environment, "runtime preparation")
+        error = _run_setup_command(command, worktree, timeout_seconds, environment, f"runtime preparation for {target}")
         if error:
-            return error
+            errors[target] = error
+        elif target not in [name for name, _ in prepared]:
+            prepared.append((target, environment))
 
-    install_environment: Dict[str, str] = {}
-    for _, _, environment in targets:
-        install_environment.update(environment)
-    install_command = base_command + [
-        "install",
-        str(worktree / "core-libs" / "aihc-base"),
-        "--offline",
-        "--store",
-        str(store),
-    ]
-    installed_targets = list(dict.fromkeys(target for target, _, _ in targets))
-    for target in installed_targets:
-        install_command.extend(["--target", target])
-    return _run_setup_command(
-        install_command,
-        worktree,
-        timeout_seconds,
-        install_environment,
-        "library installation",
-    )
+    for target, environment in prepared:
+        install_command = base_command + ["install", str(worktree / "core-libs" / "aihc-base")]
+        if (capabilities or {}).get("install-offline"):
+            install_command.append("--offline")
+        install_command.extend(["--store", str(store), "--target", target])
+        error = _run_setup_command(install_command, worktree, timeout_seconds, environment, f"library installation for {target}")
+        if error:
+            errors[target] = error
+    return errors
 
 
 def _run_setup_command(

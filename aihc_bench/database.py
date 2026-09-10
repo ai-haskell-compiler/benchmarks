@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS attempts (
   unavailable_reason TEXT,
   detail TEXT,
   environment_json TEXT NOT NULL,
+  machine_id TEXT,
   result_json TEXT,
   started_at TEXT NOT NULL,
   finished_at TEXT,
@@ -48,6 +49,13 @@ class Database:
         self.connection = sqlite3.connect(str(path))
         self.connection.row_factory = sqlite3.Row
         self.connection.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(attempts)")}
+        if "machine_id" not in columns:
+            with self.connection:
+                self.connection.execute("ALTER TABLE attempts ADD COLUMN machine_id TEXT")
 
     def close(self) -> None:
         self.connection.close()
@@ -80,15 +88,17 @@ class Database:
         commit_sha: str,
         run_id: str,
         environment: Dict[str, Any],
+        machine_id: Optional[str] = None,
     ) -> None:
         with self.connection:
             self.connection.execute(
-                "INSERT INTO attempts(experiment_id, platform, commit_sha, run_id, status, environment_json, started_at) "
-                "VALUES (?, ?, ?, ?, 'running', ?, ?) "
+                "INSERT INTO attempts(experiment_id, platform, commit_sha, run_id, status, environment_json, machine_id, started_at) "
+                "VALUES (?, ?, ?, ?, 'running', ?, ?, ?) "
                 "ON CONFLICT(experiment_id, platform, commit_sha) DO UPDATE SET "
                 "run_id=excluded.run_id, status='running', unavailable_reason=NULL, detail=NULL, "
-                "environment_json=excluded.environment_json, result_json=NULL, started_at=excluded.started_at, finished_at=NULL",
-                (experiment_id, platform_id, commit_sha, run_id, json.dumps(environment, sort_keys=True), utc_now()),
+                "environment_json=excluded.environment_json, machine_id=excluded.machine_id, result_json=NULL, "
+                "started_at=excluded.started_at, finished_at=NULL",
+                (experiment_id, platform_id, commit_sha, run_id, json.dumps(environment, sort_keys=True), machine_id, utc_now()),
             )
 
     def finish_attempt(
