@@ -51,11 +51,13 @@ advertise one, so the history stays honest until the flag exists.
 
 The flake builds the GHC wrappers once and exports their directory as
 `AIHC_BENCH_TOOLCHAINS`; compile templates reference
-`{toolchains}/bin/ghc-<version>`. The runner never invokes `nix run` on this
-repository itself: doing so copied the working tree, including `.cache`,
-into the Nix store on every compile and raced with the AIHC store
-preparation writing there. The toolchain versions are pinned by `flake.lock`,
-which is part of the experiment ID.
+`{toolchains}/bin/ghc-<version>`. `ghc-9.14.1-wasm` wraps the `ghc-wasm-meta`
+cross-compiler, pinned as a flake input, whose programs run under Wasmtime with
+`+RTS -t` statistics like the native ones. The runner never invokes `nix run` on
+this repository itself: doing so copied the working tree, including `.cache`,
+into the Nix store on every compile and raced with the AIHC store preparation
+writing there. The toolchain versions are pinned by `flake.lock`, which is part
+of the experiment ID.
 
 ## Compiler capabilities
 

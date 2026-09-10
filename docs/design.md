@@ -214,9 +214,12 @@ rather than silently measuring the default pipeline twice.
 
 GHC baselines are split into two roles:
 
-- **Canary:** `ghc-9.14.1-native-O2` and `ghc-9.14.1-native-O0` run in every
-  session, immediately before the AIHC configurations. They anchor the
-  AIHC/GHC ratio against same-session machine state.
+- **Baseline:** the GHC 9.14.1 native, LLVM and Wasm configurations carry
+  `baseline: true` in both profiles. The overview and the timeline's ratio
+  view divide each AIHC configuration by the baseline with the same backend
+  and profile. The Wasm baseline is the `ghc-wasm-meta` cross-compiler
+  (`wasm32-wasi`, native bignum); AIHC targets `wasm32-wasip3`, so the ratio
+  includes the two WASI host interfaces' startup costs.
 - **Full matrix:** the remaining GHC configurations run when the machine has no
   result for the current `environment_id`, or when the newest result is older
   than 24 hours. They are stored against the same commit ordinal as the session

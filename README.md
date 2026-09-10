@@ -37,8 +37,10 @@ within a revision are parallel; benchmark executions are sequential.
 Every configuration is measured in an `O2` and an `O0` profile. AIHC `O2` uses
 the default optimizing pipeline; AIHC `O0` is recorded as unavailable until a
 commit's `build-exe` advertises an optimization flag. GHC is measured with its
-native and LLVM backends. Wasm is an AIHC-only result, so it is reported as an
-absolute wall time rather than as an AIHC/GHC ratio.
+native and LLVM backends, and with the `ghc-wasm-meta` cross-compiler for
+Wasm. GHC targets `wasm32-wasi` while AIHC targets `wasm32-wasip3`; both run
+under Wasmtime, so the Wasm ratio includes the difference between the two host
+interfaces' startup costs.
 
 Results and resumable state are stored in `.state/benchmarks.sqlite3`. A failed
 historical compiler is terminal until its record is deliberately removed:
@@ -64,12 +66,13 @@ Results are served by a Cloudflare Worker at
 `web/`. Each machine uploads with its own token:
 
 ```console
-AIHC_BENCH_ADMIN_TOKEN=... nix run . -- register --display-name "My laptop"
+AIHC_BENCH_ADMIN_TOKEN=... nix run . -- register
 nix run . -- upload
 nix run . -- run --all --upload
 ```
 
-`register` stores the issued token in `.state/upload.json`. `upload` pushes
+`register` stores the issued token in `.state/upload.json`. Machines appear on
+the site under their derived id, such as `apple-m4-pro-542f1e`. `upload` pushes
 the commit list and every run the Worker has not acknowledged; `run --upload`
 does the same after each commit. Uploads are idempotent.
 

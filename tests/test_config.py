@@ -62,7 +62,7 @@ class ConfigTests(unittest.TestCase):
         profiles = {(item["compiler_family"], item["optimization"]) for item in config["configurations"]}
         self.assertEqual(profiles, {("aihc", "O0"), ("aihc", "O2"), ("ghc", "O0"), ("ghc", "O2")})
         baselines = {(item["backend"], item["optimization"]) for item in config["configurations"] if item.get("baseline")}
-        self.assertEqual(baselines, {("native", "O0"), ("native", "O2"), ("llvm", "O0"), ("llvm", "O2")})
+        self.assertEqual(baselines, {("native", "O0"), ("native", "O2"), ("llvm", "O0"), ("llvm", "O2"), ("wasm", "O0"), ("wasm", "O2")})
         for item in config["configurations"]:
             self.assertIn(item.get("runtime_stats"), {"ghc", "aihc"})
             if item["compiler_family"] == "ghc":

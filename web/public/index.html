@@ -69,7 +69,7 @@ function card(machine) {
   const latest = machine.latest;
   return el("section", { class: "card" },
     el("h2", {}, machineLabel(machine)),
-    el("div", { class: "meta" }, `${machine.machine_id} · last upload ${formatDate(machine.last_seen_at)}`),
+    el("div", { class: "meta" }, `last upload ${formatDate(machine.last_seen_at)}`),
     el("div", { class: "stat-row" },
       el("div", { class: "stat" }, el("span", { class: "value" }, `${machine.measured + machine.inherited}`), el("span", { class: "label" }, `of ${machine.total_commits} commits covered`)),
       el("div", { class: "stat" }, el("span", { class: "value" }, `${machine.measured}`), el("span", { class: "label" }, "measured")),

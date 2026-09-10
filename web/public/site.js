@@ -177,8 +177,9 @@ export function describeConfiguration(entry) {
   return parts.join(" · ");
 }
 
+/** Machines are named by their derived id; display names are metadata, not labels. */
 export function machineLabel(machine) {
-  return machine.display_name || machine.machine_id;
+  return machine.machine_id;
 }
 
 /** Ratio of b to a as a signed percentage string with a class for coloring; lower is better. */

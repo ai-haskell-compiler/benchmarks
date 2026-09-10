@@ -763,6 +763,86 @@
         "--machine-readable",
         "-RTS"
       ]
+    },
+    {
+      "id": "ghc-9.14.1-wasm-O2",
+      "compiler_family": "ghc",
+      "compiler_version": "9.14.1.20260731",
+      "compiler_variant": "native-bignum",
+      "backend": "wasm",
+      "gc": "ghc-rts",
+      "optimization": "O2",
+      "artifact_suffix": ".wasm",
+      "runtime_stats": "ghc",
+      "baseline": true,
+      "compile": [
+        "{toolchains}/bin/ghc-9.14.1-wasm",
+        "-package-env",
+        "-",
+        "-O2",
+        "-rtsopts",
+        "-fforce-recomp",
+        "-outputdir",
+        "{build_dir}",
+        "{source}",
+        "-o",
+        "{artifact}"
+      ],
+      "run": [
+        "wasmtime",
+        "run",
+        "-C",
+        "cache=n",
+        "-S",
+        "cli",
+        "--dir",
+        "{stats_dir}",
+        "{artifact}",
+        "+RTS",
+        "-t{stats_file}",
+        "--machine-readable",
+        "-RTS"
+      ]
+    },
+    {
+      "id": "ghc-9.14.1-wasm-O0",
+      "compiler_family": "ghc",
+      "compiler_version": "9.14.1.20260731",
+      "compiler_variant": "native-bignum",
+      "backend": "wasm",
+      "gc": "ghc-rts",
+      "optimization": "O0",
+      "artifact_suffix": ".wasm",
+      "runtime_stats": "ghc",
+      "baseline": true,
+      "compile": [
+        "{toolchains}/bin/ghc-9.14.1-wasm",
+        "-package-env",
+        "-",
+        "-O0",
+        "-rtsopts",
+        "-fforce-recomp",
+        "-outputdir",
+        "{build_dir}",
+        "{source}",
+        "-o",
+        "{artifact}"
+      ],
+      "run": [
+        "wasmtime",
+        "run",
+        "-C",
+        "cache=n",
+        "-S",
+        "cli",
+        "--dir",
+        "{stats_dir}",
+        "{artifact}",
+        "+RTS",
+        "-t{stats_file}",
+        "--machine-readable",
+        "-RTS"
+      ]
     }
   ],
   "publishing": {
@@ -770,5 +850,5 @@
     "public_base_url": "https://benchmarks-data.example.invalid",
     "candidate_catalog_key": "catalog/candidate.json"
   },
-  "toolchains_note": "GHC binaries come from AIHC_BENCH_TOOLCHAINS, exported by the flake; their versions are pinned by flake.lock, which is part of the experiment ID."
+  "toolchains_note": "GHC binaries come from AIHC_BENCH_TOOLCHAINS, exported by the flake; their versions are pinned by flake.lock, which is part of the experiment ID. The Wasm GHC is the ghc-wasm-meta cross-compiler targeting wasm32-wasi (WASI preview 1); AIHC targets wasm32-wasip3, so both run under Wasmtime but through different host interfaces."
 }

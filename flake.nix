@@ -2,8 +2,13 @@
   description = "AIHC historical benchmark suite";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs.ghc-wasm-meta.url = "gitlab:haskell-wasm/ghc-wasm-meta?host=gitlab.haskell.org";
 
-  outputs = {nixpkgs, ...}: let
+  outputs = {
+    nixpkgs,
+    ghc-wasm-meta,
+    ...
+  }: let
     systems = ["aarch64-darwin" "x86_64-linux"];
     forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs {inherit system;}));
   in {
@@ -44,6 +49,11 @@
           (ghcWrapper "ghc-9.12.4-native-bignum" pkgs.haskell.compiler.native-bignum.ghc9124)
           (ghcWrapper "ghc-9.14.1" pkgs.haskell.compiler.ghc9141)
           (ghcWrapper "ghc-9.14.1-native-bignum" pkgs.haskell.compiler.native-bignum.ghc9141)
+          (pkgs.writeShellApplication {
+            name = "ghc-9.14.1-wasm";
+            runtimeInputs = [ghc-wasm-meta.packages.${pkgs.stdenv.hostPlatform.system}.wasm32-wasi-ghc-9_14];
+            text = ''exec wasm32-wasi-ghc "$@"'';
+          })
         ];
       };
     in {
@@ -84,6 +94,11 @@
           (ghcWrapper "ghc-9.12.4-native-bignum" pkgs.haskell.compiler.native-bignum.ghc9124)
           (ghcWrapper "ghc-9.14.1" pkgs.haskell.compiler.ghc9141)
           (ghcWrapper "ghc-9.14.1-native-bignum" pkgs.haskell.compiler.native-bignum.ghc9141)
+          (pkgs.writeShellApplication {
+            name = "ghc-9.14.1-wasm";
+            runtimeInputs = [ghc-wasm-meta.packages.${pkgs.stdenv.hostPlatform.system}.wasm32-wasi-ghc-9_14];
+            text = ''exec wasm32-wasi-ghc "$@"'';
+          })
         ];
       };
       wasmClang = pkgs.writeShellApplication {
