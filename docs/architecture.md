@@ -11,8 +11,7 @@
 - A terminal result is never retried unless its active record is manually forgotten.
 - Compilation is parallel, followed by a full barrier, followed by sequential execution.
 - Process startup is part of wall time and peak RSS.
-- Raw result objects are immutable. Publication changes only catalogs and
-  content-addressed views.
+- Raw result objects are immutable once uploaded.
 
 ## Machine identity
 
@@ -172,41 +171,6 @@ Read endpoints (`/api/overview`, `/api/series`, `/api/commit/<sha>`,
 public, cached for one minute, and default to the experiment of the most recent
 upload. `/api/raw/<key>` streams envelopes from R2. The D1 schema is
 `web/migrations/0001_init.sql`.
-
-### Legacy catalog publication
-
-The previous static catalog flow still exists behind `publish` and creates
-three kinds of R2 objects:
-
-- `raw/v1/.../*.json.gz`: immutable canonical envelopes.
-- `views/v1/<content-hash>.json`: browser-oriented time series.
-- `revisions/v1/<content-hash>.json`: terminal revision indexes.
-
-It then uploads `catalog/candidate.json` last with `Cache-Control: no-cache` and
-optionally dispatches the results-update workflow. GitHub Actions only reads the
-public catalog; it has no R2 write credentials. The workflow regenerates the
-README and checked-in site catalog and opens or refreshes one review PR. Pages
-deploys only after that PR is merged.
-
-The bucket has anonymous read access. Write credentials exist only in the local
-publisher environment. A suitable CORS policy is:
-
-```json
-{
-  "rules": [
-    {
-      "allowed": {
-        "origins": [
-          "https://ai-haskell-compiler.github.io",
-          "http://localhost:8000"
-        ],
-        "methods": ["GET", "HEAD"]
-      },
-      "maxAgeSeconds": 3600
-    }
-  ]
-}
-```
 
 ## Platform independence
 

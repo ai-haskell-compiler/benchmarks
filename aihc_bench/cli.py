@@ -8,14 +8,11 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-from .catalog import build_bundle, write_catalog
 from .config import ConfigError, detect_platform, experiment_id, load_config
 from .database import Database
 from .git_history import GitError, commits, fetch
 from .machine import load_machine
 from .planner import build_plan
-from .publisher import PublishError, publish
-from .report import generate_summary, load_json, update_readme
 from .runner import run_commit
 from .uploader import UploadError, load_credentials, register, save_credentials, upload_pending
 
@@ -37,7 +34,7 @@ def main(argv: Optional[list] = None) -> None:
             _dispatch(arguments, root, config, platform_id, experiment, database, machine)
         finally:
             database.close()
-    except (ConfigError, GitError, PublishError, UploadError, ValueError) as error:
+    except (ConfigError, GitError, UploadError, ValueError) as error:
         parser.exit(2, f"error: {error}\n")
 
 
@@ -53,14 +50,6 @@ def _dispatch(
     if arguments.command == "doctor":
         _doctor(arguments, root, config, platform_id, experiment, machine)
         return
-    if arguments.command == "report":
-        catalog = load_json(arguments.catalog)
-        summary = generate_summary(catalog)
-        update_readme((root / arguments.readme).resolve(), summary)
-        write_catalog(catalog, (root / arguments.site_catalog).resolve())
-        print(f"updated {arguments.readme} and {arguments.site_catalog}")
-        return
-
     if arguments.command == "register":
         admin_token = os.environ.get("AIHC_BENCH_ADMIN_TOKEN")
         if not admin_token:
@@ -138,24 +127,6 @@ def _dispatch(
             raise ValueError(f"no active result for {sha}")
         return
 
-    if arguments.command == "publish":
-        envelopes = database.result_envelopes(experiment, platform_id)
-        if not envelopes:
-            raise ValueError("there are no terminal results to publish")
-        publishing = config["publishing"]
-        public_base_url = os.environ.get("R2_PUBLIC_BASE_URL", publishing["public_base_url"])
-        default_base = f"{public_base_url.rstrip('/')}/{publishing['candidate_catalog_key'].lstrip('/')}"
-        catalog = publish(
-            envelopes=envelopes,
-            config=config,
-            destination=(root / arguments.output).resolve(),
-            base_catalog_location=arguments.base_catalog or default_base,
-            dry_run=arguments.dry_run,
-            trigger_workflow=arguments.trigger_workflow,
-            root=root,
-        )
-        print(f"prepared catalog with {len(catalog.get('series', []))} result views")
-        return
     raise ValueError(f"unsupported command {arguments.command}")
 
 
@@ -210,8 +181,7 @@ def _doctor(
     if not (repository / ".git").exists() and not (repository / "HEAD").exists():
         failures.append("aihc repository")
         print("repository does not appear to be a Git checkout")
-    publishing = config.get("publishing", {})
-    print(f"public URL: {os.environ.get('R2_PUBLIC_BASE_URL', publishing.get('public_base_url', 'not configured'))}")
+    print(f"server:     {config['publishing']['server_url']}")
     if failures:
         raise ValueError("doctor found missing requirements: " + ", ".join(failures))
 
@@ -269,14 +239,4 @@ def _parser() -> argparse.ArgumentParser:
     forget.add_argument("commit")
     forget.add_argument("--aihc-repo", help=argparse.SUPPRESS)
 
-    publish_parser = subparsers.add_parser("publish", help="build and optionally upload an R2 result catalog")
-    publish_parser.add_argument("--output", default="result-bundles")
-    publish_parser.add_argument("--base-catalog")
-    publish_parser.add_argument("--dry-run", action="store_true")
-    publish_parser.add_argument("--trigger-workflow", action="store_true")
-
-    report = subparsers.add_parser("report", help="regenerate the README and checked-in site catalog")
-    report.add_argument("--catalog", required=True)
-    report.add_argument("--readme", default="README.md")
-    report.add_argument("--site-catalog", default="site/data/catalog.json")
     return parser

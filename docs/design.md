@@ -386,7 +386,7 @@ Every filter state is reflected in the URL so views can be linked.
    (done; `web/`).
 4. **Site.** Overview, timeline, commit and coverage pages served from
    `web/public` (done).
-5. **Removal.** Delete `pages.yml`, `results-update.yml`, `scripts/build-site.py`,
-   the catalog builder and the README summary generator once the site is live.
+5. **Removal.** `pages.yml`, `results-update.yml`, `scripts/build-site.py`,
+   the catalog builder and the README summary generator are deleted (done).
 6. **compare.** Last, because it depends on nothing above except the shared
    measurement engine and the `O0` configurations.

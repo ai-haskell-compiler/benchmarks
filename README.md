@@ -3,13 +3,9 @@
 Historical runtime benchmarks for every first-parent commit on
 [`ai-haskell-compiler/aihc`](https://github.com/ai-haskell-compiler/aihc).
 
-<!-- AUTO-GENERATED: START benchmark-summary -->
-_No benchmark results have been published yet._
-<!-- AUTO-GENERATED: END benchmark-summary -->
-
-The detailed interactive report is published with GitHub Pages. It provides
-filters for platform, benchmark, metric, compiler, backend, garbage collector,
-and compiler version.
+Results are published at [fast.aihc.app](https://fast.aihc.app): an overview
+of AIHC against GHC for the newest measured commit, a timeline per benchmark
+and metric, a page per commit, and the coverage of the commit history.
 
 ## Running locally
 
@@ -75,9 +71,6 @@ nix run . -- run --all --upload
 the site under their derived id, such as `apple-m4-pro-542f1e`. `upload` pushes
 the commit list and every run the Worker has not acknowledged; `run --upload`
 does the same after each commit. Uploads are idempotent.
-
-The legacy `publish` command writes the R2 catalog used by the GitHub Pages
-site and will be removed once the Worker serves the full site.
 
 ## Deploying the Worker
 
