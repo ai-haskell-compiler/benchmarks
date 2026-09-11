@@ -115,10 +115,11 @@ describe("perf.aihc.app API", () => {
     const body = JSON.parse(await stored!.text());
     expect(body.computed_at).toBeTruthy();
     expect(body.machines[0].ratios).toEqual(first.body.machines[0].ratios);
-    // A poisoned copy proves the next request is served from R2 and that an
-    // explicit experiment bypasses the copy.
+    // A poisoned copy proves the next request is served from R2, and that
+    // ?refresh=1 recomputes only once the copy is old enough.
     await env.RAW.put("cache/overview/v1.json", JSON.stringify({ ...body, experiment: "stale" }), { httpMetadata: { contentType: "application/json" } });
     expect((await get("/api/overview")).body.experiment).toBe("stale");
+    expect((await get("/api/overview?refresh=1")).body.experiment).toBe("stale");
     expect((await get(`/api/overview?experiment=${EXPERIMENT}`)).body.experiment).toBe(EXPERIMENT);
     await env.RAW.delete("cache/overview/v1.json");
   });

@@ -174,8 +174,10 @@ upload. `/api/raw/<key>` streams envelopes from R2. The D1 schema is
 The overview is materialized: the Worker stores the computed JSON in R2 under
 `cache/overview/v1.json` and serves the front page from that copy without
 touching D1, which is slow from a cold Worker. A copy older than a minute is
-served as is and recomputed in the background, and a cron trigger recomputes
-it every five minutes so new uploads appear without waiting for a visitor.
+served as is and recomputed in the background. After an upload the uploader
+requests `/api/overview?refresh=1`, which recomputes synchronously so the next
+visitor sees the new results; a refresh request is ignored while the copy is
+younger than ten seconds.
 
 ## Platform independence
 

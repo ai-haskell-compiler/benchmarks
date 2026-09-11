@@ -15,7 +15,7 @@ from .git_history import DEFAULT_REMOTE, GitError, clone, clone_directory, commi
 from .machine import load_machine
 from .planner import build_plan
 from .runner import run_commit
-from .uploader import UploadError, check_login, upload_pending
+from .uploader import UploadError, check_login, refresh_overview, upload_pending
 
 
 _REPO_HELP = f"AIHC checkout or clone URL; defaults to {DEFAULT_REMOTE}"
@@ -85,6 +85,8 @@ def _dispatch(
             database, experiment, platform_id, config, root, database.commits(), dry_run=arguments.dry_run, limit=arguments.limit
         )
         print(f"uploaded {summary['uploaded']} runs ({summary['pending']} still pending)")
+        if summary["uploaded"]:
+            refresh_overview(config)
         return
 
     if arguments.command in {"plan", "run"}:
@@ -132,6 +134,8 @@ def _dispatch(
             if arguments.upload:
                 summary = upload_pending(database, experiment, platform_id, config, root, database.commits())
                 print(f"uploaded {summary['uploaded']} runs ({summary['pending']} still pending)")
+                if summary["uploaded"]:
+                    refresh_overview(config)
             completed += 1
             if not arguments.all or (arguments.limit and completed >= arguments.limit):
                 break

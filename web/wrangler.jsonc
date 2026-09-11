@@ -9,9 +9,6 @@
     "not_found_handling": "404-page"
   },
   "routes": [{ "pattern": "perf.aihc.app", "custom_domain": true }],
-  // Recompute the materialized overview (see src/api.ts) so uploads show up
-  // within minutes even when nobody visits the site.
-  "triggers": { "crons": ["*/5 * * * *"] },
   // Commits committed before this ISO 8601 timestamp predate a usable
   // compiler and are hidden from every listing. Keep it equal to
   // `aihc_since` in ../benchmark.json.
