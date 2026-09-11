@@ -50,7 +50,11 @@ def load_config(path: Path) -> Dict[str, Any]:
             toolchain_hasher.update(toolchain_file.name.encode("utf-8"))
             toolchain_hasher.update(toolchain_file.read_bytes())
     config.setdefault("aihc_tree_paths", list(DEFAULT_TREE_PATHS))
-    config.setdefault("publishing", {}).setdefault("server_url", "https://perf.aihc.app")
+    publishing = config.setdefault("publishing", {})
+    publishing.setdefault("server_url", "https://perf.aihc.app")
+    publishing.setdefault("wrangler_config", "web/wrangler.jsonc")
+    publishing.setdefault("bucket", "aihc-benchmarks")
+    publishing.setdefault("database", "aihc-benchmarks")
     if not isinstance(config["aihc_tree_paths"], list) or not all(isinstance(item, str) and item for item in config["aihc_tree_paths"]):
         raise ConfigError("aihc_tree_paths must be a list of repository paths")
     config["_toolchain_sha256"] = toolchain_hasher.hexdigest()

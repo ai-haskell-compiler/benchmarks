@@ -15,7 +15,7 @@ from .git_history import GitError, commits, fetch
 from .machine import load_machine
 from .planner import build_plan
 from .runner import run_commit
-from .uploader import UploadError, load_credentials, register, save_credentials, upload_pending
+from .uploader import UploadError, check_login, upload_pending
 
 
 def main(argv: Optional[list] = None) -> None:
@@ -75,24 +75,13 @@ def _dispatch(
         print(format_report(report, markdown=arguments.markdown))
         return
 
-    if arguments.command == "register":
-        admin_token = os.environ.get("AIHC_BENCH_ADMIN_TOKEN")
-        if not admin_token:
-            raise ValueError("set AIHC_BENCH_ADMIN_TOKEN to the Worker's admin token")
-        server = arguments.server or config["publishing"]["server_url"]
-        token = register(server, admin_token, machine["machine_id"], arguments.display_name)
-        path = save_credentials((root / arguments.state).resolve().parent, server, token)
-        print(f"registered {machine['machine_id']} with {server}; token stored in {path}")
-        return
-
     if arguments.command == "upload":
-        credentials = load_credentials((root / arguments.state).resolve().parent)
-        if not credentials:
-            raise ValueError("no upload credentials; run `aihc-bench register` first")
+        if not arguments.dry_run:
+            check_login(config, root)
         summary = upload_pending(
-            database, experiment, platform_id, credentials, database.commits(), dry_run=arguments.dry_run, limit=arguments.limit
+            database, experiment, platform_id, config, root, database.commits(), dry_run=arguments.dry_run, limit=arguments.limit
         )
-        print(f"uploaded {summary['uploaded']} runs ({summary['skipped']} already known, {summary['pending']} still pending)")
+        print(f"uploaded {summary['uploaded']} runs ({summary['pending']} still pending)")
         return
 
     if arguments.command in {"plan", "run"}:
@@ -109,6 +98,8 @@ def _dispatch(
 
     if arguments.command == "run":
         repository = _repository(arguments)
+        if arguments.upload:
+            check_login(config, root)
         completed = 0
         while True:
             terminal = database.terminal_attempts(experiment, platform_id)
@@ -134,10 +125,7 @@ def _dispatch(
             if inherited:
                 print(f"propagated the result to {inherited} same-tree commits")
             if arguments.upload:
-                credentials = load_credentials((root / arguments.state).resolve().parent)
-                if not credentials:
-                    raise ValueError("no upload credentials; run `aihc-bench register` first")
-                summary = upload_pending(database, experiment, platform_id, credentials, database.commits())
+                summary = upload_pending(database, experiment, platform_id, config, root, database.commits())
                 print(f"uploaded {summary['uploaded']} runs ({summary['pending']} still pending)")
             completed += 1
             if not arguments.all or (arguments.limit and completed >= arguments.limit):
@@ -194,7 +182,7 @@ def _doctor(
     if derivation.get("identifier_source") == "hostname":
         print("warning:    no hardware identifier was readable; the machine id is derived from the hostname")
     print(f"aihc repo:  {repository}")
-    for executable in ("git", "nix"):
+    for executable in ("git", "nix", "wrangler"):
         resolved = shutil.which(executable)
         print(f"{executable:10} {resolved or 'missing'}")
         if not resolved:
@@ -207,6 +195,11 @@ def _doctor(
         failures.append("aihc repository")
         print("repository does not appear to be a Git checkout")
     print(f"server:     {config['publishing']['server_url']}")
+    try:
+        print(f"cloudflare: {check_login(config, root)}")
+    except UploadError as error:
+        print(f"cloudflare: {error}")
+        failures.append("wrangler login")
     if failures:
         raise ValueError("doctor found missing requirements: " + ", ".join(failures))
 
@@ -263,10 +256,6 @@ def _parser() -> argparse.ArgumentParser:
     compare.add_argument("--rounds", type=int, default=10, help="interleaved A/B rounds per cell")
     compare.add_argument("--jobs", type=int, default=max(1, os.cpu_count() or 1))
     compare.add_argument("--markdown", action="store_true", help="print a Markdown table")
-
-    register_parser = subparsers.add_parser("register", help="register this machine with the Worker and store its upload token")
-    register_parser.add_argument("--server", help="Worker URL; defaults to publishing.server_url")
-    register_parser.add_argument("--display-name")
 
     upload_parser = subparsers.add_parser("upload", help="upload results the Worker has not acknowledged")
     upload_parser.add_argument("--dry-run", action="store_true")
