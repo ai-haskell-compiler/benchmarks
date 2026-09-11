@@ -83,11 +83,10 @@ lists the capabilities it needs in `requires`; a missing one records the cell
 as `missing_capability:<name>`. The probed map is stored in the envelope as
 `aihc_capabilities`.
 
-GHC 9 and newer replace the former `integer-simple` package with the `native`
-backend of `ghc-bignum`. The matrix calls this variant `native-bignum` and tests
-it as a separately built GHC toolchain alongside the default GMP variant. The
-code-generation backend remains an independent dimension, so both variants are
-tested with native and LLVM code generation.
+The native and LLVM GHC configurations use the default GMP `ghc-bignum`
+backend. The Wasm GHC is `native-bignum` by construction, since there is no
+GMP for `wasm32`, so Wasm ratios compare against a native-bignum GHC while the
+other backends compare against GMP.
 
 For AIHC revisions with the `prepare-runtime` capability, the runner creates a
 store scoped to the experiment, platform, and commit. It prepares each selected
