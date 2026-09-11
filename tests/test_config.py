@@ -6,14 +6,27 @@ from pathlib import Path
 from aihc_bench.config import ConfigError, experiment_id, load_config
 
 
+def write_sample_package(root, main_contents="main = pure ()"):
+    package = root / "sample"
+    package.mkdir(exist_ok=True)
+    (package / "sample.cabal").write_text(
+        "cabal-version: 2.4\nname: sample\nversion: 0.1.0.0\nbuild-type: Simple\n\n"
+        "executable sample\n  main-is: Main.hs\n  build-depends: base\n  default-language: Haskell2010\n",
+        encoding="utf-8",
+    )
+    (package / "Main.hs").write_text(main_contents, encoding="utf-8")
+    return package
+
+
 def write_config(root, configuration):
+    write_sample_package(root)
     config_path = root / "benchmark.json"
     config_path.write_text(json.dumps({
         "schema_version": 2,
         "suite_id": "test",
         "measurement": {"relative_threshold": 0.01, "maximum_bucket_size": 4},
         "platforms": {"aarch64-darwin": {}},
-        "benchmarks": [{"id": "sample", "source": "Main.hs", "expected_stdout": "ok\n"}],
+        "benchmarks": [{"id": "sample", "package": "sample", "source": "sample", "expected_stdout": "ok\n"}],
         "configurations": [configuration],
     }), encoding="utf-8")
     return config_path
@@ -35,18 +48,18 @@ class ConfigTests(unittest.TestCase):
     def test_benchmark_source_content_changes_experiment_id(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = root / "Main.hs"
             config_path = write_config(root, BASE)
-            source.write_text("first", encoding="utf-8")
+            main_file = root / "sample" / "Main.hs"
+            main_file.write_text("first", encoding="utf-8")
             first = experiment_id(load_config(config_path))
-            source.write_text("second", encoding="utf-8")
+            main_file.write_text("second", encoding="utf-8")
             second = experiment_id(load_config(config_path))
             self.assertNotEqual(first, second)
 
     def test_configurations_are_validated(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "Main.hs").write_text("main", encoding="utf-8")
+            write_sample_package(root)
             for broken in (
                 {**BASE, "optimization": "O1"},
                 {**BASE, "runtime_stats": "rust"},
@@ -60,7 +73,6 @@ class ConfigTests(unittest.TestCase):
     def test_aihc_since_must_be_a_timestamp(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "Main.hs").write_text("main", encoding="utf-8")
             config_path = write_config(root, BASE)
             config = json.loads(config_path.read_text(encoding="utf-8"))
             for broken in ("yesterday", 20260901):
@@ -79,9 +91,15 @@ class ConfigTests(unittest.TestCase):
         for item in config["configurations"]:
             self.assertIn(item.get("runtime_stats"), {"ghc", "aihc"})
             if item["compiler_family"] == "ghc":
-                self.assertIn("-rtsopts", item["compile"])
-                self.assertTrue(item["compile"][0].startswith("{toolchains}/bin/ghc-"))
                 self.assertNotIn("nix", item["compile"])
+                if item["backend"] == "wasm":
+                    self.assertIn("-rtsopts", item["compile"])
+                    self.assertTrue(item["compile"][0].startswith("{toolchains}/bin/ghc-"))
+                else:
+                    self.assertEqual(item["compile"][0], "python3")
+                    self.assertIn("compile_with_cabal.py", item["compile"][1])
+                    self.assertTrue(any(value.startswith("{toolchains}/bin/ghc-") for value in item["compile"]))
+                    self.assertIn("--ghc-option=-rtsopts", item["compile"])
             if item["compiler_family"] == "aihc" and item["optimization"] == "O0":
                 self.assertEqual(item["requires"], ["optimization-flag"])
 

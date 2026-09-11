@@ -69,7 +69,7 @@
       inherit toolchains;
       default = pkgs.writeShellApplication {
         name = "aihc-bench";
-        runtimeInputs = [pkgs.python3 pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen];
+        runtimeInputs = [pkgs.python3 pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen pkgs.cabal-install];
         text = ''
           export AIHC_BENCH_WASM_CLANG=${wasmClang}/bin
           export AIHC_WASM_SYSROOT=${wasiSysroot}
@@ -129,7 +129,7 @@
         type = "app";
         program = "${pkgs.lib.getExe (pkgs.writeShellApplication {
           name = "aihc-bench";
-          runtimeInputs = [pkgs.python3 pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen];
+          runtimeInputs = [pkgs.python3 pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen pkgs.cabal-install];
           text = ''
             export AIHC_BENCH_WASM_CLANG=${wasmClang}/bin
             export AIHC_WASM_SYSROOT=${wasiSysroot}
@@ -143,7 +143,7 @@
 
     devShells = forAllSystems (pkgs: {
       default = pkgs.mkShell {
-        packages = [pkgs.python3 pkgs.nodejs pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen];
+        packages = [pkgs.python3 pkgs.nodejs pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen pkgs.cabal-install];
       };
     });
   };

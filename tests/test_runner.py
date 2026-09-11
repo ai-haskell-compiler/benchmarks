@@ -5,7 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from aihc_bench.config import load_config
 from aihc_bench.runner import (
+    _boot_equivalent_dependencies,
     _configured_aihc_targets,
     _prepare_aihc_store,
     build_cells,
@@ -14,6 +16,8 @@ from aihc_bench.runner import (
     measure_cells,
     probe_capabilities,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 NEW_HELP = """aihc - command-line interface for the aihc compiler
 
@@ -189,11 +193,11 @@ class RunnerTests(unittest.TestCase):
                 patch.dict(os.environ, {"AIHC_BENCH_WASM_CLANG": "/toolchain/bin"}),
                 patch("aihc_bench.runner.run_command", return_value=completed) as run,
             ):
-                errors = _prepare_aihc_store(self.config, "test-platform", worktree, store, 30, self.capabilities)
+                errors = _prepare_aihc_store(self.config, "test-platform", worktree, root, store, 30, self.capabilities)
                 self.assertEqual(errors, {})
                 self.assertNotIn("--offline", run.call_args_list[3].args[0])
                 run.reset_mock()
-                _prepare_aihc_store(self.config, "test-platform", worktree, store, 30, {**self.capabilities, "install-offline": True})
+                _prepare_aihc_store(self.config, "test-platform", worktree, root, store, 30, {**self.capabilities, "install-offline": True})
 
         self.assertEqual(run.call_count, 6)
         commands = [call.args[0] for call in run.call_args_list]
@@ -215,7 +219,7 @@ class RunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with patch("aihc_bench.runner.run_command", side_effect=fake_run):
-                errors = _prepare_aihc_store(self.config, "test-platform", root / "worktree", root / "store", 30, self.capabilities)
+                errors = _prepare_aihc_store(self.config, "test-platform", root / "worktree", root, root / "store", 30, self.capabilities)
             self.assertEqual(list(errors), ["wasm32-wasip3"])
             self.assertIn("no sysroot", errors["wasm32-wasip3"])
             (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
@@ -252,6 +256,15 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(results["ghc-native-O2"]["optimization"], "O2")
             self.assertEqual([item["metric"] for item in results["ghc-native-O2"]["measurement"]["metrics"]], ["wall_time", "compile_time", "artifact_size"])
             self.assertEqual(results["aihc-native-O0"]["measurement"], {"status": "unavailable", "reason": "missing_capability:optimization-flag"})
+
+    def test_boot_equivalent_dependencies_from_real_benchmarks(self):
+        config = load_config(REPO_ROOT / "benchmark.json")
+        dependencies = _boot_equivalent_dependencies(config, REPO_ROOT)
+        # snappy-roundtrip depends on bytestring (a GHC boot library AIHC
+        # doesn't stand in for) and snappy-hs (not a boot library at all).
+        self.assertIn("bytestring", dependencies)
+        self.assertNotIn("snappy-hs", dependencies)
+        self.assertNotIn("base", dependencies)  # implicit for AIHC, never installed explicitly
 
 
 if __name__ == "__main__":
