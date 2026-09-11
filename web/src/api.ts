@@ -4,12 +4,11 @@ const CACHE_SECONDS = 60;
 /**
  * The overview is materialized in R2 so the front page never waits for D1.
  * A copy older than `OVERVIEW_FRESH_SECONDS` is served as is and recomputed in
- * the background; `?refresh=1` (sent by the uploader) recomputes synchronously
- * unless the copy is younger than `OVERVIEW_FORCE_SECONDS`.
+ * the background; the cron trigger in wrangler.jsonc also recomputes it so new
+ * uploads show up within minutes even without visitors.
  */
 const OVERVIEW_KEY = "cache/overview/v1.json";
 const OVERVIEW_FRESH_SECONDS = 60;
-const OVERVIEW_FORCE_SECONDS = 10;
 
 type Json = Record<string, unknown>;
 
@@ -169,17 +168,14 @@ async function overviewCached(env: Bindings, url: URL, ctx: ExecutionContext): P
   const object = await env.RAW.get(OVERVIEW_KEY);
   if (object) {
     const ageSeconds = (Date.now() - object.uploaded.getTime()) / 1000;
-    const force = url.searchParams.has("refresh") && ageSeconds >= OVERVIEW_FORCE_SECONDS;
-    if (!force) {
-      if (ageSeconds >= OVERVIEW_FRESH_SECONDS) ctx.waitUntil(refreshOverview(env).catch((error) => console.error("overview refresh failed", error)));
-      return cachedBody(object.body, ageSeconds);
-    }
+    if (ageSeconds >= OVERVIEW_FRESH_SECONDS) ctx.waitUntil(refreshOverview(env).catch((error) => console.error("overview refresh failed", error)));
+    return cachedBody(object.body, ageSeconds);
   }
   return cachedBody(await refreshOverview(env), 0);
 }
 
 /** Recompute the overview for the active experiment and store it in R2. */
-async function refreshOverview(env: Bindings): Promise<string> {
+export async function refreshOverview(env: Bindings): Promise<string> {
   const experiment = await activeExperiment(env, new URL("https://perf.aihc.app/api/overview"));
   const data = await overview(env, experiment);
   const body = JSON.stringify({ ...data, computed_at: new Date().toISOString() });

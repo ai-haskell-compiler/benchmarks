@@ -14,8 +14,6 @@ import gzip
 import json
 import subprocess
 import tempfile
-import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
@@ -96,42 +94,6 @@ def upload_pending(
         log(f"uploaded {attempt['commit_sha'][:12]}{' (inherited)' if envelope.get('inherited_from') else ''}")
     summary["pending"] = len(database.pending_uploads(experiment_id, platform_id))
     return summary
-
-
-def refresh_overview(
-    config: Dict[str, Any],
-    *,
-    opener: Callable[[str, float], Any] = None,  # type: ignore[assignment]
-    log: Callable[[str], None] = print,
-) -> bool:
-    """Ask the Worker to recompute its materialized overview after an upload.
-
-    The front page is served from that copy, so without this the first visitor
-    after an upload would still see the previous results. Failure is logged
-    and never fails the upload.
-    """
-    opener = opener or _open_url
-    try:
-        url = overview_refresh_url(config["publishing"]["server_url"])
-        opener(url, 60.0)
-    except (OSError, ValueError) as error:
-        log(f"warning: could not refresh the overview at {config['publishing']['server_url']}: {error}")
-        return False
-    return True
-
-
-def overview_refresh_url(server_url: str) -> str:
-    """The refresh endpoint on the configured server, which must be an https origin."""
-    parts = urllib.parse.urlsplit(server_url)
-    if parts.scheme != "https" or not parts.hostname:
-        raise ValueError(f"server_url must be an https URL, got {server_url!r}")
-    host = parts.hostname if parts.port is None else f"{parts.hostname}:{parts.port}"
-    return urllib.parse.urlunsplit(("https", host, "/api/overview", "refresh=1", ""))
-
-
-def _open_url(url: str, timeout: float) -> None:
-    with urllib.request.urlopen(url, timeout=timeout) as response:
-        response.read()
 
 
 # ---------------------------------------------------------------------------
