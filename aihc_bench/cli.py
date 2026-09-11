@@ -8,14 +8,14 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-from .catalog import build_bundle, write_catalog
+from .compare import CompareError, format_report, resolve_side, run_compare, select_configuration, worktree_side
 from .config import ConfigError, detect_platform, experiment_id, load_config
 from .database import Database
 from .git_history import GitError, commits, fetch
-from .planner import select_next
-from .publisher import PublishError, publish
-from .report import generate_summary, load_json, update_readme
+from .machine import load_machine
+from .planner import build_plan
 from .runner import run_commit
+from .uploader import UploadError, load_credentials, register, save_credentials, upload_pending
 
 
 def main(argv: Optional[list] = None) -> None:
@@ -29,12 +29,13 @@ def main(argv: Optional[list] = None) -> None:
             raise ConfigError(f"platform {platform_id!r} is not configured")
         experiment = experiment_id(config)
         state_path = (root / arguments.state).resolve()
+        machine = load_machine(state_path.parent, getattr(arguments, "machine", None))
         database = Database(state_path)
         try:
-            _dispatch(arguments, root, config, platform_id, experiment, database)
+            _dispatch(arguments, root, config, platform_id, experiment, database, machine)
         finally:
             database.close()
-    except (ConfigError, GitError, PublishError, ValueError) as error:
+    except (CompareError, ConfigError, GitError, UploadError, ValueError) as error:
         parser.exit(2, f"error: {error}\n")
 
 
@@ -45,35 +46,65 @@ def _dispatch(
     platform_id: str,
     experiment: str,
     database: Database,
+    machine: Dict[str, Any],
 ) -> None:
     if arguments.command == "doctor":
-        _doctor(arguments, root, config, platform_id, experiment)
+        _doctor(arguments, root, config, platform_id, experiment, machine)
         return
-    if arguments.command == "report":
-        catalog = load_json(arguments.catalog)
-        summary = generate_summary(catalog)
-        update_readme((root / arguments.readme).resolve(), summary)
-        write_catalog(catalog, (root / arguments.site_catalog).resolve())
-        print(f"updated {arguments.readme} and {arguments.site_catalog}")
+    if arguments.command == "compare":
+        repository = _repository(arguments)
+        if arguments.b is None and not arguments.worktree:
+            raise ValueError("give a second commit or --worktree PATH")
+        if arguments.b is not None and arguments.worktree:
+            raise ValueError("--worktree replaces the second commit; give one or the other")
+        cache = root / ".cache" / "compare"
+        side_a = resolve_side(repository, arguments.a, cache)
+        side_b = worktree_side(Path(arguments.worktree)) if arguments.worktree else resolve_side(repository, arguments.b, cache)
+        selected = select_configuration(config, benchmarks=arguments.bench, configurations=arguments.config_ids, profile=arguments.profile)
+        report = run_compare(
+            config=selected,
+            platform_id=platform_id,
+            root=root,
+            aihc_repository=repository,
+            sides=(side_a, side_b),
+            rounds=arguments.rounds,
+            jobs=arguments.jobs,
+            log=lambda message: print(message, file=sys.stderr),
+        )
+        database.record_adhoc(report)
+        print(format_report(report, markdown=arguments.markdown))
+        return
+
+    if arguments.command == "register":
+        admin_token = os.environ.get("AIHC_BENCH_ADMIN_TOKEN")
+        if not admin_token:
+            raise ValueError("set AIHC_BENCH_ADMIN_TOKEN to the Worker's admin token")
+        server = arguments.server or config["publishing"]["server_url"]
+        token = register(server, admin_token, machine["machine_id"], arguments.display_name)
+        path = save_credentials((root / arguments.state).resolve().parent, server, token)
+        print(f"registered {machine['machine_id']} with {server}; token stored in {path}")
+        return
+
+    if arguments.command == "upload":
+        credentials = load_credentials((root / arguments.state).resolve().parent)
+        if not credentials:
+            raise ValueError("no upload credentials; run `aihc-bench register` first")
+        summary = upload_pending(
+            database, experiment, platform_id, credentials, database.commits(), dry_run=arguments.dry_run, limit=arguments.limit
+        )
+        print(f"uploaded {summary['uploaded']} runs ({summary['skipped']} already known, {summary['pending']} still pending)")
         return
 
     if arguments.command in {"plan", "run"}:
         repository = _repository(arguments)
         if arguments.fetch:
             fetch(repository)
-        history = commits(repository, config.get("aihc_ref", "origin/main"))
+        history = commits(repository, config.get("aihc_ref", "origin/main"), config["aihc_tree_paths"])
         database.replace_commits(history)
+        database.propagate_inherited(experiment, platform_id)
 
     if arguments.command == "plan":
-        terminal = database.terminal_attempts(experiment, platform_id)
-        next_commit = select_next(database.commits(), terminal)
-        print(f"experiment: {experiment}")
-        print(f"platform:   {platform_id}")
-        print(f"complete:   {len(terminal)}/{len(history)}")
-        if next_commit:
-            print(f"next:       {next_commit['sha']}  {next_commit['subject']}")
-        else:
-            print("next:       none")
+        _print_plan(database, experiment, platform_id, len(history))
         return
 
     if arguments.command == "run":
@@ -81,22 +112,33 @@ def _dispatch(
         completed = 0
         while True:
             terminal = database.terminal_attempts(experiment, platform_id)
-            next_commit = select_next(database.commits(), terminal)
+            plan = build_plan(database.commits(), terminal)
+            next_commit = plan["next"]
             if not next_commit:
                 print("all commits have terminal results")
                 break
-            print(f"benchmarking {next_commit['sha'][:12]} ({next_commit['ordinal'] + 1}/{len(history)}): {next_commit['subject']}")
+            print(f"benchmarking {next_commit['sha'][:12]} ({next_commit['ordinal'] + 1}/{len(history)}, {plan['stage']}): {next_commit['subject']}")
             envelope = run_commit(
                 database=database,
                 config=config,
                 experiment_id=experiment,
                 platform_id=platform_id,
+                machine=machine,
                 commit=next_commit,
                 aihc_repository=repository,
                 root=root,
                 jobs=arguments.jobs,
             )
             print(f"recorded {envelope['compiler_status']} result {envelope['run_id']}")
+            inherited = database.propagate_inherited(experiment, platform_id)
+            if inherited:
+                print(f"propagated the result to {inherited} same-tree commits")
+            if arguments.upload:
+                credentials = load_credentials((root / arguments.state).resolve().parent)
+                if not credentials:
+                    raise ValueError("no upload credentials; run `aihc-bench register` first")
+                summary = upload_pending(database, experiment, platform_id, credentials, database.commits())
+                print(f"uploaded {summary['uploaded']} runs ({summary['pending']} still pending)")
             completed += 1
             if not arguments.all or (arguments.limit and completed >= arguments.limit):
                 break
@@ -110,43 +152,61 @@ def _dispatch(
             raise ValueError(f"no active result for {sha}")
         return
 
-    if arguments.command == "publish":
-        envelopes = database.result_envelopes(experiment, platform_id)
-        if not envelopes:
-            raise ValueError("there are no terminal results to publish")
-        publishing = config["publishing"]
-        public_base_url = os.environ.get("R2_PUBLIC_BASE_URL", publishing["public_base_url"])
-        default_base = f"{public_base_url.rstrip('/')}/{publishing['candidate_catalog_key'].lstrip('/')}"
-        catalog = publish(
-            envelopes=envelopes,
-            config=config,
-            destination=(root / arguments.output).resolve(),
-            base_catalog_location=arguments.base_catalog or default_base,
-            dry_run=arguments.dry_run,
-            trigger_workflow=arguments.trigger_workflow,
-            root=root,
-        )
-        print(f"prepared catalog with {len(catalog.get('series', []))} result views")
-        return
     raise ValueError(f"unsupported command {arguments.command}")
 
 
-def _doctor(arguments: argparse.Namespace, root: Path, config: Dict[str, Any], platform_id: str, experiment: str) -> None:
-    repository = _repository(arguments)
-    failures = []
+def _print_plan(database: Database, experiment: str, platform_id: str, total: int) -> None:
+    terminal = database.terminal_attempts(experiment, platform_id)
+    plan = build_plan(database.commits(), terminal)
+    measured = sum(1 for attempt in terminal if not attempt.get("inherited_from"))
+    inherited = len(terminal) - measured
     print(f"experiment: {experiment}")
     print(f"platform:   {platform_id}")
+    print(f"complete:   {len(terminal)}/{total} ({measured} measured, {inherited} inherited)")
+    next_commit = plan["next"]
+    if next_commit:
+        print(f"next:       {next_commit['sha']}  {next_commit['subject']}  [{plan['stage']}]")
+    else:
+        print("next:       none")
+    if plan["gaps"]:
+        print("gaps:       ordinals      width  signal  recency  score")
+        for gap in plan["gaps"][:5]:
+            span = f"{gap['start']['ordinal'] + 1}-{gap['end']['ordinal'] + 1}"
+            print(f"            {span:12} {gap['width']:5}  {gap['signal']:.3f}  {gap['recency']:.3f}  {gap['score']:8.1f}")
+
+
+def _doctor(
+    arguments: argparse.Namespace,
+    root: Path,
+    config: Dict[str, Any],
+    platform_id: str,
+    experiment: str,
+    machine: Dict[str, Any],
+) -> None:
+    repository = _repository(arguments)
+    failures = []
+    derivation = machine.get("derivation", {})
+    print(f"experiment: {experiment}")
+    print(f"platform:   {platform_id}")
+    print(f"machine:    {machine['machine_id']}")
+    print(f"cpu:        {derivation.get('cpu_brand') or 'unknown'}")
+    print(f"identity:   {derivation.get('identifier_source', 'unknown')}{' (overridden)' if derivation.get('overridden') else ''}")
+    if derivation.get("identifier_source") == "hostname":
+        print("warning:    no hardware identifier was readable; the machine id is derived from the hostname")
     print(f"aihc repo:  {repository}")
     for executable in ("git", "nix"):
         resolved = shutil.which(executable)
         print(f"{executable:10} {resolved or 'missing'}")
         if not resolved:
             failures.append(executable)
+    toolchains = os.environ.get("AIHC_BENCH_TOOLCHAINS")
+    print(f"toolchains: {toolchains or 'missing (run through the flake so AIHC_BENCH_TOOLCHAINS is set)'}")
+    if not toolchains or not (Path(toolchains) / "bin").is_dir():
+        failures.append("toolchains")
     if not (repository / ".git").exists() and not (repository / "HEAD").exists():
         failures.append("aihc repository")
         print("repository does not appear to be a Git checkout")
-    publishing = config.get("publishing", {})
-    print(f"public URL: {os.environ.get('R2_PUBLIC_BASE_URL', publishing.get('public_base_url', 'not configured'))}")
+    print(f"server:     {config['publishing']['server_url']}")
     if failures:
         raise ValueError("doctor found missing requirements: " + ", ".join(failures))
 
@@ -176,10 +236,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--platform", choices=["aarch64-darwin", "x86_64-linux"])
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    doctor = subparsers.add_parser("doctor", help="validate the local environment")
+    doctor = subparsers.add_parser("doctor", help="validate the local environment and print the machine id")
     doctor.add_argument("--aihc-repo")
+    doctor.add_argument("--machine", help="override and freeze the derived machine id")
 
-    plan = subparsers.add_parser("plan", help="show coverage and the next maximally spaced commit")
+    plan = subparsers.add_parser("plan", help="show coverage, the next commit, and the highest-scoring gaps")
     plan.add_argument("--aihc-repo")
     plan.add_argument("--fetch", action="store_true")
 
@@ -189,18 +250,30 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--jobs", type=int, default=max(1, os.cpu_count() or 1))
     run.add_argument("--all", action="store_true", help="continue until all commits are terminal")
     run.add_argument("--limit", type=int, default=0, help="maximum commits for --all; zero means unlimited")
+    run.add_argument("--upload", action="store_true", help="upload results to the Worker after each commit")
+
+    compare = subparsers.add_parser("compare", help="benchmark two AIHC builds against each other, locally")
+    compare.add_argument("a", help="commit, branch or tag for side A")
+    compare.add_argument("b", nargs="?", help="commit, branch or tag for side B")
+    compare.add_argument("--worktree", help="use this AIHC checkout, including uncommitted changes, as side B")
+    compare.add_argument("--aihc-repo")
+    compare.add_argument("--bench", action="append", default=[], metavar="ID", help="benchmark id; repeatable, default all")
+    compare.add_argument("--config", dest="config_ids", action="append", default=[], metavar="ID", help="configuration id; repeatable, default every AIHC configuration")
+    compare.add_argument("--profile", choices=["O0", "O2"])
+    compare.add_argument("--rounds", type=int, default=10, help="interleaved A/B rounds per cell")
+    compare.add_argument("--jobs", type=int, default=max(1, os.cpu_count() or 1))
+    compare.add_argument("--markdown", action="store_true", help="print a Markdown table")
+
+    register_parser = subparsers.add_parser("register", help="register this machine with the Worker and store its upload token")
+    register_parser.add_argument("--server", help="Worker URL; defaults to publishing.server_url")
+    register_parser.add_argument("--display-name")
+
+    upload_parser = subparsers.add_parser("upload", help="upload results the Worker has not acknowledged")
+    upload_parser.add_argument("--dry-run", action="store_true")
+    upload_parser.add_argument("--limit", type=int, default=0)
 
     forget = subparsers.add_parser("forget", help="make a terminal commit eligible for retry")
     forget.add_argument("commit")
+    forget.add_argument("--aihc-repo", help=argparse.SUPPRESS)
 
-    publish_parser = subparsers.add_parser("publish", help="build and optionally upload an R2 result catalog")
-    publish_parser.add_argument("--output", default="result-bundles")
-    publish_parser.add_argument("--base-catalog")
-    publish_parser.add_argument("--dry-run", action="store_true")
-    publish_parser.add_argument("--trigger-workflow", action="store_true")
-
-    report = subparsers.add_parser("report", help="regenerate the README and checked-in site catalog")
-    report.add_argument("--catalog", required=True)
-    report.add_argument("--readme", default="README.md")
-    report.add_argument("--site-catalog", default="site/data/catalog.json")
     return parser

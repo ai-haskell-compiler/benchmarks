@@ -1,0 +1,27 @@
+{
+  "name": "aihc-fast",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run vendor && wrangler dev",
+    "deploy": "npm run vendor && wrangler deploy",
+    "migrate": "wrangler d1 migrations apply aihc-benchmarks --remote",
+    "migrate:local": "wrangler d1 migrations apply aihc-benchmarks --local",
+    "types": "wrangler types",
+    "check": "npm run vendor && wrangler types && tsc --noEmit",
+    "test": "npm run vendor && vitest run",
+    "vendor": "mkdir -p public/vendor && cp node_modules/uplot/dist/uPlot.iife.min.js public/vendor/"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.130.0"
+  },
+  "dependencies": {
+    "uplot": "1.6.32"
+  }
+}

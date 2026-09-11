@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commit · AIHC benchmarks</title>
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/">AIHC benchmarks</a>
+  <nav>
+    <a href="/">Overview</a>
+    <a href="/timeline.html">Timeline</a>
+    <a href="/coverage.html">Coverage</a>
+  </nav>
+  <span class="spacer"></span>
+  <a class="external" href="https://github.com/ai-haskell-compiler/aihc">ai-haskell-compiler/aihc</a>
+</header>
+<main>
+  <h1 id="title">Commit</h1>
+  <p class="lede" id="subtitle"></p>
+  <p class="status-line" id="status-line">Loading…</p>
+  <div id="runs"></div>
+  <form class="filters" onsubmit="return false">
+    <label>Metric<select id="metric"></select></label>
+    <label>Profile<select id="profile"><option value="all">All</option><option value="O2">O2</option><option value="O0">O0</option></select></label>
+  </form>
+  <div id="tables"></div>
+</main>
+<script type="module">
+import { api, el, replaceChildren, formatValue, formatDate, queryState, pushQuery, fillSelect, setStatus, markCurrentNav, commitIndex, seriesColor, METRIC_LABELS, describeConfiguration, changeCell, GITHUB, shortSha } from "/site.js";
+
+markCurrentNav();
+const defaults = { sha: "", metric: "wall_time", profile: "all" };
+const state = queryState(defaults);
+const metricSelect = document.getElementById("metric");
+const profileSelect = document.getElementById("profile");
+let detail = null;
+
+async function start() {
+  if (!state.sha) { setStatus("Add ?sha=<commit> to the URL, or open a commit from the timeline.", true); return; }
+  try {
+    const [data, commits] = await Promise.all([api(`/api/commit/${encodeURIComponent(state.sha)}`), commitIndex()]);
+    detail = data;
+    const commit = data.commit;
+    const parent = commits.byOrdinal.get(commit.ordinal - 1);
+    const child = commits.byOrdinal.get(commit.ordinal + 1);
+    document.title = `${shortSha(commit.sha)} · AIHC benchmarks`;
+    replaceChildren(document.getElementById("title"), el("span", { class: "mono" }, shortSha(commit.sha)), ` · #${commit.ordinal + 1}`);
+    replaceChildren(document.getElementById("subtitle"),
+      commit.subject, " · ", formatDate(commit.committed_at), " · ",
+      el("a", { href: `${GITHUB}/commit/${commit.sha}` }, "GitHub"),
+      parent ? [" · parent ", el("a", { href: `/commit.html?sha=${parent.sha}`, class: "mono" }, shortSha(parent.sha))] : null,
+      child ? [" · child ", el("a", { href: `/commit.html?sha=${child.sha}`, class: "mono" }, shortSha(child.sha))] : null,
+    );
+    renderRuns(data);
+    const metrics = [...new Set(data.measurements.map((row) => row.metric))];
+    const order = Object.keys(METRIC_LABELS);
+    metrics.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    state.metric = fillSelect(metricSelect, metrics, state.metric, METRIC_LABELS);
+    profileSelect.value = state.profile;
+    metricSelect.addEventListener("change", () => { state.metric = metricSelect.value; renderTables(); });
+    profileSelect.addEventListener("change", () => { state.profile = profileSelect.value; renderTables(); });
+    renderTables();
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+function renderRuns(data) {
+  replaceChildren(document.getElementById("runs"), ...data.runs.map((run) => el("section", { class: "card" },
+    el("h2", {}, run.machine_id),
+    el("div", { class: "meta" },
+      run.inherited_from ? ["inherited from ", el("a", { href: `/commit.html?sha=${run.inherited_from}`, class: "mono" }, shortSha(run.inherited_from)), " · "] : "measured · ",
+      `compiler ${run.compiler_status}${run.unavailable_reason ? ` (${run.unavailable_reason})` : ""} · run ${formatDate(run.created_at)} · `,
+      el("a", { href: `/api/${run.envelope_key}` }, "raw envelope"),
+    ),
+  )));
+  if (!data.runs.length) setStatus("This commit has not been measured on any machine yet.");
+  else setStatus(`Experiment ${data.experiment} · ${data.runs.length} machine${data.runs.length === 1 ? "" : "s"}. Deltas compare against the first parent on the same machine.`);
+}
+
+function renderTables() {
+  pushQuery(state, defaults);
+  const rows = detail.measurements.filter((row) => row.metric === state.metric && (state.profile === "all" || row.optimization === state.profile));
+  const machines = [...new Set(rows.map((row) => row.machine_id))].sort();
+  replaceChildren(document.getElementById("tables"), ...machines.map((machine) => {
+    const mine = rows.filter((row) => row.machine_id === machine);
+    const benchmarks = [...new Set(mine.map((row) => row.benchmark))].sort();
+    return el("section", {},
+      el("h2", {}, `${machine} · ${METRIC_LABELS[state.metric] ?? state.metric}`),
+      ...benchmarks.map((benchmark) => el("div", { class: "table-wrap" },
+        el("h3", {}, benchmark),
+        el("table", { class: "data" },
+          el("thead", {}, el("tr", {}, el("th", {}, "Configuration"), el("th", { class: "num" }, "Value"), el("th", { class: "num" }, "Parent"), el("th", { class: "num" }, "Change"), el("th", {}, "Status"))),
+          el("tbody", {}, ...mine.filter((row) => row.benchmark === benchmark).sort((a, b) => a.configuration.localeCompare(b.configuration)).map((row) => el("tr", {},
+            el("td", {}, el("i", { class: "swatch", style: `background:${seriesColor(row)}` }), describeConfiguration(row), " ", el("span", { class: "mono muted" }, row.configuration)),
+            el("td", { class: "num" }, formatValue(row.estimate, row.metric)),
+            el("td", { class: "num muted" }, formatValue(row.parent_estimate, row.metric)),
+            changeCell(row.ratio_to_parent),
+            el("td", { class: row.status === "ok" ? "muted" : "worse" }, row.status),
+          ))),
+        ),
+      )),
+    );
+  }));
+  if (!rows.length) replaceChildren(document.getElementById("tables"), el("p", { class: "muted" }, "No measurements for this metric and profile."));
+}
+
+start();
+</script>
+</body>
+</html>
