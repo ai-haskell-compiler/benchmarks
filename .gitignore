@@ -3,3 +3,5 @@
 __pycache__/
 *.pyc
 /.wrangler/
+dist-newstyle/
+cabal.project.local

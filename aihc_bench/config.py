@@ -39,11 +39,20 @@ def load_config(path: Path) -> Dict[str, Any]:
     _validate_unique(config["configurations"], "configuration")
     for configuration in config["configurations"]:
         _validate_configuration(configuration)
+    ghc_boot_libraries = config.setdefault("ghc_boot_libraries", {})
+    if not isinstance(ghc_boot_libraries, dict) or not all(
+        isinstance(name, str) and isinstance(version, str) for name, version in ghc_boot_libraries.items()
+    ):
+        raise ConfigError("ghc_boot_libraries must be a map of package name to version")
     for benchmark in config["benchmarks"]:
+        if not benchmark.get("package"):
+            raise ConfigError(f"benchmark {benchmark.get('id')} lacks a package (its cabal executable name)")
         source = (path.parent / benchmark["source"]).resolve()
-        if not source.is_file():
-            raise ConfigError(f"benchmark source does not exist: {source}")
-        benchmark["source_sha256"] = hashlib.sha256(source.read_bytes()).hexdigest()
+        if not source.is_dir():
+            raise ConfigError(f"benchmark source is not a directory: {source}")
+        if not list(source.glob("*.cabal")):
+            raise ConfigError(f"benchmark source has no .cabal file: {source}")
+        benchmark["source_sha256"] = _hash_directory(source)
     toolchain_hasher = hashlib.sha256()
     for toolchain_file in (path.parent / "flake.nix", path.parent / "flake.lock"):
         if toolchain_file.is_file():
@@ -76,6 +85,21 @@ def load_config(path: Path) -> Dict[str, Any]:
     if not 0 < threshold < 1:
         raise ConfigError("relative_threshold must be between zero and one")
     return config
+
+
+def _hash_directory(source: Path) -> str:
+    """Hash every file in a benchmark package directory, deterministically.
+
+    Benchmarks are now self-contained Cabal packages rather than a single
+    ``Main.hs``, so the experiment identity (see ``experiment_id``) needs to
+    change whenever any file in the package changes, including its
+    ``cabal.project.freeze`` pins.
+    """
+    hasher = hashlib.sha256()
+    for file_path in sorted(p for p in source.rglob("*") if p.is_file()):
+        hasher.update(file_path.relative_to(source).as_posix().encode("utf-8"))
+        hasher.update(file_path.read_bytes())
+    return hasher.hexdigest()
 
 
 def _validate_configuration(configuration: Dict[str, Any]) -> None:

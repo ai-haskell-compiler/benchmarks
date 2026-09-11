@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .config import CAPABILITIES, expand_command
 from .database import Database
+from .freeze import AIHC_IMPLICIT_PACKAGES, parse_build_depends, parse_freeze
 from .git_history import create_worktree, path_exists, remove_worktree
 from .measurement import compile_metrics, measure_adaptively
 from .process import run_command, run_measured
@@ -100,6 +101,7 @@ def run_commit(
                 config,
                 platform_id,
                 worktree,
+                root,
                 aihc_store,
                 compile_timeout,
                 capabilities,
@@ -210,6 +212,8 @@ def build_cells(
                 "root": str(root),
                 "worktree": str(worktree),
                 "source": str(source),
+                "main_file": str(source / "Main.hs"),
+                "package": benchmark.get("package", ""),
                 "artifact": str(artifact),
                 "build_dir": str(build_dir),
                 "commit": commit["sha"],
@@ -400,11 +404,12 @@ def _prepare_aihc_store(
     config: Dict[str, Any],
     platform_id: str,
     worktree: Path,
+    root: Path,
     store: Path,
     timeout_seconds: float,
     capabilities: Optional[Dict[str, bool]] = None,
 ) -> Dict[str, str]:
-    """Prepare runtimes and install ``aihc-base`` per target.
+    """Prepare runtimes and install ``aihc-base`` and boot-equivalents per target.
 
     Returns setup errors keyed by target. A target whose runtime or library
     preparation fails does not affect the others, so a missing Wasm sysroot
@@ -436,6 +441,7 @@ def _prepare_aihc_store(
         elif target not in [name for name, _ in prepared]:
             prepared.append((target, environment))
 
+    boot_equivalents = _boot_equivalent_dependencies(config, root)
     for target, environment in prepared:
         install_command = base_command + ["install", str(worktree / "core-libs" / "aihc-base")]
         if (capabilities or {}).get("install-offline"):
@@ -444,7 +450,49 @@ def _prepare_aihc_store(
         error = _run_setup_command(install_command, worktree, timeout_seconds, environment, f"library installation for {target}")
         if error:
             errors[target] = error
+            continue
+        # Only the packages benchmarks actually depend on are installed here
+        # (not GHC's full boot set), so a package a future benchmark adds
+        # keeps getting picked up automatically without touching this code.
+        for name, version in boot_equivalents.items():
+            boot_command = base_command + ["install", f"{name}-{version}"]
+            if (capabilities or {}).get("install-offline"):
+                boot_command.append("--offline")
+            boot_command.extend(["--store", str(store), "--target", target])
+            error = _run_setup_command(
+                boot_command, worktree, timeout_seconds, environment, f"boot library {name} installation for {target}"
+            )
+            if error:
+                errors[target] = error
+                break
     return errors
+
+
+def _boot_equivalent_dependencies(config: Dict[str, Any], root: Path) -> Dict[str, str]:
+    """Direct dependencies of any benchmark that GHC ships as a boot library.
+
+    AIHC only stands in for base/ghc-internal/ghc-prim/system-cxx-std-lib/
+    template-haskell (see ``aihc_bench.freeze.AIHC_IMPLICIT_PACKAGES``);
+    everything else GHC ships for free needs installing into the AIHC store
+    ahead of time so it is equally free there, matching GHC's boot set
+    (see benchmark.json's ``ghc_boot_libraries``).
+    """
+    ghc_boot_libraries = config.get("ghc_boot_libraries", {})
+    dependencies: Dict[str, str] = {}
+    for benchmark in config["benchmarks"]:
+        source = (root / benchmark["source"]).resolve()
+        if not source.is_dir():
+            continue
+        freeze_file = source / "cabal.project.freeze"
+        cabal_files = list(source.glob("*.cabal"))
+        if not freeze_file.is_file() or not cabal_files:
+            continue
+        pinned = parse_freeze(freeze_file)
+        for name in parse_build_depends(cabal_files[0]):
+            if name in AIHC_IMPLICIT_PACKAGES or name not in ghc_boot_libraries:
+                continue
+            dependencies[name] = pinned.get(name, ghc_boot_libraries[name])
+    return dependencies
 
 
 def _run_setup_command(
