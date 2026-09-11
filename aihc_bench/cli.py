@@ -88,7 +88,9 @@ def _dispatch(
         repository = _repository(arguments)
         if arguments.fetch:
             fetch(repository)
-        history = commits(repository, config.get("aihc_ref", "origin/main"), config["aihc_tree_paths"])
+        history = commits(
+            repository, config.get("aihc_ref", "origin/main"), config["aihc_tree_paths"], since=config.get("aihc_since")
+        )
         database.replace_commits(history)
         database.propagate_inherited(experiment, platform_id)
 

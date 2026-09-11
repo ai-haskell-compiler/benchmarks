@@ -1,7 +1,9 @@
 # AIHC benchmarks
 
 Historical runtime benchmarks for every first-parent commit on
-[`ai-haskell-compiler/aihc`](https://github.com/ai-haskell-compiler/aihc).
+[`ai-haskell-compiler/aihc`](https://github.com/ai-haskell-compiler/aihc)
+since `aihc_since` in `benchmark.json` (2026-09-01); earlier commits predate a
+usable compiler and are never planned.
 
 Results are published at [perf.aihc.app](https://perf.aihc.app): an overview
 of AIHC against GHC for the newest measured commit, a timeline per benchmark

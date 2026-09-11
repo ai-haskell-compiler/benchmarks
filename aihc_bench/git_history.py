@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 
 # Paths whose content determines the compiler that a commit builds. Commits
 # that leave all of them untouched produce the same compiler as their parent
@@ -29,18 +30,47 @@ def fetch(repository: Path) -> None:
     _git(repository, "fetch", "--prune", "origin", "main")
 
 
-def commits(repository: Path, ref: str, tree_paths: Iterable[str] = DEFAULT_TREE_PATHS) -> List[Dict[str, Any]]:
-    output = _git(repository, "log", "--first-parent", "--reverse", "--format=%H%x09%cI%x09%s", ref)
+def commits(
+    repository: Path,
+    ref: str,
+    tree_paths: Iterable[str] = DEFAULT_TREE_PATHS,
+    since: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """List the first-parent history of ``ref``, oldest first.
+
+    ``since`` is an ISO 8601 timestamp (a date alone means midnight UTC);
+    commits committed before it are left out because they predate a usable
+    compiler. Ordinals are positions in the full first-parent history, so
+    moving the cutoff never renumbers the commits that remain.
+    """
+    cutoff = parse_cutoff(since) if since else None
+    output = _git(repository, "log", "--first-parent", "--reverse", "--format=%H%x09%ct%x09%cI%x09%s", ref)
     history: List[Dict[str, Any]] = []
     for ordinal, line in enumerate(output.splitlines()):
-        sha, committed_at, subject = line.split("\t", 2)
+        sha, committed_seconds, committed_at, subject = line.split("\t", 3)
+        if cutoff is not None and int(committed_seconds) < cutoff:
+            continue
         history.append({"sha": sha, "ordinal": ordinal, "committed_at": committed_at, "subject": subject})
     if not history:
-        raise GitError(f"no commits found at {ref}")
+        raise GitError(f"no commits found at {ref}" + (f" since {since}" if since else ""))
     keys = tree_keys(repository, [commit["sha"] for commit in history], tree_paths)
     for commit in history:
         commit["tree_key"] = keys[commit["sha"]]
     return history
+
+
+def parse_cutoff(timestamp: str) -> int:
+    """Turn an ISO 8601 timestamp into Unix seconds, reading a missing zone as UTC."""
+    text = timestamp.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        moment = datetime.fromisoformat(text)
+    except ValueError as error:
+        raise GitError(f"invalid timestamp {timestamp!r}: expected ISO 8601 such as 2026-09-01") from error
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return int(moment.timestamp())
 
 
 def tree_keys(repository: Path, shas: List[str], tree_paths: Iterable[str]) -> Dict[str, str]:

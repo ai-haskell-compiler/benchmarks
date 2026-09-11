@@ -67,6 +67,7 @@ function section(machine, coverage) {
   for (const cell of coverage.statuses) counts[cell] = (counts[cell] || 0) + 1;
   const canvas = el("canvas", { class: "coverage-strip", "aria-label": `Coverage for ${machineLabel(machine)}` });
   canvas.dataset.statuses = coverage.statuses;
+  canvas.dataset.first = coverage.first;
   canvas.addEventListener("mousemove", (event) => hover(event, canvas, machine));
   canvas.addEventListener("mouseleave", () => { tooltip.hidden = true; });
   canvas.addEventListener("click", (event) => {
@@ -102,15 +103,20 @@ function draw(canvas) {
   }
 }
 
-function ordinalAt(event, canvas) {
+function indexAt(event, canvas) {
   const rect = canvas.getBoundingClientRect();
   const statuses = canvas.dataset.statuses;
   return Math.min(statuses.length - 1, Math.max(0, Math.floor(((event.clientX - rect.left) / rect.width) * statuses.length)));
 }
 
+// Cell 0 of the strip is the first commit after the cutoff, not ordinal 0.
+function ordinalAt(event, canvas) {
+  return Number(canvas.dataset.first) + indexAt(event, canvas);
+}
+
 function hover(event, canvas, machine) {
   const ordinal = ordinalAt(event, canvas);
-  const status = canvas.dataset.statuses[ordinal];
+  const status = canvas.dataset.statuses[indexAt(event, canvas)];
   const commit = commits.byOrdinal.get(ordinal);
   replaceChildren(tooltip,
     el("div", {}, el("strong", { class: "mono" }, commit ? commit.sha.slice(0, 12) : "unknown"), ` · #${ordinal + 1}`),
