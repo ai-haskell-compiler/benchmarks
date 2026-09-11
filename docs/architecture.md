@@ -210,12 +210,15 @@ streams envelopes from R2. The D1 schema is `web/migrations/0001_init.sql`
 plus the later migrations in the same directory.
 
 The overview is materialized: the Worker stores the computed JSON in R2 under
-`cache/overview/v1.json` and serves the front page from that copy without
+`cache/overview/v2.json` and serves the front page from that copy without
 touching D1, which is slow from a cold Worker. A copy older than a minute is
 served as is and recomputed in the background. After an upload the uploader
-requests `/api/overview?refresh=1`, which recomputes synchronously so the next
-visitor sees the new results; a refresh request is ignored while the copy is
-younger than ten seconds.
+deletes that object with `wrangler r2 object delete`, so the next request
+recomputes it, and then requests `/api/overview?refresh=1` to warm the copy
+before anyone visits. The warm-up goes through Cloudflare's edge, whose bot
+protection may answer 403 to a non-browser client; that only means the next
+visitor waits for the recomputation. A refresh request is ignored while the
+copy is younger than ten seconds.
 
 ## Platform independence
 
