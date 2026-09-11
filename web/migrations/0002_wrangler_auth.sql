@@ -4,4 +4,5 @@
 -- tables reference, so the token_hash and display_name columns stay as
 -- empty legacy columns; scrub whatever hashes were stored.
 
-UPDATE machines SET token_hash = '', display_name = NULL;
+UPDATE machines SET token_hash = '', display_name = NULL
+  WHERE token_hash <> '' OR display_name IS NOT NULL;

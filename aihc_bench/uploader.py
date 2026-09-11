@@ -22,6 +22,7 @@ from .database import Database
 from .schema import utc_now
 
 COMMIT_CHUNK = 500
+LOGGED_IN_MARKER = "logged in"
 STATEMENT_CHUNK = 400
 
 Run = Callable[[List[str]], subprocess.CompletedProcess]
@@ -41,12 +42,12 @@ def check_login(config: Dict[str, Any], root: Path, run: Run = None) -> str:  # 
     run = run or _run
     process = run(wrangler_command(config, root, "whoami"))
     output = f"{process.stdout}\n{process.stderr}"
-    if process.returncode != 0 or "not authenticated" in output.lower() or "logged in" not in output.lower():
-        raise UploadError("wrangler is not logged in on this machine; run `wrangler login` first")
+    if process.returncode != 0 or "not authenticated" in output.lower() or LOGGED_IN_MARKER not in output.lower():
+        raise UploadError("wrangler is not authenticated on this machine; run `wrangler login` first")
     for line in output.splitlines():
-        if "logged in" in line.lower():
+        if LOGGED_IN_MARKER in line.lower():
             return line.strip()
-    return "logged in"
+    return LOGGED_IN_MARKER
 
 
 def upload_pending(
@@ -86,7 +87,7 @@ def upload_pending(
             raise UploadError(f"{attempt['commit_sha'][:12]} has schema version {envelope.get('schema_version')}, expected {SCHEMA_VERSION}")
         key = envelope_key(envelope)
         if not envelope.get("inherited_from"):
-            _put_object(bucket, key, envelope, root, run)
+            _put_object(bucket, key, envelope, run)
         _execute_sql(config, root, run_statements(envelope, key), run)
         database.mark_uploaded(experiment_id, platform_id, attempt["commit_sha"], utc_now())
         summary["uploaded"] += 1
@@ -225,7 +226,7 @@ def _execute_sql(config: Dict[str, Any], root: Path, statements: List[str], run:
             raise UploadError(f"wrangler d1 execute failed:\n{(process.stderr or process.stdout)[-2000:]}")
 
 
-def _put_object(bucket: str, key: str, envelope: Dict[str, Any], root: Path, run: Run) -> None:
+def _put_object(bucket: str, key: str, envelope: Dict[str, Any], run: Run) -> None:
     payload = gzip.compress(json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     with tempfile.NamedTemporaryFile("wb", suffix=".json.gz", delete=False) as handle:
         handle.write(payload)
