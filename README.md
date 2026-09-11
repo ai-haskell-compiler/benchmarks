@@ -11,11 +11,21 @@ and metric, a page per commit, and the coverage of the commit history.
 
 ## Running locally
 
-Requirements are Nix, Git, and an AIHC checkout with an `origin/main` remote.
+Requirements are Nix and Git.
 
 ```console
-nix run . -- doctor --aihc-repo /path/to/aihc
-nix run . -- plan --aihc-repo /path/to/aihc --fetch
+nix run . -- doctor
+nix run . -- plan --fetch
+nix run . -- run --jobs 8
+```
+
+Without `--aihc-repo` the commands use
+[`ai-haskell-compiler/aihc`](https://github.com/ai-haskell-compiler/aihc),
+cloned once into `.cache/aihc` and reused afterwards. Pass `--aihc-repo` (or
+set `AIHC_REPOSITORY`) to benchmark another clone URL, or a local checkout
+with an `origin/main` remote:
+
+```console
 nix run . -- run --aihc-repo /path/to/aihc --jobs 8
 ```
 
@@ -44,13 +54,13 @@ Results and resumable state are stored in `.state/benchmarks.sqlite3`. A failed
 historical compiler is terminal until its record is deliberately removed:
 
 ```console
-nix run . -- forget <commit> --aihc-repo /path/to/aihc
+nix run . -- forget <commit>
 ```
 
 ## Comparing two builds
 
 ```console
-nix run . -- compare HEAD~5 HEAD --aihc-repo /path/to/aihc
+nix run . -- compare HEAD~5 HEAD
 nix run . -- compare main --worktree /path/to/aihc \
   --bench integer-fibonacci-v1 --rounds 20
 ```
