@@ -18,11 +18,15 @@ nextSeed seed = (seed * 6364136223846793005 + 1442695040888963407)
 
 -- | A byte buffer with repeated structure (compressible, like real payloads)
 -- rather than pure noise: each 64-byte block is a slice of the PRNG stream
--- XORed with its block index, then the block is repeated four times.
+-- XORed with its block index, then the block is repeated four times. The
+-- block count is sized so the AIHC reference build runs well inside the
+-- suite's per-process timeout on every machine (about half a second on an
+-- Apple M4 Pro); the payload itself is built with plain lists, which
+-- dominates the run under AIHC.
 payload :: ByteString
 payload = ByteString.pack (concatMap block [0 .. blockCount - 1])
   where
-    blockCount = 512 :: Int
+    blockCount = 32 :: Int
     blockSize = 64 :: Int
     block index =
       let seeds = take blockSize (iterate nextSeed (fromIntegral index + 1))

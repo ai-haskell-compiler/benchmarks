@@ -19,7 +19,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
-from . import SCHEMA_VERSION
+from . import SCHEMA_VERSION, __version__
 from .database import Database
 from .schema import utc_now
 
@@ -139,8 +139,15 @@ def overview_refresh_url(server_url: str) -> str:
     return urllib.parse.urlunsplit(("https", host, "/api/overview", "refresh=1", ""))
 
 
+# Cloudflare's bot protection rejects urllib's default ``Python-urllib/x.y``
+# agent with a 403 before the Worker ever sees the request, so the refresh
+# identifies itself as the runner instead.
+USER_AGENT = f"aihc-bench/{__version__}"
+
+
 def _open_url(url: str, timeout: float) -> None:
-    with urllib.request.urlopen(url, timeout=timeout) as response:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         response.read()
 
 

@@ -93,16 +93,19 @@ non-boot-equivalent Hackage dependency for the compile-time measurement.
 Revisit `snappy` (or any other `cxx-sources`-using package) once AIHC's
 `install` supports compiling it.
 
-## Scope note: the Wasm backend
+## The Wasm backend
 
-Wasm configurations (`ghc-9.14.1-wasm`, `aihc-wasm-semispace-*`) still
-compile a single `Main.hs` directly (`{main_file}` in `benchmark.json`, not
-`{source}`), not through Cabal/`build-exe`'s dependency resolution. GHC's
-Wasm cross-compiler in this repo's `flake.nix` has no bundled
-`wasm32-wasi-cabal`, and AIHC's Wasm target has no verified story for
-resolving Hackage dependencies for a cross target either. As a result,
-`snappy-roundtrip` (the one benchmark with a real dependency) is not
-buildable for the Wasm backend — its compile fails there with a normal
-"package not found" error, which is expected and out of scope for this
-change. Extending dependency-inclusive compilation to Wasm is a separate,
-larger effort.
+Wasm configurations build the benchmark package the same way the native ones
+do. `ghc-9.14.1-wasm-*` runs `compile_with_cabal.py` with the `ghc-wasm-meta`
+cross-compiler (cabal-install cross-compiles with `--with-compiler` pointing
+at `ghc-9.14.1-wasm` and the matching `ghc-pkg`/`hsc2hs` siblings the flake
+exports next to it), and `aihc-wasm-semispace-*` runs `compile_with_aihc.py`
+with `--target wasm32-wasip3`, so `install` builds `snappy-hs` for the Wasm
+store before `build-exe` links it. Both were verified to compile and run
+`snappy-roundtrip` end to end.
+
+The freeze file only pins Hackage dependencies for the build: it was written
+by `cabal freeze` under one GHC and therefore also lists that GHC's boot
+libraries, which `compile_with_cabal.py` drops for whatever packages the
+chosen compiler's global database already provides. Without that, GHC 9.14
+(base 4.22) could never satisfy a `base ==4.21.2.0` pin taken from 9.12.
