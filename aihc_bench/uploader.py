@@ -108,25 +108,44 @@ def upload_pending(
     return summary
 
 
+OVERVIEW_KEY = "cache/overview/v2.json"
+USER_AGENT = "aihc-bench/1 (+https://github.com/ai-haskell-compiler/benchmarks)"
+
+
 def refresh_overview(
     config: Dict[str, Any],
     *,
+    run: Run = None,  # type: ignore[assignment]
     opener: Callable[[str, float], Any] = None,  # type: ignore[assignment]
     log: Callable[[str], None] = print,
 ) -> bool:
-    """Ask the Worker to recompute its materialized overview after an upload.
+    """Make the Worker recompute its materialized overview after an upload.
 
-    The front page is served from that copy, so without this the first visitor
-    after an upload would still see the previous results. Failure is logged
-    and never fails the upload.
+    The front page is served from a copy in R2, so without this the first
+    visitor after an upload would still see the previous results. The copy is
+    deleted through wrangler, which is authenticated and bypasses the edge
+    firewall in front of the Worker; the Worker recomputes it on the next
+    request. A plain GET then warms the copy so that visitor does not wait.
+    The warm-up is best effort: Cloudflare's bot protection may reject it
+    (a 403 from the edge, never from the Worker), and the next visitor
+    recomputes the overview either way. Failure never fails the upload.
     """
+    run = run or _run
     opener = opener or _open_url
+    server_url = config["publishing"]["server_url"]
     try:
-        url = overview_refresh_url(config["publishing"]["server_url"])
-        opener(url, 60.0)
-    except (OSError, ValueError) as error:
-        log(f"warning: could not refresh the overview at {config['publishing']['server_url']}: {error}")
+        url = overview_refresh_url(server_url)
+        bucket = config["publishing"]["bucket"]
+        process = run(["wrangler", "r2", "object", "delete", f"{bucket}/{OVERVIEW_KEY}", "--remote"])
+        if process.returncode != 0:
+            raise UploadError(f"wrangler r2 object delete failed:\n{(process.stderr or process.stdout)[-2000:]}")
+    except (OSError, ValueError, UploadError) as error:
+        log(f"warning: could not invalidate the overview at {server_url}: {error}")
         return False
+    try:
+        opener(url, 60.0)
+    except OSError as error:
+        log(f"note: the overview at {server_url} was invalidated but could not be warmed ({error}); the next visitor recomputes it")
     return True
 
 
@@ -140,7 +159,8 @@ def overview_refresh_url(server_url: str) -> str:
 
 
 def _open_url(url: str, timeout: float) -> None:
-    with urllib.request.urlopen(url, timeout=timeout) as response:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         response.read()
 
 
