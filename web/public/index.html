@@ -5,11 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AIHC benchmarks</title>
 <meta name="description" content="Runtime benchmarks for every commit of the AI Haskell Compiler, compared with GHC.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151318" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/site.css">
 </head>
 <body>
 <header class="site-header">
-  <a class="brand" href="/">AIHC benchmarks</a>
+  <a class="brand" href="/"><span class="mark"><svg viewBox="0 0 100 100" aria-hidden="true" focusable="false"><defs><clipPath id="mark-clip"><polygon points="18,18 62,18 40,88"/></clipPath></defs><g fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"><path d="M24 54 Q40 36 56 54" clip-path="url(#mark-clip)" stroke-linecap="butt"/><path d="M18 18 L40 88 L62 18"/><path d="M64 88 L79.1 40"/><circle cx="86" cy="18" r="6" fill="currentColor" stroke="none"/></g></svg></span><span>AIHC benchmarks</span></a>
   <nav>
     <a href="/">Overview</a>
     <a href="/timeline.html">Timeline</a>
@@ -19,80 +22,142 @@
   <a class="external" href="https://github.com/ai-haskell-compiler/aihc">ai-haskell-compiler/aihc</a>
 </header>
 <main>
-  <h1>How fast is AIHC today?</h1>
-  <p class="lede">Wall time of programs compiled by the newest measured AIHC commit, divided by the same program compiled by GHC 9.14.1 with the same backend and optimization level. Lower is better; 1.00× means parity.</p>
-  <p class="status-line" id="status-line">Loading…</p>
-  <div class="cards" id="machines"></div>
+  <section class="hero">
+    <p class="eyebrow">Newest measured commit vs GHC 9.14.1</p>
+    <h1>How fast is AIHC today?</h1>
+    <p class="lede">Each number is AIHC divided by GHC for the same program, backend and optimization level, as a geometric mean over the benchmark suite. Lower is better; 1.00× means parity.</p>
+  </section>
+  <div class="toolbar">
+    <div class="segmented" id="backends" role="group" aria-label="Backend"></div>
+    <p class="status-line" id="status-line">Loading…</p>
+  </div>
+  <div class="scorecards" id="machines"></div>
   <h2>How to read this</h2>
-  <p class="lede">Every machine measures every configuration itself, so ratios are comparable across machines even though absolute times are not. Commits that leave the compiler untouched inherit their neighbour's result and count toward coverage. The <a href="/timeline.html">timeline</a> shows how each ratio moved over the commit history, the <a href="/coverage.html">coverage</a> page shows which commits have been measured, and every number links to its commit.</p>
+  <p class="lede">Every machine measures every configuration itself, so ratios are comparable across machines even though absolute times are not. Artifact size at <code>-Os</code> and runtime at <code>-O1</code> stay blank until AIHC grows those profiles. Commits that leave the compiler untouched inherit their neighbour's result and count toward coverage. The <a href="/timeline.html">timeline</a> shows how each ratio moved over the commit history, the <a href="/coverage.html">coverage</a> page shows which commits have been measured, and every number links to its commit.</p>
 </main>
 <script type="module">
-import { api, el, replaceChildren, formatRatio, formatDuration, formatDate, machineLabel, commitLink, setStatus, markCurrentNav, GITHUB } from "/site.js";
+import { api, el, replaceChildren, formatRatio, formatValue, formatDate, machineLabel, commitLink, setStatus, markCurrentNav, queryState, pushQuery, GITHUB } from "/site.js";
 
 markCurrentNav();
 
-function ratioTable(machine, profile) {
-  const rows = machine.ratios.filter((row) => row.optimization === profile);
+const BACKENDS = ["native", "llvm", "wasm"];
+const BACKEND_LABELS = { native: "Native", llvm: "LLVM", wasm: "Wasm" };
+/** The four headline numbers. Profiles AIHC does not measure yet render as a dash. */
+const HEADLINES = [
+  { label: "Artifact size", flag: "-Os", metric: "artifact_size", profile: "Os" },
+  { label: "Compile time", flag: "-O0", metric: "compile_time", profile: "O0" },
+  { label: "Runtime", flag: "-O1", metric: "wall_time", profile: "O1" },
+  { label: "Runtime", flag: "-O2", metric: "wall_time", profile: "O2" },
+];
+const DETAIL_PROFILES = [
+  { profile: "O2", title: "Optimized (O2)" },
+  { profile: "O0", title: "Unoptimized (O0)" },
+];
+const METRIC_TITLES = { wall_time: "run", compile_time: "compile", artifact_size: "size" };
+
+const defaults = { backend: "native" };
+const state = queryState(defaults);
+if (!BACKENDS.includes(state.backend)) state.backend = defaults.backend;
+let overview = null;
+/** Disclosure state per machine, so switching backends keeps open tables open. */
+const detailsOpen = new Map();
+
+function geomean(values) {
+  const logs = values.filter((value) => value > 0).map(Math.log);
+  return logs.length ? Math.exp(logs.reduce((a, b) => a + b, 0) / logs.length) : null;
+}
+
+function select(machine, backend, profile, metric) {
+  return machine.ratios.filter((row) => row.backend === backend && row.optimization === profile && row.metric === metric);
+}
+
+function tile(machine, backend, headline) {
+  const rows = select(machine, backend, headline.profile, headline.metric);
+  const withBaseline = rows.filter((row) => row.ratio);
+  const mean = geomean(withBaseline.map((row) => row.ratio));
+  const label = el("span", { class: "label" }, headline.label, el("code", {}, headline.flag));
+  if (!mean) {
+    const note = rows.length ? "no GHC baseline" : "not measured yet";
+    return el("div", { class: "tile empty" }, label, el("span", { class: "value" }, "—"), el("span", { class: "note" }, note));
+  }
+  const benchmarks = withBaseline.map((row) => row.benchmark).sort();
+  const href = `/timeline.html?machine=${encodeURIComponent(machine.machine_id)}&profile=${headline.profile}&metric=${headline.metric}&benchmark=${encodeURIComponent(benchmarks[0])}`;
+  const title = withBaseline.map((row) => `${row.benchmark}: ${formatValue(row.value, headline.metric)} vs ${formatValue(row.baseline_value, headline.metric)}`).join("\n");
+  return el("a", { class: "tile", href, title },
+    label,
+    el("span", { class: "value" }, formatRatio(mean)),
+    el("span", { class: "note" }, withBaseline.length === 1 ? "1 benchmark" : `geometric mean of ${withBaseline.length} benchmarks`),
+  );
+}
+
+function detailTable(machine, backend, profile) {
+  const rows = machine.ratios.filter((row) => row.backend === backend && row.optimization === profile);
   if (!rows.length) return el("p", { class: "muted" }, `No ${profile} measurements yet.`);
   const benchmarks = [...new Set(rows.map((row) => row.benchmark))].sort();
-  const backends = ["native", "llvm", "wasm"].filter((backend) => rows.some((row) => row.backend === backend));
-  const geo = {};
-  for (const backend of backends) {
-    const ratios = rows.filter((row) => row.backend === backend && row.ratio).map((row) => Math.log(row.ratio));
-    geo[backend] = ratios.length ? Math.exp(ratios.reduce((a, b) => a + b, 0) / ratios.length) : null;
-  }
+  const metrics = ["wall_time", "compile_time", "artifact_size"].filter((metric) => rows.some((row) => row.metric === metric));
   const query = `machine=${encodeURIComponent(machine.machine_id)}&profile=${profile}`;
+  const cell = (benchmark, metric) => {
+    const row = rows.find((item) => item.benchmark === benchmark && item.metric === metric);
+    if (!row) return el("td", { class: "num muted" }, "—");
+    if (!row.ratio) return el("td", { class: "num muted", title: "AIHC value; GHC has no baseline for this metric" }, formatValue(row.value, metric));
+    return el("td", { class: "num", title: `${formatValue(row.value, metric)} vs ${formatValue(row.baseline_value, metric)}` }, formatRatio(row.ratio));
+  };
   return el("div", { class: "table-wrap" },
     el("table", { class: "data" },
-      el("thead", {}, el("tr", {}, el("th", {}, "Benchmark"), ...backends.map((backend) => el("th", { class: "num" }, `${backend} vs GHC`)))),
+      el("thead", {}, el("tr", {}, el("th", {}, "Benchmark"), ...metrics.map((metric) => el("th", { class: "num" }, METRIC_TITLES[metric])))),
       el("tbody", {},
         ...benchmarks.map((benchmark) => el("tr", {},
           el("td", {}, el("a", { href: `/timeline.html?${query}&benchmark=${encodeURIComponent(benchmark)}` }, benchmark)),
-          ...backends.map((backend) => {
-            const row = rows.find((item) => item.benchmark === benchmark && item.backend === backend);
-            if (!row) return el("td", { class: "num muted" }, "—");
-            const title = `${formatDuration(row.wall_time)}${row.baseline_wall_time ? ` vs ${formatDuration(row.baseline_wall_time)}` : ""}`;
-            return el("td", { class: "num", title }, row.ratio ? formatRatio(row.ratio) : `${formatDuration(row.wall_time)} (no baseline)`);
-          }),
+          ...metrics.map((metric) => cell(benchmark, metric)),
         )),
-        el("tr", {}, el("td", {}, el("strong", {}, "Geometric mean")), ...backends.map((backend) => el("td", { class: "num" }, el("strong", {}, formatRatio(geo[backend]))))),
+        el("tr", {}, el("td", {}, el("strong", {}, "Geometric mean")),
+          ...metrics.map((metric) => el("td", { class: "num" }, el("strong", {}, formatRatio(geomean(rows.filter((row) => row.metric === metric && row.ratio).map((row) => row.ratio))))))),
       ),
     ),
   );
 }
 
-function card(machine) {
-  const total = machine.total_commits || 1;
-  const measuredPct = (100 * machine.measured) / total;
-  const inheritedPct = (100 * machine.inherited) / total;
+function card(machine, backend) {
   const latest = machine.latest;
-  return el("section", { class: "card" },
-    el("h2", {}, machineLabel(machine)),
-    el("div", { class: "meta" }, `last upload ${formatDate(machine.last_seen_at)}`),
-    el("div", { class: "stat-row" },
-      el("div", { class: "stat" }, el("span", { class: "value" }, `${machine.measured + machine.inherited}`), el("span", { class: "label" }, `of ${machine.total_commits} commits covered`)),
-      el("div", { class: "stat" }, el("span", { class: "value" }, `${machine.measured}`), el("span", { class: "label" }, "measured")),
-      el("div", { class: "stat" }, el("span", { class: "value" }, `${machine.inherited}`), el("span", { class: "label" }, "inherited")),
+  const covered = machine.measured + machine.inherited;
+  return el("section", { class: "card scorecard" },
+    el("div", { class: "head" },
+      el("h2", {}, machineLabel(machine)),
+      el("span", { class: "backend-tag" }, `${backend} backend`),
     ),
-    el("div", { class: "cover-bar", title: `${machine.measured} measured, ${machine.inherited} inherited` },
-      el("span", { class: "measured", style: `width:${measuredPct}%` }),
-      el("span", { class: "inherited", style: `width:${inheritedPct}%` }),
-    ),
+    el("div", { class: "tiles" }, ...HEADLINES.map((headline) => tile(machine, backend, headline))),
     latest
-      ? el("p", { class: "meta" }, "Latest measured commit ", commitLink(latest), " ", el("span", {}, latest.subject), " ", el("a", { href: `${GITHUB}/commit/${latest.sha}` }, "GitHub"))
-      : el("p", { class: "meta" }, "No measured commit yet."),
-    el("h3", {}, "Optimized (O2)"),
-    ratioTable(machine, "O2"),
-    el("h3", {}, "Unoptimized (O0)"),
-    ratioTable(machine, "O0"),
+      ? el("p", { class: "meta" }, "Commit ", commitLink(latest), " ", el("span", {}, latest.subject), " · ", el("a", { href: `${GITHUB}/commit/${latest.sha}` }, "GitHub"), ` · ${covered} of ${machine.total_commits} commits covered · last upload ${formatDate(machine.last_seen_at)}`)
+      : el("p", { class: "meta" }, `No measured commit yet · last upload ${formatDate(machine.last_seen_at)}`),
+    el("details", { open: detailsOpen.get(machine.machine_id) === true, ontoggle: (event) => detailsOpen.set(machine.machine_id, event.target.open) },
+      el("summary", {}, "Per-benchmark ratios"),
+      ...DETAIL_PROFILES.flatMap(({ profile, title }) => [el("h3", {}, title), detailTable(machine, backend, profile)]),
+    ),
   );
 }
 
+function render() {
+  for (const button of document.querySelectorAll("#backends button")) button.setAttribute("aria-pressed", button.dataset.backend === state.backend ? "true" : "false");
+  if (!overview) return;
+  replaceChildren(document.getElementById("machines"), ...overview.machines.map((machine) => card(machine, state.backend)));
+}
+
+replaceChildren(document.getElementById("backends"), ...BACKENDS.map((backend) => el("button", {
+  type: "button",
+  dataset: { backend },
+  onclick: () => {
+    state.backend = backend;
+    pushQuery(state, defaults);
+    render();
+  },
+}, BACKEND_LABELS[backend])));
+
 try {
-  const overview = await api("/api/overview");
-  replaceChildren(document.getElementById("machines"), ...overview.machines.map(card));
+  overview = await api("/api/overview");
+  render();
   setStatus(`Experiment ${overview.experiment} · ${overview.machines.length} machine${overview.machines.length === 1 ? "" : "s"} · ${overview.total_commits} commits on main`);
 } catch (error) {
+  render();
   setStatus(`No results yet: ${error.message}`, true);
 }
 </script>
