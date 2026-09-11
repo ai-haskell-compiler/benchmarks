@@ -42,7 +42,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--target", required=True)
     parser.add_argument("--gc", required=True)
     parser.add_argument("--build-command", required=True, choices=["build-exe", "compile"])
-    parser.add_argument("--optimization", choices=["O0"], help="only O0 needs an explicit flag; O2 is the default pipeline")
+    parser.add_argument("--optimization", choices=["O0", "O1", "Os"], help="passed through as -O0/-O1/-Os; O2 is the default pipeline and needs no flag")
     parser.add_argument("--store", help="appended by the runner after this script's own arguments")
     parser.add_argument("--build-root", help="appended by the runner after this script's own arguments")
     args = parser.parse_args(argv)

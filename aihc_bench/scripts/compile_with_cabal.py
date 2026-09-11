@@ -22,6 +22,11 @@ import sys
 from pathlib import Path
 
 
+# The cabal -O level for each benchmark profile. GHC has no size-oriented
+# level, so the Os profile records what GHC produces at -O1.
+GHC_LEVELS = {"O0": "O0", "O1": "O1", "O2": "O2", "Os": "O1"}
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, type=Path, help="benchmark package directory")
@@ -30,12 +35,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--exe", required=True, help="cabal executable component name")
     parser.add_argument("--ghc", required=True, help="path to the pinned ghc binary")
     parser.add_argument("--cabal", default="cabal", help="cabal-install binary (default: cabal on PATH)")
-    parser.add_argument("--optimization", required=True, choices=["O0", "O2"])
+    parser.add_argument("--optimization", required=True, choices=["O0", "O1", "O2", "Os"], help="benchmark profile; GHC has no size level, so Os builds with -O1")
     parser.add_argument("--ghc-option", action="append", default=[], help="extra -f.../-rtsopts flag, repeatable")
     args = parser.parse_args(argv)
     args.source = args.source.resolve()
     args.build_dir = args.build_dir.resolve()
     args.artifact = args.artifact.resolve()
+    args.ghc_level = GHC_LEVELS[args.optimization]
     return args
 
 
@@ -58,7 +64,7 @@ def cabal_command(args: argparse.Namespace, project_file: Path) -> list[str]:
         f"--project-file={project_file}",
         f"--builddir={args.build_dir / 'dist'}",
         f"--with-compiler={args.ghc}",
-        f"-{args.optimization}",
+        f"-{args.ghc_level}",
     ]
     if ghc_options:
         command.append("--ghc-options=" + " ".join(ghc_options))
@@ -82,7 +88,7 @@ def main(argv: list[str]) -> int:
         f"--project-file={project_file}",
         f"--builddir={args.build_dir / 'dist'}",
         f"--with-compiler={args.ghc}",
-        f"-{args.optimization}",
+        f"-{args.ghc_level}",
         f"exe:{args.exe}",
     ]
     located = subprocess.run(list_bin_command, capture_output=True, text=True)

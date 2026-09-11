@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from .compare import CompareError, format_report, resolve_side, run_compare, select_configuration, worktree_side
-from .config import ConfigError, detect_platform, experiment_id, load_config
+from .config import OPTIMIZATION_PROFILES, ConfigError, detect_platform, experiment_id, load_config
 from .database import Database
 from .git_history import DEFAULT_REMOTE, GitError, clone, clone_directory, commits, fetch, is_remote
 from .machine import load_machine
@@ -267,7 +267,7 @@ def _parser() -> argparse.ArgumentParser:
     compare.add_argument("--aihc-repo", help=_REPO_HELP)
     compare.add_argument("--bench", action="append", default=[], metavar="ID", help="benchmark id; repeatable, default all")
     compare.add_argument("--config", dest="config_ids", action="append", default=[], metavar="ID", help="configuration id; repeatable, default every AIHC configuration")
-    compare.add_argument("--profile", choices=["O0", "O2"])
+    compare.add_argument("--profile", choices=list(OPTIMIZATION_PROFILES))
     compare.add_argument("--rounds", type=int, default=10, help="interleaved A/B rounds per cell")
     compare.add_argument("--jobs", type=int, default=max(1, os.cpu_count() or 1))
     compare.add_argument("--markdown", action="store_true", help="print a Markdown table")

@@ -14,8 +14,8 @@ apply unless stated otherwise.
 - The CLI has three modes over one engine: `compare` (ad-hoc, local only),
   `run` (one commit), and `run --all` (overnight). Ad-hoc results are never
   uploaded.
-- Two optimization profiles: `O0` (unoptimized) and `O2`. Both are measured for
-  every commit.
+- Four optimization profiles: `O0`, `O1`, `O2` and `Os`. All are measured for
+  every commit; GHC's `Os` builds with `-O1` since GHC has no size level.
 - Metrics per invocation: wall time, CPU time (user + system), peak RSS, peak
   heap, bytes allocated, GC count. Per compile: compile wall time and artifact
   size. Peak heap and allocation counters come from a runtime stats hook that
@@ -200,12 +200,18 @@ configuration lists required capabilities in `requires`.
 
 ## Configurations
 
-`optimization` is a configuration dimension. `benchmark.json` has `O0`
-variants of every configuration. GHC passes `-O0`; AIHC passes `-O0` once
-`build-exe --help` advertises an optimization flag (the `optimization-flag`
-capability). Until then AIHC `O0` configurations are recorded as
-`missing_capability:optimization-flag`, which keeps the experiment ID honest
-rather than silently measuring the default pipeline twice.
+`optimization` is a configuration dimension. `benchmark.json` has `O0`, `O1`
+and `Os` variants of every `O2` configuration. GHC passes the matching flag,
+with `Os` mapped to `-O1`. AIHC passes `-O0` once `build-exe --help` advertises
+an optimization flag (the `optimization-flag` capability), and `-O1`/`-Os` once
+that help text lists the level (`optimization-O1`, `optimization-Os`). Until
+then the AIHC configuration is recorded as `missing_capability:<name>`, which
+keeps the experiment ID honest rather than silently measuring the default
+pipeline several times.
+
+Artifacts are stripped before `artifact_size` is recorded (`llvm-strip`, or
+`wasm-tools strip --all` for Wasm including AIHC's component output), outside
+the timed compile.
 
 GHC baselines are split into two roles:
 
@@ -226,7 +232,7 @@ GHC baselines are split into two roles:
 aihc-bench doctor    [--machine <id>]          print or override machine ID
 aihc-bench plan      [--fetch]                 show coverage and next commit
 aihc-bench run       [--all] [--until HH:MM] [--upload] [--jobs N]
-aihc-bench compare   <A> <B> [--worktree PATH] [--bench ID...] [--profile O0|O2]
+aihc-bench compare   <A> <B> [--worktree PATH] [--bench ID...] [--profile O0|O1|O2|Os]
                      [--config ID...] [--rounds N] [--markdown]
 aihc-bench upload    [--dry-run]
 upload results through wrangler

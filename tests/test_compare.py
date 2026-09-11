@@ -49,7 +49,7 @@ CONFIG = {
         configuration("ghc-native-O2", family="ghc"),
     ],
 }
-CAPABILITIES = {"build-exe": True, "compile": False, "prepare-runtime": False, "install-offline": False, "optimization-flag": True, "build-root": False}
+CAPABILITIES = {"build-exe": True, "compile": False, "prepare-runtime": False, "install-offline": False, "optimization-flag": True, "optimization-O1": True, "optimization-Os": True, "build-root": False}
 
 
 def sample(wall, stats=None):

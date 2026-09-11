@@ -42,9 +42,13 @@ untouched inherit their neighbour's result instead of being measured.
 `plan` reports measured and inherited coverage separately. Compilations
 within a revision are parallel; benchmark executions are sequential.
 
-Every configuration is measured in an `O2` and an `O0` profile. AIHC `O2` uses
-the default optimizing pipeline; AIHC `O0` is recorded as unavailable until a
-commit's `build-exe` advertises an optimization flag. GHC is measured with its
+Every configuration is measured in four profiles: `O0`, `O1`, `O2` and `Os`.
+AIHC `O2` uses the default optimizing pipeline; the other AIHC profiles are
+recorded as unavailable until a commit's `build-exe` advertises that level.
+GHC has no size level, so its `Os` profile builds with `-O1`. Every artifact
+is stripped before its size is recorded: `llvm-strip` for native binaries and
+`wasm-tools strip --all` for Wasm, which also handles the component AIHC
+emits. Stripping happens after the timed compile. GHC is measured with its
 native and LLVM backends, and with the `ghc-wasm-meta` cross-compiler for
 Wasm. GHC targets `wasm32-wasi` while AIHC targets `wasm32-wasip3`; both run
 under Wasmtime, so the Wasm ratio includes the difference between the two host

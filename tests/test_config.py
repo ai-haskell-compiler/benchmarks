@@ -61,7 +61,7 @@ class ConfigTests(unittest.TestCase):
             root = Path(directory)
             write_sample_package(root)
             for broken in (
-                {**BASE, "optimization": "O1"},
+                {**BASE, "optimization": "O3"},
                 {**BASE, "runtime_stats": "rust"},
                 {**BASE, "requires": ["teleport"]},
                 {key: value for key, value in BASE.items() if key != "optimization"},
@@ -85,9 +85,9 @@ class ConfigTests(unittest.TestCase):
     def test_repository_configuration_loads(self):
         config = load_config(Path(__file__).resolve().parents[1] / "benchmark.json")
         profiles = {(item["compiler_family"], item["optimization"]) for item in config["configurations"]}
-        self.assertEqual(profiles, {("aihc", "O0"), ("aihc", "O2"), ("ghc", "O0"), ("ghc", "O2")})
+        self.assertEqual(profiles, {(family, profile) for family in ("aihc", "ghc") for profile in ("O0", "O1", "O2", "Os")})
         baselines = {(item["backend"], item["optimization"]) for item in config["configurations"] if item.get("baseline")}
-        self.assertEqual(baselines, {("native", "O0"), ("native", "O2"), ("llvm", "O0"), ("llvm", "O2"), ("wasm", "O0"), ("wasm", "O2")})
+        self.assertEqual(baselines, {(backend, profile) for backend in ("native", "llvm", "wasm") for profile in ("O0", "O1", "O2", "Os")})
         for item in config["configurations"]:
             self.assertIn(item.get("runtime_stats"), {"ghc", "aihc"})
             if item["compiler_family"] == "ghc":
@@ -95,13 +95,25 @@ class ConfigTests(unittest.TestCase):
                 if item["backend"] == "wasm":
                     self.assertIn("-rtsopts", item["compile"])
                     self.assertTrue(item["compile"][0].startswith("{toolchains}/bin/ghc-"))
+                    # GHC has no size level, so the Os profile builds with -O1.
+                    self.assertIn("-O1" if item["optimization"] == "Os" else f"-{item['optimization']}", item["compile"])
                 else:
                     self.assertEqual(item["compile"][0], "python3")
                     self.assertIn("compile_with_cabal.py", item["compile"][1])
                     self.assertTrue(any(value.startswith("{toolchains}/bin/ghc-") for value in item["compile"]))
                     self.assertIn("--ghc-option=-rtsopts", item["compile"])
-            if item["compiler_family"] == "aihc" and item["optimization"] == "O0":
-                self.assertEqual(item["requires"], ["optimization-flag"])
+                    self.assertEqual(item["compile"][item["compile"].index("--optimization") + 1], item["optimization"])
+            if item["compiler_family"] == "aihc":
+                expected = {"O0": ["optimization-flag"], "O1": ["optimization-O1"], "O2": [], "Os": ["optimization-Os"]}
+                self.assertEqual(item["requires"], expected[item["optimization"]])
+                flag = f"-{item['optimization']}"
+                if item["optimization"] == "O2":
+                    self.assertNotIn("--optimization", item["compile"])
+                    self.assertFalse(any(part.startswith("-O") for part in item["compile"]))
+                elif item["backend"] == "wasm":
+                    self.assertIn(flag, item["compile"])
+                else:
+                    self.assertEqual(item["compile"][item["compile"].index("--optimization") + 1], item["optimization"])
 
 
 if __name__ == "__main__":
