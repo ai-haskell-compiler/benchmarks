@@ -19,7 +19,7 @@
     <p class="lede">Each number is AIHC divided by GHC for the same program, backend and optimization level, as a geometric mean over the benchmark suite. Lower is better; 1.00× means parity.</p>
   </section>
   <div class="toolbar">
-    <div class="segmented" id="backends" role="group" aria-label="Backend"></div>
+    <fieldset class="segmented" id="backends"><legend class="sr-only">Backend</legend></fieldset>
     <p class="status-line" id="status-line">Loading…</p>
   </div>
   <div class="scorecards" id="machines"></div>
@@ -27,7 +27,7 @@
   <p class="lede">Every machine measures every configuration itself, so ratios are comparable across machines even though absolute times are not. Artifact size at <code>-Os</code> and runtime at <code>-O1</code> stay blank until AIHC grows those profiles. Commits that leave the compiler untouched inherit their neighbour's result and count toward coverage. The <a href="/timeline.html">timeline</a> shows how each ratio moved over the commit history, the <a href="/coverage.html">coverage</a> page shows which commits have been measured, and every number links to its commit.</p>
 </main>
 <script type="module">
-import { api, el, replaceChildren, formatRatio, formatValue, formatDate, machineLabel, commitLink, setStatus, renderHeader, queryState, pushQuery, GITHUB } from "/site.js";
+import { api, el, replaceChildren, formatRatio, formatValue, formatDate, machineLabel, commitLink, setStatus, renderHeader, queryState, pushQuery, GITHUB } from "./site.js";
 
 renderHeader();
 
@@ -133,7 +133,7 @@ function render() {
   replaceChildren(document.getElementById("machines"), ...overview.machines.map((machine) => card(machine, state.backend)));
 }
 
-replaceChildren(document.getElementById("backends"), ...BACKENDS.map((backend) => el("button", {
+document.getElementById("backends").append(...BACKENDS.map((backend) => el("button", {
   type: "button",
   dataset: { backend },
   onclick: () => {
