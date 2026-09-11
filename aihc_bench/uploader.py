@@ -1,4 +1,4 @@
-"""Upload local results to the fast.aihc.app Worker.
+"""Upload local results to the perf.aihc.app Worker.
 
 Credentials live in ``.state/upload.json`` as ``{"server": ..., "token": ...}``.
 The token is issued once per machine by ``register`` and never printed again.

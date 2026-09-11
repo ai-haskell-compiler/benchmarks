@@ -1,4 +1,4 @@
-// Shared helpers for fast.aihc.app. Plain ES module, no build step.
+// Shared helpers for perf.aihc.app. Plain ES module, no build step.
 
 export const GITHUB = "https://github.com/ai-haskell-compiler/aihc";
 

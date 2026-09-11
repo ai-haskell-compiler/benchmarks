@@ -3,7 +3,7 @@
 Historical runtime benchmarks for every first-parent commit on
 [`ai-haskell-compiler/aihc`](https://github.com/ai-haskell-compiler/aihc).
 
-Results are published at [fast.aihc.app](https://fast.aihc.app): an overview
+Results are published at [perf.aihc.app](https://perf.aihc.app): an overview
 of AIHC against GHC for the newest measured commit, a timeline per benchmark
 and metric, a page per commit, and the coverage of the commit history.
 
@@ -73,7 +73,7 @@ samples and the stopping reason are retained.
 ## Uploading
 
 Results are served by a Cloudflare Worker at
-[fast.aihc.app](https://fast.aihc.app), whose source and static pages live in
+[perf.aihc.app](https://perf.aihc.app), whose source and static pages live in
 `web/`. Each machine uploads with its own token:
 
 ```console

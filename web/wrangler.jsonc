@@ -8,7 +8,7 @@
     "binding": "ASSETS",
     "not_found_handling": "404-page"
   },
-  "routes": [{ "pattern": "fast.aihc.app", "custom_domain": true }],
+  "routes": [{ "pattern": "perf.aihc.app", "custom_domain": true }],
   "d1_databases": [
     {
       "binding": "DB",

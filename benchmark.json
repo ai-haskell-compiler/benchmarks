@@ -846,7 +846,7 @@
     }
   ],
   "publishing": {
-    "server_url": "https://fast.aihc.app"
+    "server_url": "https://perf.aihc.app"
   },
   "toolchains_note": "GHC binaries come from AIHC_BENCH_TOOLCHAINS, exported by the flake; their versions are pinned by flake.lock, which is part of the experiment ID. The Wasm GHC is the ghc-wasm-meta cross-compiler targeting wasm32-wasi (WASI preview 1); AIHC targets wasm32-wasip3, so both run under Wasmtime but through different host interfaces."
 }

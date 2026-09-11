@@ -1,4 +1,4 @@
-name: Deploy fast.aihc.app
+name: Deploy perf.aihc.app
 
 on:
   push:

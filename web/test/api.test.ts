@@ -57,15 +57,15 @@ async function post(path: string, body: unknown, auth: string, gzip = false) {
     payload = await new Response(new Blob([payload]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
     headers["content-encoding"] = "gzip";
   }
-  return SELF.fetch(`https://fast.aihc.app${path}`, { method: "POST", headers, body: payload });
+  return SELF.fetch(`https://perf.aihc.app${path}`, { method: "POST", headers, body: payload });
 }
 
 async function get(path: string) {
-  const response = await SELF.fetch(`https://fast.aihc.app${path}`);
+  const response = await SELF.fetch(`https://perf.aihc.app${path}`);
   return { status: response.status, body: (await response.json()) as any };
 }
 
-describe("fast.aihc.app API", () => {
+describe("perf.aihc.app API", () => {
   beforeAll(async () => {
     const response = await post("/api/machines", { machine_id: MACHINE, display_name: "Lemmih's laptop" }, "admin-secret");
     expect(response.status).toBe(201);
@@ -100,7 +100,7 @@ describe("fast.aihc.app API", () => {
     expect(again.status).toBe(200);
     expect(((await again.json()) as { inserted: boolean }).inserted).toBe(false);
 
-    const raw = await SELF.fetch(`https://fast.aihc.app/api/${created.envelope_key}`);
+    const raw = await SELF.fetch(`https://perf.aihc.app/api/${created.envelope_key}`);
     expect(raw.status).toBe(200);
     expect(raw.headers.get("content-encoding")).toBe("gzip");
     const decoded = (await new Response(raw.body!.pipeThrough(new DecompressionStream("gzip"))).json()) as { run_id: string };
@@ -165,12 +165,12 @@ describe("fast.aihc.app API", () => {
   });
 
   it("falls through to static assets", async () => {
-    const response = await SELF.fetch("https://fast.aihc.app/");
+    const response = await SELF.fetch("https://perf.aihc.app/");
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("AIHC benchmarks");
     for (const page of ["/timeline.html", "/commit.html", "/coverage.html", "/site.js", "/site.css", "/vendor/uPlot.iife.min.js"]) {
-      expect((await SELF.fetch(`https://fast.aihc.app${page}`)).status, page).toBe(200);
+      expect((await SELF.fetch(`https://perf.aihc.app${page}`)).status, page).toBe(200);
     }
-    expect((await SELF.fetch("https://fast.aihc.app/missing")).status).toBe(404);
+    expect((await SELF.fetch("https://perf.aihc.app/missing")).status).toBe(404);
   });
 });
