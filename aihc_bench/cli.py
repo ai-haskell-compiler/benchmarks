@@ -9,11 +9,11 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from .compare import CompareError, format_report, resolve_side, run_compare, select_configuration, worktree_side
-from .config import OPTIMIZATION_PROFILES, ConfigError, detect_platform, experiment_id, load_config
+from .config import OPTIMIZATION_PROFILES, ConfigError, detect_platform, experiment_ids, load_config, suite_key
 from .database import Database
 from .git_history import DEFAULT_REMOTE, GitError, clone, clone_directory, commits, fetch, is_remote
 from .machine import load_machine
-from .planner import build_plan
+from .planner import build_plan, merge_terminal_attempts
 from .runner import run_commit
 from .uploader import UploadError, check_login, refresh_overview, upload_pending
 
@@ -30,12 +30,13 @@ def main(argv: Optional[list] = None) -> None:
         platform_id = arguments.platform or detect_platform()
         if platform_id not in config["platforms"]:
             raise ConfigError(f"platform {platform_id!r} is not configured")
-        experiment = experiment_id(config)
+        experiments = experiment_ids(config)
+        suite = suite_key(config)
         state_path = (root / arguments.state).resolve()
         machine = load_machine(state_path.parent, getattr(arguments, "machine", None))
         database = Database(state_path)
         try:
-            _dispatch(arguments, root, config, platform_id, experiment, database, machine)
+            _dispatch(arguments, root, config, platform_id, experiments, suite, database, machine)
         finally:
             database.close()
     except (CompareError, ConfigError, GitError, UploadError, ValueError) as error:
@@ -47,12 +48,13 @@ def _dispatch(
     root: Path,
     config: Dict[str, Any],
     platform_id: str,
-    experiment: str,
+    experiments: Dict[str, str],
+    suite: str,
     database: Database,
     machine: Dict[str, Any],
 ) -> None:
     if arguments.command == "doctor":
-        _doctor(arguments, root, config, platform_id, experiment, machine)
+        _doctor(arguments, root, config, platform_id, experiments, suite, machine)
         return
     if arguments.command == "compare":
         repository = _repository(arguments, root)
@@ -82,7 +84,7 @@ def _dispatch(
         if not arguments.dry_run:
             check_login(config, root)
         summary = upload_pending(
-            database, experiment, platform_id, config, root, database.commits(), dry_run=arguments.dry_run, limit=arguments.limit
+            database, experiments, suite, platform_id, config, root, database.commits(), dry_run=arguments.dry_run, limit=arguments.limit
         )
         print(f"uploaded {summary['uploaded']} runs ({summary['pending']} still pending)")
         if summary["uploaded"]:
@@ -97,10 +99,11 @@ def _dispatch(
             repository, config.get("aihc_ref", "origin/main"), config["aihc_tree_paths"], since=config.get("aihc_since")
         )
         database.replace_commits(history)
-        database.propagate_inherited(experiment, platform_id)
+        for experiment in experiments.values():
+            database.propagate_inherited(experiment, platform_id)
 
     if arguments.command == "plan":
-        _print_plan(database, experiment, platform_id, len(history))
+        _print_plan(database, experiments, suite, platform_id, len(history))
         return
 
     if arguments.command == "run":
@@ -109,17 +112,28 @@ def _dispatch(
             check_login(config, root)
         completed = 0
         while True:
-            terminal = database.terminal_attempts(experiment, platform_id)
-            plan = build_plan(database.commits(), terminal)
+            by_experiment = _terminal_by_experiment(database, experiments, platform_id)
+            plan = build_plan(database.commits(), merge_terminal_attempts(by_experiment))
             next_commit = plan["next"]
             if not next_commit:
                 print("all commits have terminal results")
                 break
-            print(f"benchmarking {next_commit['sha'][:12]} ({next_commit['ordinal'] + 1}/{len(history)}, {plan['stage']}): {next_commit['subject']}")
-            envelope = run_commit(
+            # Only the benchmarks without a result for this commit are measured,
+            # so a benchmark added later fills in without re-measuring the rest.
+            missing = {
+                benchmark: experiment
+                for benchmark, experiment in experiments.items()
+                if next_commit["sha"] not in {attempt["commit_sha"] for attempt in by_experiment[experiment]}
+            }
+            print(
+                f"benchmarking {next_commit['sha'][:12]} ({next_commit['ordinal'] + 1}/{len(history)}, {plan['stage']}, "
+                f"{', '.join(missing)}): {next_commit['subject']}"
+            )
+            envelopes = run_commit(
                 database=database,
                 config=config,
-                experiment_id=experiment,
+                experiments=missing,
+                suite=suite,
                 platform_id=platform_id,
                 machine=machine,
                 commit=next_commit,
@@ -127,12 +141,13 @@ def _dispatch(
                 root=root,
                 jobs=arguments.jobs,
             )
-            print(f"recorded {envelope['compiler_status']} result {envelope['run_id']}")
-            inherited = database.propagate_inherited(experiment, platform_id)
+            for envelope in envelopes:
+                print(f"recorded {envelope['compiler_status']} result {envelope['run_id']} for {envelope['benchmark']}")
+            inherited = sum(database.propagate_inherited(experiment, platform_id) for experiment in missing.values())
             if inherited:
-                print(f"propagated the result to {inherited} same-tree commits")
+                print(f"propagated the result to {inherited} same-tree benchmark results")
             if arguments.upload:
-                summary = upload_pending(database, experiment, platform_id, config, root, database.commits())
+                summary = upload_pending(database, experiments, suite, platform_id, config, root, database.commits())
                 print(f"uploaded {summary['uploaded']} runs ({summary['pending']} still pending)")
                 if summary["uploaded"]:
                     refresh_overview(config)
@@ -143,8 +158,9 @@ def _dispatch(
 
     if arguments.command == "forget":
         sha = _resolve_commit(database, arguments.commit)
-        if database.forget(experiment, platform_id, sha):
-            print(f"forgot active result for {sha}")
+        forgotten = [benchmark for benchmark, experiment in experiments.items() if database.forget(experiment, platform_id, sha)]
+        if forgotten:
+            print(f"forgot active results for {sha}: {', '.join(forgotten)}")
         else:
             raise ValueError(f"no active result for {sha}")
         return
@@ -152,14 +168,29 @@ def _dispatch(
     raise ValueError(f"unsupported command {arguments.command}")
 
 
-def _print_plan(database: Database, experiment: str, platform_id: str, total: int) -> None:
-    terminal = database.terminal_attempts(experiment, platform_id)
+def _terminal_by_experiment(database: Database, experiments: Dict[str, str], platform_id: str) -> Dict[str, list]:
+    return {experiment: database.terminal_attempts(experiment, platform_id) for experiment in experiments.values()}
+
+
+def _print_experiments(experiments: Dict[str, str], suite: str) -> None:
+    print(f"suite:      {suite}")
+    for benchmark, experiment in experiments.items():
+        print(f"experiment: {experiment}  ({benchmark})")
+
+
+def _print_plan(database: Database, experiments: Dict[str, str], suite: str, platform_id: str, total: int) -> None:
+    by_experiment = _terminal_by_experiment(database, experiments, platform_id)
+    terminal = merge_terminal_attempts(by_experiment)
     plan = build_plan(database.commits(), terminal)
     measured = sum(1 for attempt in terminal if not attempt.get("inherited_from"))
     inherited = len(terminal) - measured
-    print(f"experiment: {experiment}")
+    _print_experiments(experiments, suite)
     print(f"platform:   {platform_id}")
     print(f"complete:   {len(terminal)}/{total} ({measured} measured, {inherited} inherited)")
+    for benchmark, experiment in experiments.items():
+        covered = len(by_experiment[experiment])
+        if covered != len(terminal):
+            print(f"            {benchmark}: {covered}/{total}")
     next_commit = plan["next"]
     if next_commit:
         print(f"next:       {next_commit['sha']}  {next_commit['subject']}  [{plan['stage']}]")
@@ -177,13 +208,14 @@ def _doctor(
     root: Path,
     config: Dict[str, Any],
     platform_id: str,
-    experiment: str,
+    experiments: Dict[str, str],
+    suite: str,
     machine: Dict[str, Any],
 ) -> None:
     repository = _repository(arguments, root)
     failures = []
     derivation = machine.get("derivation", {})
-    print(f"experiment: {experiment}")
+    _print_experiments(experiments, suite)
     print(f"platform:   {platform_id}")
     print(f"machine:    {machine['machine_id']}")
     print(f"cpu:        {derivation.get('cpu_brand') or 'unknown'}")

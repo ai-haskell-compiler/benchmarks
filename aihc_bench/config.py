@@ -98,7 +98,7 @@ def _hash_directory(source: Path) -> str:
     """Hash every file in a benchmark package directory, deterministically.
 
     Benchmarks are now self-contained Cabal packages rather than a single
-    ``Main.hs``, so the experiment identity (see ``experiment_id``) needs to
+    ``Main.hs``, so the experiment identity (see ``benchmark_experiment_id``) needs to
     change whenever any file in the package changes, including its
     ``cabal.project.freeze`` pins.
     """
@@ -133,18 +133,42 @@ def _validate_unique(items: Iterable[Dict[str, Any]], kind: str) -> None:
         raise ConfigError(f"duplicate {kind} ids: {', '.join(duplicates)}")
 
 
-def experiment_id(config: Dict[str, Any]) -> str:
+def benchmark_experiment_id(config: Dict[str, Any], benchmark: Dict[str, Any]) -> str:
+    """The experiment a benchmark's results belong to.
+
+    Identity is per benchmark, so adding a benchmark leaves every other
+    benchmark's history valid. The hash covers everything that changes what
+    a measurement means: the benchmark itself (including its package
+    contents), the configurations, the measurement settings, the tree paths
+    that decide result inheritance, the pinned toolchain and the runner
+    version. Local paths and publishing locations do not take part.
+    """
     semantic = {
         "schema_version": config["schema_version"],
-        "suite_id": config["suite_id"],
         "measurement": config["measurement"],
         "tree_paths": config.get("aihc_tree_paths"),
-        "benchmarks": config["benchmarks"],
+        "benchmark": benchmark,
         "configurations": config["configurations"],
         "toolchain_sha256": config.get("_toolchain_sha256"),
         "runner_version": config.get("_runner_version"),
     }
     encoded = json.dumps(semantic, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"{benchmark['id']}-{hashlib.sha256(encoded).hexdigest()[:12]}"
+
+
+def experiment_ids(config: Dict[str, Any]) -> Dict[str, str]:
+    """Benchmark id to experiment id, in configuration order."""
+    return {benchmark["id"]: benchmark_experiment_id(config, benchmark) for benchmark in config["benchmarks"]}
+
+
+def suite_key(config: Dict[str, Any]) -> str:
+    """Identity of the whole suite: the sorted set of its benchmark experiments.
+
+    The site shows one suite at a time and the uploader publishes this key
+    with the benchmark to experiment mapping, so the Worker knows which
+    experiments make up the current suite without re-deriving the hashes.
+    """
+    encoded = json.dumps(sorted(experiment_ids(config).values()), separators=(",", ":")).encode("utf-8")
     return f"{config['suite_id']}-{hashlib.sha256(encoded).hexdigest()[:12]}"
 
 

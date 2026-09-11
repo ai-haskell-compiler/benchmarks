@@ -1,9 +1,10 @@
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from aihc_bench.config import ConfigError, experiment_id, load_config
+from aihc_bench.config import ConfigError, benchmark_experiment_id, experiment_ids, load_config, suite_key
 
 
 def write_sample_package(root, main_contents="main = pure ()"):
@@ -51,10 +52,41 @@ class ConfigTests(unittest.TestCase):
             config_path = write_config(root, BASE)
             main_file = root / "sample" / "Main.hs"
             main_file.write_text("first", encoding="utf-8")
-            first = experiment_id(load_config(config_path))
+            first = experiment_ids(load_config(config_path))
             main_file.write_text("second", encoding="utf-8")
-            second = experiment_id(load_config(config_path))
-            self.assertNotEqual(first, second)
+            second = experiment_ids(load_config(config_path))
+            self.assertNotEqual(first["sample"], second["sample"])
+            self.assertTrue(first["sample"].startswith("sample-"))
+
+    def test_adding_a_benchmark_keeps_the_other_experiments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = write_config(root, BASE)
+            before = load_config(config_path)
+            first = experiment_ids(before)
+            shutil.copytree(root / "sample", root / "other")
+            raw = json.loads(config_path.read_text(encoding="utf-8"))
+            raw["benchmarks"].append({"id": "other", "package": "sample", "source": "other", "expected_stdout": "ok\n"})
+            config_path.write_text(json.dumps(raw), encoding="utf-8")
+            after = load_config(config_path)
+            second = experiment_ids(after)
+            self.assertEqual(second["sample"], first["sample"])
+            self.assertEqual(list(second), ["sample", "other"])
+            self.assertNotEqual(suite_key(before), suite_key(after))
+            self.assertTrue(suite_key(after).startswith("test-"))
+            # The suite key depends only on the set of experiments, not their order.
+            raw["benchmarks"].reverse()
+            config_path.write_text(json.dumps(raw), encoding="utf-8")
+            self.assertEqual(suite_key(load_config(config_path)), suite_key(after))
+
+    def test_configurations_change_every_experiment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = load_config(write_config(root, BASE))
+            benchmark = config["benchmarks"][0]
+            first = benchmark_experiment_id(config, benchmark)
+            config["configurations"][0]["compile"] = ["ghc", "-O2"]
+            self.assertNotEqual(first, benchmark_experiment_id(config, benchmark))
 
     def test_configurations_are_validated(self):
         with tempfile.TemporaryDirectory() as directory:

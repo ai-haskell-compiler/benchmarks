@@ -22,6 +22,7 @@
   --cover-measured: #5e5086;
   --cover-inherited: #c4b8e6;
   --cover-unavailable: #b8b7b1;
+  --cover-partial: #e6d9a8;
   --cover-pending: #f3f0ea;
   --shadow: 0 1px 2px rgba(29, 26, 23, 0.04), 0 8px 24px -12px rgba(29, 26, 23, 0.18);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -48,6 +49,7 @@
     --cover-measured: #b7a8e6;
     --cover-inherited: #5b4d85;
     --cover-unavailable: #4a4945;
+    --cover-partial: #6b5f2e;
     --cover-pending: #262230;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   }
@@ -73,6 +75,7 @@
   --cover-measured: #b7a8e6;
   --cover-inherited: #5b4d85;
   --cover-unavailable: #4a4945;
+  --cover-partial: #6b5f2e;
   --cover-pending: #262230;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
 }

@@ -19,6 +19,7 @@
   <div class="coverage-legend">
     <span><i style="background:var(--cover-measured)"></i>measured</span>
     <span><i style="background:var(--cover-inherited)"></i>inherited from a same-compiler commit</span>
+    <span><i style="background:var(--cover-partial)"></i>some benchmarks still pending</span>
     <span><i style="background:var(--cover-unavailable)"></i>compiler unavailable</span>
     <span><i style="background:var(--cover-pending)"></i>not yet measured</span>
   </div>
@@ -28,8 +29,8 @@
 import { api, el, replaceChildren, setStatus, renderHeader, commitIndex, machineLabel, formatDate } from "./site.js";
 
 renderHeader();
-const COLORS = { M: "--cover-measured", I: "--cover-inherited", U: "--cover-unavailable", ".": "--cover-pending" };
-const LABELS = { M: "measured", I: "inherited", U: "compiler unavailable", ".": "not measured" };
+const COLORS = { M: "--cover-measured", I: "--cover-inherited", U: "--cover-unavailable", P: "--cover-partial", ".": "--cover-pending" };
+const LABELS = { M: "measured", I: "inherited", U: "compiler unavailable", P: "partially measured", ".": "not measured" };
 const tooltip = document.getElementById("tooltip");
 let commits = null;
 
@@ -57,7 +58,7 @@ async function start() {
 }
 
 function section(machine, coverage) {
-  const counts = { M: 0, I: 0, U: 0, ".": 0 };
+  const counts = { M: 0, I: 0, U: 0, P: 0, ".": 0 };
   for (const cell of coverage.statuses) counts[cell] = (counts[cell] || 0) + 1;
   const canvas = el("canvas", { class: "coverage-strip", "aria-label": `Coverage for ${machineLabel(machine)}` });
   canvas.dataset.statuses = coverage.statuses;
@@ -72,7 +73,7 @@ function section(machine, coverage) {
   requestAnimationFrame(() => draw(canvas));
   return el("section", { class: "card" },
     el("h2", {}, machineLabel(machine)),
-    el("div", { class: "meta" }, `${counts.M} measured · ${counts.I} inherited · ${counts.U} unavailable · ${counts["."]} pending of ${coverage.total} · last upload ${formatDate(machine.last_seen_at)}`),
+    el("div", { class: "meta" }, `${counts.M} measured · ${counts.I} inherited · ${counts.U} unavailable · ${counts.P} partial · ${counts["."]} pending of ${coverage.total} · last upload ${formatDate(machine.last_seen_at)}`),
     canvas,
   );
 }

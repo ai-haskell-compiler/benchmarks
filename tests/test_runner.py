@@ -99,7 +99,7 @@ class RunnerTests(unittest.TestCase):
             {"sha": "abc123"},
             root / "worktree",
             root,
-            "experiment",
+            {"example": "example-experiment"},
             aihc_store=store,
             capabilities=capabilities or self.capabilities,
         )
@@ -147,6 +147,17 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(optimization_levels(OLD_BUILD_EXE_HELP), {"0", "2"})
         self.assertEqual(optimization_levels("Usage: aihc build-exe [-O LEVEL] --target T"), set())
         self.assertEqual(optimization_levels(""), set())
+
+    def test_cells_cover_only_the_requested_benchmarks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
+            config = {**self.config, "benchmarks": self.config["benchmarks"] + [{"id": "other", "source": "example.hs", "expected_stdout": "ok\n"}]}
+            cells = build_cells(config, "test-platform", {"sha": "abc123"}, root / "worktree", root, {"other": "other-exp"}, capabilities=self.capabilities)
+            self.assertEqual({cell.benchmark["id"] for cell in cells}, {"other"})
+            # Artifacts and stats are cached under the benchmark's own experiment.
+            self.assertIn("other-exp", str(cells[0].artifact))
+            self.assertEqual(build_cells(config, "test-platform", {"sha": "abc123"}, root / "worktree", root, {}, capabilities=self.capabilities), [])
 
     def test_build_command_follows_the_commit_cli(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -262,7 +273,7 @@ class RunnerTests(unittest.TestCase):
             self.assertIn("no sysroot", errors["wasm32-wasip3"])
             (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
             cells = {cell.configuration["id"]: cell for cell in build_cells(
-                self.config, "test-platform", {"sha": "abc123"}, root / "worktree", root, "experiment",
+                self.config, "test-platform", {"sha": "abc123"}, root / "worktree", root, {"example": "example-experiment"},
                 aihc_store=root / "store", aihc_setup_errors=errors, capabilities=self.capabilities,
             )}
         self.assertIsNotNone(cells["aihc-wasm-O2"].setup_error)

@@ -140,3 +140,61 @@ def signal_between(left: Dict[Tuple[str, str, str], float], right: Dict[Tuple[st
         if other and value > 0:
             strongest = max(strongest, abs(math.log(other / value)))
     return strongest
+
+
+def merge_terminal_attempts(attempts_by_experiment: Dict[str, Iterable[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Fold per-benchmark attempts into one attempt per fully covered commit.
+
+    Experiments are per benchmark, but the planner reasons about commits: a
+    commit counts as measured only when every experiment has a terminal
+    attempt for it, so a newly added benchmark makes the whole history
+    eligible again and fills in with the usual head, warmup, gap order. The
+    merged attempt carries the concatenated results under ``result`` so gap
+    signals see every benchmark.
+    """
+    experiments = dict(attempts_by_experiment)
+    if not experiments:
+        return []
+    per_commit: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for experiment, attempts in experiments.items():
+        for attempt in attempts:
+            per_commit.setdefault(attempt["commit_sha"], {})[experiment] = attempt
+    merged: List[Dict[str, Any]] = []
+    for sha, attempts in per_commit.items():
+        if len(attempts) != len(experiments):
+            continue
+        parts = [attempts[experiment] for experiment in experiments]
+        envelopes = [_attempt_envelope(part) for part in parts]
+        statuses = [part.get("status") for part in parts]
+        inherited = [part.get("inherited_from") for part in parts]
+        if all(inherited):
+            status = "inherited"
+        elif any(status in {"complete", "inherited"} for status in statuses):
+            status = "complete"
+        else:
+            status = statuses[0]
+        available = any(envelope.get("compiler_status") == "available" for envelope in envelopes)
+        merged.append(
+            {
+                "commit_sha": sha,
+                "ordinal": parts[0].get("ordinal"),
+                "status": status,
+                "inherited_from": inherited[0] if all(inherited) else None,
+                "result": {
+                    "compiler_status": "available" if available else "unavailable",
+                    "results": [result for envelope in envelopes for result in envelope.get("results", [])],
+                },
+            }
+        )
+    merged.sort(key=lambda item: (item["ordinal"] is None, item["ordinal"]))
+    return merged
+
+
+def _attempt_envelope(attempt: Dict[str, Any]) -> Dict[str, Any]:
+    envelope = attempt.get("result")
+    if envelope is None and attempt.get("result_json"):
+        try:
+            envelope = json.loads(attempt["result_json"])
+        except ValueError:
+            envelope = None
+    return envelope or {}

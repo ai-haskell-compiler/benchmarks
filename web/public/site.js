@@ -210,6 +210,13 @@ export function describeConfiguration(entry) {
 }
 
 /** Machines are named by their derived id; display names are metadata, not labels. */
+/** "Suite <key> · N benchmarks", or the single experiment when one was requested. */
+export function suiteLabel(data) {
+  const count = Object.keys(data.benchmarks || {}).length;
+  if (!count) return `Experiment ${data.suite}`;
+  return `Suite ${data.suite} · ${count} benchmark${count === 1 ? "" : "s"}`;
+}
+
 export function machineLabel(machine) {
   return machine.machine_id;
 }

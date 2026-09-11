@@ -133,6 +133,13 @@ CREATE TABLE runs (
   envelope_key   TEXT NOT NULL   -- R2 object key
 );
 
+CREATE TABLE suites (
+  suite_key   TEXT PRIMARY KEY,   -- <suite id>-<hash of the experiment set>
+  suite_id    TEXT NOT NULL,
+  experiments TEXT NOT NULL,      -- JSON: benchmark id -> experiment id
+  uploaded_at TEXT NOT NULL       -- newest is the active suite
+);
+
 CREATE TABLE measurements (
   run_id        TEXT NOT NULL REFERENCES runs(run_id),
   machine_id    TEXT NOT NULL,
@@ -155,6 +162,11 @@ Raw samples stay in the R2 envelope; the index holds only estimates. The
 local SQLite database adopts the same `runs` and `measurements` tables plus an
 `uploaded_at` column on `runs`, so upload is "push runs where `uploaded_at` is
 null" and is idempotent on `run_id`.
+
+`experiment_id` is per benchmark (see architecture.md), so one commit has one
+run per benchmark on each machine. The `suites` table maps a suite to its
+experiments; the uploader records its suite after every upload and the site
+shows the one uploaded most recently.
 
 Ad-hoc `compare` results are stored in a separate local table
 (`adhoc_runs`) that the uploader never reads.
@@ -379,8 +391,8 @@ Every filter state is reflected in the URL so views can be linked.
 1. **Metrics and identity.** Add `machine_id`, CPU time, compile metrics,
    `schema_version: 2`, the GHC RTS stats mapping, capability probing and
    `O0` configurations (done in this repository). Land the AIHC runtime hook
-   and `-O0` flag in the AIHC repository (tracked separately). This starts a
-   new experiment ID, so it should land before any long overnight run.
+   and `-O0` flag in the AIHC repository (tracked separately). This starts
+   new experiment IDs, so it should land before any long overnight run.
 2. **Planner.** Tree keys, inherited results, warmup and scored gaps (done).
 3. **Worker.** D1 migrations, upload endpoint, read endpoints, `wrangler deploy`
    workflow, `perf.aihc.app` custom domain, local uploader with `uploaded_at`

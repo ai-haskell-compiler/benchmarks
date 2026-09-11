@@ -54,7 +54,8 @@ def check_login(config: Dict[str, Any], root: Path, run: Run = None) -> str:  # 
 
 def upload_pending(
     database: Database,
-    experiment_id: str,
+    experiments: Dict[str, str],
+    suite: str,
     platform_id: str,
     config: Dict[str, Any],
     root: Path,
@@ -65,15 +66,23 @@ def upload_pending(
     run: Run = None,  # type: ignore[assignment]
     log: Callable[[str], None] = print,
 ) -> Dict[str, int]:
-    """Push the commit list, then every run the remote has not acknowledged."""
+    """Push the commit list, every run the remote has not acknowledged, then the suite.
+
+    ``experiments`` maps benchmark id to experiment id. The suite record is
+    written last so the Worker only switches to a suite whose runs it has.
+    """
     run = run or _run
-    pending = database.pending_uploads(experiment_id, platform_id)
+    pending = [
+        (experiment_id, attempt)
+        for experiment_id in experiments.values()
+        for attempt in database.pending_uploads(experiment_id, platform_id)
+    ]
     if limit:
         pending = pending[:limit]
     summary = {"commits": 0, "uploaded": 0, "pending": len(pending)}
     if dry_run:
-        for attempt in pending:
-            log(f"would upload {attempt['commit_sha'][:12]} ({attempt['status']})")
+        for _, attempt in pending:
+            log(f"would upload {attempt['commit_sha'][:12]} {attempt['experiment_id']} ({attempt['status']})")
         return summary
 
     commit_list = list(commits)
@@ -83,7 +92,7 @@ def upload_pending(
         summary["commits"] += len(chunk)
 
     bucket = config["publishing"]["bucket"]
-    for attempt in pending:
+    for experiment_id, attempt in pending:
         envelope = json.loads(attempt["result_json"])
         if envelope.get("schema_version") != SCHEMA_VERSION:
             raise UploadError(f"{attempt['commit_sha'][:12]} has schema version {envelope.get('schema_version')}, expected {SCHEMA_VERSION}")
@@ -93,8 +102,9 @@ def upload_pending(
         _execute_sql(config, root, run_statements(envelope, key), run)
         database.mark_uploaded(experiment_id, platform_id, attempt["commit_sha"], utc_now())
         summary["uploaded"] += 1
-        log(f"uploaded {attempt['commit_sha'][:12]}{' (inherited)' if envelope.get('inherited_from') else ''}")
-    summary["pending"] = len(database.pending_uploads(experiment_id, platform_id))
+        log(f"uploaded {attempt['commit_sha'][:12]} {envelope.get('benchmark') or experiment_id}{' (inherited)' if envelope.get('inherited_from') else ''}")
+    _execute_sql(config, root, [suite_statement(suite, config["suite_id"], experiments)], run)
+    summary["pending"] = sum(len(database.pending_uploads(experiment_id, platform_id)) for experiment_id in experiments.values())
     return summary
 
 
@@ -166,6 +176,20 @@ def commit_statement(commit: Dict[str, Any]) -> str:
         + ", ".join(sql_literal(commit.get(key)) for key in ("sha", "ordinal", "committed_at", "subject", "tree_key"))
         + ") ON CONFLICT(sha) DO UPDATE SET ordinal = excluded.ordinal, committed_at = excluded.committed_at, "
         "subject = excluded.subject, tree_key = COALESCE(excluded.tree_key, commits.tree_key);"
+    )
+
+
+def suite_statement(suite: str, suite_id: str, experiments: Dict[str, str]) -> str:
+    """Record the suite and bump it to the most recently uploaded one.
+
+    The Worker treats the suite with the newest ``uploaded_at`` as active and
+    reads its benchmark to experiment mapping from ``experiments``.
+    """
+    mapping = json.dumps(dict(sorted(experiments.items())), sort_keys=True, separators=(",", ":"))
+    return (
+        "INSERT INTO suites(suite_key, suite_id, experiments, uploaded_at) VALUES ("
+        + ", ".join(sql_literal(value) for value in (suite, suite_id, mapping, utc_now()))
+        + ") ON CONFLICT(suite_key) DO UPDATE SET experiments = excluded.experiments, uploaded_at = excluded.uploaded_at;"
     )
 
 

@@ -4,6 +4,8 @@
 
 - The history is the first-parent chain of `origin/main`, including the root.
 - Every commit receives one terminal record per experiment and host platform.
+  Experiments are per benchmark, so adding a benchmark leaves every other
+  benchmark's history valid.
 - Results are keyed by a machine ID derived from the CPU model and a
   hashed hardware identifier; the environment fingerprint is recorded
   alongside.
@@ -28,9 +30,22 @@ not the hostname.
 ## Local state
 
 SQLite stores discovered commits and the active terminal result for each
-`(experiment, platform, commit)` key. The experiment ID hashes every semantic
-input: benchmark definitions, matrix, optimization profile, and measurement
-settings. Local paths and publishing locations do not affect it.
+`(experiment, platform, commit)` key. Each benchmark has its own experiment
+ID, `<benchmark id>-<12 hex>`, hashing every semantic input that applies to
+it: the benchmark definition and package contents, the configurations,
+measurement settings, tree paths, the pinned toolchain and the runner
+version. Local paths and publishing locations do not affect it. Changing a
+configuration or the toolchain therefore starts every benchmark over, while
+adding or editing one benchmark only affects that benchmark. The suite key,
+`<suite id>-<12 hex>`, hashes the sorted set of experiment IDs and names the
+suite as a whole.
+
+The planner treats a commit as measured only when every benchmark's
+experiment has a terminal result for it, so a newly added benchmark makes
+the history eligible again and fills in head first, then the warmup window,
+then the scored gaps. Each visit builds the compiler once and measures only
+the benchmarks that still lack a result for that commit, writing one
+envelope per benchmark.
 
 The planner benchmarks an unmeasured `HEAD` first, then fills in the newest
 20 commits, then bisects gaps between measured commits. A gap's score is its
@@ -89,7 +104,7 @@ GMP for `wasm32`, so Wasm ratios compare against a native-bignum GHC while the
 other backends compare against GMP.
 
 For AIHC revisions with the `prepare-runtime` capability, the runner creates a
-store scoped to the experiment, platform, and commit. It prepares each selected
+store scoped to the suite key, platform, and commit. It prepares each selected
 target/GC runtime and installs `aihc-base` for all selected targets before the
 parallel compilation phase. Older revisions retain their original self-contained
 compile path. Runtime preparation and library installation run per target, so
@@ -106,6 +121,7 @@ schema_version            2
 run_id
 created_at
 experiment_id
+benchmark
 platform
 machine_id
 environment               fingerprint with id, cpu_brand, cpu_cores, memory_bytes
@@ -175,11 +191,21 @@ a copy. The Worker in `web/` only reads. Inserts use `INSERT OR IGNORE` on
 their primary keys, and the local database records `uploaded_at` only after
 both commands succeeded, so an interrupted upload resumes where it stopped.
 
+After the runs, the uploader records its suite in the `suites` table: the
+suite key, the suite ID and the benchmark to experiment mapping. The suite
+uploaded most recently is the active one.
+
 Read endpoints (`/api/overview`, `/api/series`, `/api/commit/<sha>`,
 `/api/coverage`, `/api/commits`, `/api/machines`, `/api/experiments`) are
-public, cached for one minute, and default to the experiment of the most recent
-upload. `/api/raw/<key>` streams envelopes from R2. The D1 schema is
-`web/migrations/0001_init.sql`.
+public, cached for one minute, and default to the active suite; `?suite=<key>`
+selects a recorded suite and `?experiment=<id>` a single benchmark experiment.
+Responses carry `suite` and the `benchmarks` mapping. A commit counts as
+covered once every benchmark in the suite has a run for it; the overview's
+headline commit is the newest one measured for the whole suite, falling back
+to the newest measured for any benchmark while a new benchmark fills in, and
+the coverage strip marks partially covered commits `P`. `/api/raw/<key>`
+streams envelopes from R2. The D1 schema is `web/migrations/0001_init.sql`
+plus the later migrations in the same directory.
 
 The overview is materialized: the Worker stores the computed JSON in R2 under
 `cache/overview/v1.json` and serves the front page from that copy without

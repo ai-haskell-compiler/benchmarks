@@ -97,7 +97,7 @@ class CompareTests(unittest.TestCase):
             with patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": "/toolchains"}):
                 sides = []
                 for label in ("aaaa", "bbbb"):
-                    cells = build_cells(selected, "test-platform", {"sha": label * 10}, root / label, root, "compare", capabilities=CAPABILITIES)
+                    cells = build_cells(selected, "test-platform", {"sha": label * 10}, root / label, root, {b["id"]: "compare" for b in selected["benchmarks"]}, capabilities=CAPABILITIES)
                     sides.append([(cell, {"status": "compiled", "artifact_bytes": 1}) for cell in cells])
             sides[1][1] = (sides[1][1][0], {"status": "compile_failed", "stderr": "boom"})
 

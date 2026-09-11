@@ -23,7 +23,7 @@
   <div id="tables"></div>
 </main>
 <script type="module">
-import { api, el, replaceChildren, formatValue, formatDate, queryState, pushQuery, fillSelect, setStatus, renderHeader, commitIndex, seriesColor, METRIC_LABELS, describeConfiguration, changeCell, GITHUB, shortSha } from "./site.js";
+import { api, el, replaceChildren, formatValue, formatDate, queryState, pushQuery, fillSelect, setStatus, renderHeader, commitIndex, seriesColor, suiteLabel, METRIC_LABELS, describeConfiguration, changeCell, GITHUB, shortSha } from "./site.js";
 
 renderHeader();
 const defaults = { sha: "", metric: "wall_time", profile: "all" };
@@ -62,17 +62,22 @@ async function start() {
   }
 }
 
+// Every benchmark is its own experiment, so a machine has one run per
+// benchmark; the card lists them under the machine.
 function renderRuns(data) {
-  replaceChildren(document.getElementById("runs"), ...data.runs.map((run) => el("section", { class: "card" },
-    el("h2", {}, run.machine_id),
-    el("div", { class: "meta" },
+  const benchmarkOf = new Map(Object.entries(data.benchmarks).map(([benchmark, experiment]) => [experiment, benchmark]));
+  const machines = [...new Set(data.runs.map((run) => run.machine_id))];
+  replaceChildren(document.getElementById("runs"), ...machines.map((machine) => el("section", { class: "card" },
+    el("h2", {}, machine),
+    ...data.runs.filter((run) => run.machine_id === machine).map((run) => el("div", { class: "meta" },
+      el("strong", {}, benchmarkOf.get(run.experiment_id) ?? run.experiment_id), " · ",
       run.inherited_from ? ["inherited from ", el("a", { href: `/commit.html?sha=${run.inherited_from}`, class: "mono" }, shortSha(run.inherited_from)), " · "] : "measured · ",
       `compiler ${run.compiler_status}${run.unavailable_reason ? ` (${run.unavailable_reason})` : ""} · run ${formatDate(run.created_at)} · `,
       el("a", { href: `/api/${run.envelope_key}` }, "raw envelope"),
-    ),
+    )),
   )));
   if (!data.runs.length) setStatus("This commit has not been measured on any machine yet.");
-  else setStatus(`Experiment ${data.experiment} · ${data.runs.length} machine${data.runs.length === 1 ? "" : "s"}. Deltas compare against the first parent on the same machine.`);
+  else setStatus(`${suiteLabel(data)} · ${machines.length} machine${machines.length === 1 ? "" : "s"}. Deltas compare against the first parent on the same machine.`);
 }
 
 function renderTables() {

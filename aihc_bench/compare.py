@@ -124,7 +124,7 @@ def prepare_side(
         {"sha": _side_key(side)},
         side.worktree,
         root,
-        "compare",
+        {benchmark["id"]: "compare" for benchmark in config["benchmarks"]},
         aihc_store=store,
         aihc_setup_errors=setup_errors,
         capabilities=capabilities,

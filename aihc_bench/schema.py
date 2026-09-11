@@ -86,12 +86,14 @@ def result_envelope(
     results: Iterable[Dict[str, Any]],
     run_id: Optional[str] = None,
     capabilities: Optional[Dict[str, bool]] = None,
+    benchmark: Optional[str] = None,
 ) -> Dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id or new_run_id(),
         "created_at": utc_now(),
         "experiment_id": experiment_id,
+        "benchmark": benchmark,
         "platform": platform_id,
         "machine_id": machine_id,
         "environment": environment,

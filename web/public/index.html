@@ -27,7 +27,7 @@
   <p class="lede">Every machine measures every configuration itself, so ratios are comparable across machines even though absolute times are not. Artifact size at <code>-Os</code> and runtime at <code>-O1</code> stay blank until AIHC grows those profiles. Commits that leave the compiler untouched inherit their neighbour's result and count toward coverage. The <a href="/timeline.html">timeline</a> shows how each ratio moved over the commit history, the <a href="/coverage.html">coverage</a> page shows which commits have been measured, and every number links to its commit.</p>
 </main>
 <script type="module">
-import { api, el, replaceChildren, formatRatio, formatValue, formatDate, machineLabel, commitLink, setStatus, renderHeader, queryState, pushQuery, GITHUB } from "./site.js";
+import { api, el, replaceChildren, formatRatio, formatValue, formatDate, machineLabel, commitLink, setStatus, renderHeader, queryState, pushQuery, suiteLabel, GITHUB } from "./site.js";
 
 renderHeader();
 
@@ -148,7 +148,7 @@ document.getElementById("backends").append(...BACKENDS.map((backend) => el("butt
 try {
   overview = await api("/api/overview");
   render();
-  setStatus(`Experiment ${overview.experiment} · ${overview.machines.length} machine${overview.machines.length === 1 ? "" : "s"} · ${overview.total_commits} commits on main`);
+  setStatus(`${suiteLabel(overview)} · ${overview.machines.length} machine${overview.machines.length === 1 ? "" : "s"} · ${overview.total_commits} commits on main`);
 } catch (error) {
   render();
   setStatus(`No results yet: ${error.message}`, true);

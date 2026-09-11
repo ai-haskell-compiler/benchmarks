@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from aihc_bench.planner import build_plan, rank_gaps, select_next
+from aihc_bench.planner import build_plan, merge_terminal_attempts, rank_gaps, select_next
 
 
 def envelope(wall):
@@ -71,6 +71,32 @@ class PlannerTests(unittest.TestCase):
         attempts = [measured(f"c{index}") for index in range(9)]
         attempts[3]["status"] = "inherited"
         self.assertIsNone(select_next(self.commits, attempts))
+
+    def test_merge_requires_every_experiment(self):
+        by_experiment = {
+            "fib-1": [measured("c8", 100), measured("c4", 100), {**measured("c2"), "inherited_from": "c4"}],
+            "ack-2": [measured("c8", 300), {**measured("c2"), "inherited_from": "c4"}],
+        }
+        merged = {attempt["commit_sha"]: attempt for attempt in merge_terminal_attempts(by_experiment)}
+        # c4 is only measured for fib, so it stays unmeasured for planning.
+        self.assertEqual(set(merged), {"c8", "c2"})
+        self.assertEqual(merged["c8"]["status"], "complete")
+        self.assertIsNone(merged["c8"]["inherited_from"])
+        self.assertEqual(len(merged["c8"]["result"]["results"]), 2)
+        self.assertEqual(merged["c2"]["status"], "inherited")
+        self.assertEqual(merged["c2"]["inherited_from"], "c4")
+        plan = build_plan(self.commits, merged.values(), warmup=1)
+        self.assertEqual(plan["next"]["sha"], "c5")
+        self.assertEqual(merge_terminal_attempts({}), [])
+
+    def test_merge_marks_unavailable_only_when_no_benchmark_built(self):
+        by_experiment = {"a": [measured("c1", status="unavailable")], "b": [measured("c1", status="unavailable")]}
+        merged = merge_terminal_attempts(by_experiment)
+        self.assertEqual(merged[0]["status"], "unavailable")
+        self.assertEqual(merged[0]["result"]["compiler_status"], "unavailable")
+        mixed = merge_terminal_attempts({"a": [measured("c1", status="unavailable")], "b": [measured("c1")]})
+        self.assertEqual(mixed[0]["status"], "complete")
+        self.assertEqual(mixed[0]["result"]["compiler_status"], "available")
 
     def test_terminal_failures_count_as_measured(self):
         attempts = [{"commit_sha": commit["sha"], "status": "unavailable"} for commit in self.commits]
