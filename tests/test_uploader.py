@@ -124,22 +124,36 @@ class UploaderTests(unittest.TestCase):
         with self.assertRaises(UploadError):
             check_login(CONFIG, Path("/root"), run=lambda command: subprocess.CompletedProcess(command, 1, "", "not authenticated"))
 
-    def test_refresh_overview_pings_the_worker_and_tolerates_failure(self):
+    def test_refresh_overview_invalidates_through_wrangler_and_warms_the_worker(self):
         config = {"publishing": {**CONFIG["publishing"], "server_url": "https://perf.example/"}}
+        wrangler = FakeWrangler()
         calls = []
-        self.assertTrue(refresh_overview(config, opener=lambda url, timeout: calls.append(url), log=lambda _: None))
+        self.assertTrue(refresh_overview(config, run=wrangler, opener=lambda url, timeout: calls.append(url), log=lambda _: None))
+        self.assertEqual(wrangler.calls, [["wrangler", "r2", "object", "delete", "bucket/cache/overview/v2.json", "--remote"]])
         self.assertEqual(calls, ["https://perf.example/api/overview?refresh=1"])
 
-        def failing(url, timeout):
-            raise OSError("offline")
+    def test_refresh_overview_tolerates_failure(self):
+        config = {"publishing": {**CONFIG["publishing"], "server_url": "https://perf.example/"}}
 
+        def forbidden(url, timeout):
+            raise OSError("HTTP Error 403: Forbidden")
+
+        # The edge firewall rejecting the warm-up is not a failure: the copy is gone and the next visitor recomputes it.
         messages = []
-        self.assertFalse(refresh_overview(config, opener=failing, log=messages.append))
-        self.assertIn("offline", messages[0])
+        self.assertTrue(refresh_overview(config, run=FakeWrangler(), opener=forbidden, log=messages.append))
+        self.assertIn("403", messages[0])
+        self.assertIn("next visitor", messages[0])
+
+        calls = []
+        messages = []
+        self.assertFalse(refresh_overview(config, run=FakeWrangler(fail_on="delete"), opener=lambda url, timeout: calls.append(url), log=messages.append))
+        self.assertEqual(calls, [])
+        self.assertIn("boom", messages[0])
 
         insecure = {"publishing": {**CONFIG["publishing"], "server_url": "http://perf.example"}}
-        self.assertFalse(refresh_overview(insecure, opener=lambda url, timeout: calls.append(url), log=messages.append))
-        self.assertEqual(len(calls), 1)
+        wrangler = FakeWrangler()
+        self.assertFalse(refresh_overview(insecure, run=wrangler, opener=lambda url, timeout: calls.append(url), log=messages.append))
+        self.assertEqual((wrangler.calls, calls), ([], []))
         self.assertIn("https", messages[1])
 
     def test_upload_uses_wrangler_and_marks_acknowledged(self):
