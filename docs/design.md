@@ -1,4 +1,4 @@
-# fast.aihc.app design
+# perf.aihc.app design
 
 This document records the target design for the next iteration of the
 benchmark suite. It supersedes the publication and hosting sections of
@@ -7,7 +7,7 @@ apply unless stated otherwise.
 
 ## Decisions
 
-- fast.aihc.app is one Cloudflare Worker with static assets, a D1 index, and
+- perf.aihc.app is one Cloudflare Worker with static assets, a D1 index, and
   the existing R2 bucket for raw envelopes. GitHub Pages and the results-update
   PR loop are removed.
 - The CLI has three modes over one engine: `compare` (ad-hoc, local only),
@@ -382,7 +382,7 @@ Every filter state is reflected in the URL so views can be linked.
    new experiment ID, so it should land before any long overnight run.
 2. **Planner.** Tree keys, inherited results, warmup and scored gaps (done).
 3. **Worker.** D1 migrations, upload endpoint, read endpoints, `wrangler deploy`
-   workflow, `fast.aihc.app` custom domain, local uploader with `uploaded_at`
+   workflow, `perf.aihc.app` custom domain, local uploader with `uploaded_at`
    (done; `web/`).
 4. **Site.** Overview, timeline, commit and coverage pages served from
    `web/public` (done).
