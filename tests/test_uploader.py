@@ -10,6 +10,7 @@ from aihc_bench.uploader import (
     check_login,
     commit_statement,
     envelope_key,
+    refresh_overview,
     run_row_id,
     run_statements,
     sql_literal,
@@ -114,6 +115,19 @@ class UploaderTests(unittest.TestCase):
         self.assertIn("logged in", check_login(CONFIG, Path("/root"), run=FakeWrangler()))
         with self.assertRaises(UploadError):
             check_login(CONFIG, Path("/root"), run=lambda command: subprocess.CompletedProcess(command, 1, "", "not authenticated"))
+
+    def test_refresh_overview_pings_the_worker_and_tolerates_failure(self):
+        config = {"publishing": {**CONFIG["publishing"], "server_url": "https://perf.example/"}}
+        calls = []
+        self.assertTrue(refresh_overview(config, opener=lambda url, timeout: calls.append(url), log=lambda _: None))
+        self.assertEqual(calls, ["https://perf.example/api/overview?refresh=1"])
+
+        def failing(url, timeout):
+            raise OSError("offline")
+
+        messages = []
+        self.assertFalse(refresh_overview(config, opener=failing, log=messages.append))
+        self.assertIn("offline", messages[0])
 
     def test_upload_uses_wrangler_and_marks_acknowledged(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -14,6 +14,8 @@ import gzip
 import json
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
@@ -94,6 +96,33 @@ def upload_pending(
         log(f"uploaded {attempt['commit_sha'][:12]}{' (inherited)' if envelope.get('inherited_from') else ''}")
     summary["pending"] = len(database.pending_uploads(experiment_id, platform_id))
     return summary
+
+
+def refresh_overview(
+    config: Dict[str, Any],
+    *,
+    opener: Callable[[str, float], Any] = None,  # type: ignore[assignment]
+    log: Callable[[str], None] = print,
+) -> bool:
+    """Ask the Worker to recompute its materialized overview after an upload.
+
+    The front page is served from that copy, so without this the first visitor
+    after an upload would still see the previous results. Failure is logged
+    and never fails the upload.
+    """
+    url = f"{config['publishing']['server_url'].rstrip('/')}/api/overview?refresh=1"
+    opener = opener or _open_url
+    try:
+        opener(url, 60.0)
+    except (OSError, urllib.error.URLError, ValueError) as error:
+        log(f"warning: could not refresh the overview at {url}: {error}")
+        return False
+    return True
+
+
+def _open_url(url: str, timeout: float) -> None:
+    with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 - https URL from the configuration
+        response.read()
 
 
 # ---------------------------------------------------------------------------
