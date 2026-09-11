@@ -129,6 +129,11 @@ class UploaderTests(unittest.TestCase):
         self.assertFalse(refresh_overview(config, opener=failing, log=messages.append))
         self.assertIn("offline", messages[0])
 
+        insecure = {"publishing": {**CONFIG["publishing"], "server_url": "http://perf.example"}}
+        self.assertFalse(refresh_overview(insecure, opener=lambda url, timeout: calls.append(url), log=messages.append))
+        self.assertEqual(len(calls), 1)
+        self.assertIn("https", messages[1])
+
     def test_upload_uses_wrangler_and_marks_acknowledged(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Database(Path(directory) / "state.sqlite3")
