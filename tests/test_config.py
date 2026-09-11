@@ -57,6 +57,19 @@ class ConfigTests(unittest.TestCase):
                     load_config(write_config(root, broken))
             self.assertTrue(load_config(write_config(root, {**BASE, "runtime_stats": "ghc", "requires": ["build-exe"]})))
 
+    def test_aihc_since_must_be_a_timestamp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Main.hs").write_text("main", encoding="utf-8")
+            config_path = write_config(root, BASE)
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            for broken in ("yesterday", 20260901):
+                config_path.write_text(json.dumps({**config, "aihc_since": broken}), encoding="utf-8")
+                with self.assertRaises(ConfigError):
+                    load_config(config_path)
+            config_path.write_text(json.dumps({**config, "aihc_since": "2026-09-01"}), encoding="utf-8")
+            self.assertEqual(load_config(config_path)["aihc_since"], "2026-09-01")
+
     def test_repository_configuration_loads(self):
         config = load_config(Path(__file__).resolve().parents[1] / "benchmark.json")
         profiles = {(item["compiler_family"], item["optimization"]) for item in config["configurations"]}

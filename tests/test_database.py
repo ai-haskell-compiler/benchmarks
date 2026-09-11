@@ -61,8 +61,16 @@ class DatabaseTests(unittest.TestCase):
         self.assertTrue(self.database.forget("exp", "plat", "c1"))
         self.assertEqual(self.database.terminal_attempts("exp", "plat"), [])
 
+    def test_replace_commits_drops_commits_outside_the_history(self):
+        self.record("c0", status="failed")
+        self.record("c4")
+        self.database.replace_commits([commit(3, "B"), commit(4, "C"), commit(5, "C")])
+        self.assertEqual([item["sha"] for item in self.database.commits()], ["c3", "c4", "c5"])
+        attempts = self.database.terminal_attempts("exp", "plat")
+        self.assertEqual([attempt["commit_sha"] for attempt in attempts], ["c4"])
+
     def test_commits_without_tree_keys_never_inherit(self):
-        self.database.replace_commits([{"sha": "c6", "ordinal": 6, "committed_at": "2026-01-01", "subject": "6"}])
+        self.database.replace_commits(self.database.commits() + [{"sha": "c6", "ordinal": 6, "committed_at": "2026-01-01", "subject": "6"}])
         self.record("c3")
         self.database.propagate_inherited("exp", "plat")
         self.assertEqual({attempt["commit_sha"] for attempt in self.database.terminal_attempts("exp", "plat")}, {"c3"})

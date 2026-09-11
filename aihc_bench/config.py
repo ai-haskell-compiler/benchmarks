@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 from . import __version__
-from .git_history import DEFAULT_TREE_PATHS
+from .git_history import DEFAULT_TREE_PATHS, GitError, parse_cutoff
 from .stats import STATS_FORMATS
 
 CONFIG_SCHEMA_VERSION = 2
@@ -57,6 +57,14 @@ def load_config(path: Path) -> Dict[str, Any]:
     publishing.setdefault("database", "aihc-benchmarks")
     if not isinstance(config["aihc_tree_paths"], list) or not all(isinstance(item, str) and item for item in config["aihc_tree_paths"]):
         raise ConfigError("aihc_tree_paths must be a list of repository paths")
+    since = config.get("aihc_since")
+    if since is not None:
+        if not isinstance(since, str):
+            raise ConfigError("aihc_since must be an ISO 8601 timestamp string")
+        try:
+            parse_cutoff(since)
+        except GitError as error:
+            raise ConfigError(f"aihc_since: {error}") from error
     config["_toolchain_sha256"] = toolchain_hasher.hexdigest()
     config["_runner_version"] = __version__
 

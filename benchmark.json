@@ -2,6 +2,7 @@
   "schema_version": 2,
   "suite_id": "aihc-core-v2",
   "aihc_ref": "origin/main",
+  "aihc_since": "2026-09-01",
   "aihc_compiler_marker": "bin/aihc/aihc.cabal",
   "optimization_note": "GHC uses -O2 and -O0. AIHC O2 uses the compiler's default optimizing pipeline; AIHC O0 requires a commit whose build-exe advertises an optimization flag and is unavailable otherwise.",
   "reference": {

@@ -264,6 +264,14 @@ comments. Results are stored in `adhoc_runs` and are never uploaded.
 The planner keeps "unmeasured HEAD first" and replaces pure spacing with a
 scored selection over three stages.
 
+The history is the first-parent log of `aihc_ref`, restricted to commits
+committed at or after `aihc_since` in `benchmark.json` (an ISO 8601
+timestamp; a bare date means midnight UTC). Commits before the cutoff predate
+a usable compiler and are dropped from the local state together with their
+attempts. Ordinals are positions in the full first-parent history, so moving
+the cutoff never renumbers the commits that remain or the results already
+published under them.
+
 ### Stage 0: tree keys
 
 Each commit gets a `tree_key`: a hash of the Git object IDs of the

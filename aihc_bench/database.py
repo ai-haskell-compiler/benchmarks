@@ -80,11 +80,21 @@ class Database:
         self.connection.close()
 
     def replace_commits(self, commits: Iterable[Dict[str, Any]]) -> None:
+        """Make the commits table match ``commits`` exactly.
+
+        Commits no longer in the history, such as those that fell before the
+        ``aihc_since`` cutoff, are removed together with their attempts.
+        """
         rows = [
             (item["sha"], item["ordinal"], item["committed_at"], item["subject"], item.get("tree_key"))
             for item in commits
         ]
         with self.connection:
+            self.connection.execute("CREATE TEMP TABLE IF NOT EXISTS kept_commits(sha TEXT PRIMARY KEY)")
+            self.connection.execute("DELETE FROM kept_commits")
+            self.connection.executemany("INSERT INTO kept_commits(sha) VALUES (?)", [(row[0],) for row in rows])
+            self.connection.execute("DELETE FROM attempts WHERE commit_sha NOT IN (SELECT sha FROM kept_commits)")
+            self.connection.execute("DELETE FROM commits WHERE sha NOT IN (SELECT sha FROM kept_commits)")
             self.connection.executemany(
                 "INSERT INTO commits(sha, ordinal, committed_at, subject, tree_key) VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT(sha) DO UPDATE SET ordinal=excluded.ordinal, committed_at=excluded.committed_at, "
