@@ -59,7 +59,7 @@
           test -e "$out/include/wasm32-wasip1/stdlib.h"
           test -e "$out/lib/wasm32-wasip1/libc.a"
         '';
-      runtimeInputs = [pkgs.python3 pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang llvm.lld llvm.bintools pkgs.binaryen pkgs.cabal-install];
+      runtimeInputs = [pkgs.python3 pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang llvm.lld llvm.bintools llvm.bintools-unwrapped pkgs.binaryen pkgs.cabal-install];
       runner = pkgs.writeShellApplication {
         name = "aihc-bench";
         inherit runtimeInputs;
