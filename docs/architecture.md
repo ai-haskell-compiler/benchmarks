@@ -40,11 +40,22 @@ measured endpoints. Commits whose compiler-relevant tree matches a measured
 commit inherit its result instead of being measured; see
 [design.md](design.md) for the tree-key definition.
 
-Every configuration carries an `optimization` profile, `O0` or `O2`. GHC
-receives the matching flag. AIHC `O2` uses the compiler's default optimizing
-pipeline. AIHC `O0` configurations require the `optimization-flag` capability
-and are recorded as unavailable on commits whose `build-exe --help` does not
-advertise one, so the history stays honest until the flag exists.
+Every configuration carries an `optimization` profile: `O0`, `O1`, `O2` or
+`Os`. GHC receives the matching flag, except that `Os` builds with `-O1`
+because GHC has no size level. AIHC `O2` uses the compiler's default
+optimizing pipeline. AIHC `O0` configurations require the `optimization-flag`
+capability (`build-exe --help` accepts `-O` at all); `O1` and `Os` require
+`optimization-O1` and `optimization-Os`, probed from the levels that help text
+lists. A commit lacking the capability records the configuration as
+unavailable, so the history stays honest until the flag exists.
+
+After a successful compile the runner strips the artifact in place before
+recording `artifact_size`: `llvm-strip` for native binaries, `wasm-tools strip
+--all` for Wasm. The Wasm tool is the only one of the three in the flake that
+parses the component AIHC emits, and `--all` removes the `name` and
+`producers` sections that hold nearly all strippable bytes in both the AIHC
+component and the GHC module. Stripping runs outside the timed compile, so
+`compile_time` still measures the compiler alone.
 
 ## Toolchains
 

@@ -9,9 +9,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-from .config import CAPABILITIES, expand_command
+from .config import CAPABILITIES, OPTIMIZATION_CAPABILITIES, expand_command
 from .database import Database
 from .freeze import AIHC_IMPLICIT_PACKAGES, parse_build_depends, parse_freeze
 from .git_history import create_worktree, path_exists, remove_worktree
@@ -20,6 +20,10 @@ from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
 
 _OPTIMIZATION_FLAG = re.compile(r"(^|[\s\[])-O(?=[0-3\s,\]]|$)|--optimi[sz]ation|--opt-level")
+# The levels ``build-exe --help`` lists for ``-O``, e.g. "Optimization level
+# for C sources and LLVM output: 0, 1, 2 or s". optparse-applicative wraps the
+# sentence, so the match runs until the default marker or the next option.
+_OPTIMIZATION_LEVELS = re.compile(r"optimi[sz]ation level[^:]*:\s*(.*?)(?:\(default|\n\s*-|\n\s*\n|\Z)", re.IGNORECASE | re.DOTALL)
 
 
 @dataclass(frozen=True)
@@ -156,6 +160,9 @@ def probe_capabilities(worktree: Path, root: Path, timeout_seconds: float) -> Tu
         build_help = run_command(base + ["build-exe", "--help"], root, timeout_seconds)
         build_help_text = f"{build_help.stdout}\n{build_help.stderr}"
         capabilities["optimization-flag"] = bool(_OPTIMIZATION_FLAG.search(build_help_text))
+        levels = optimization_levels(build_help_text)
+        capabilities["optimization-O1"] = "1" in levels
+        capabilities["optimization-Os"] = "s" in levels
         capabilities["build-root"] = "--build-root" in build_help_text
     if _mentions_command(help_text, "install"):
         install_help = run_command(base + ["install", "--help"], root, timeout_seconds)
@@ -170,8 +177,18 @@ def capabilities_from_help(help_text: str) -> Dict[str, bool]:
         "prepare-runtime": _mentions_command(help_text, "prepare-runtime"),
         "install-offline": False,
         "optimization-flag": False,
+        "optimization-O1": False,
+        "optimization-Os": False,
         "build-root": False,
     }
+
+
+def optimization_levels(build_help_text: str) -> Set[str]:
+    """Return the ``-O`` levels a commit's ``build-exe --help`` advertises."""
+    match = _OPTIMIZATION_LEVELS.search(build_help_text)
+    if not match:
+        return set()
+    return set(re.findall(r"(?<![\w-])([0-3]|s)(?!\w)", match.group(1)))
 
 
 def _mentions_command(help_text: str, command: str) -> bool:
@@ -191,7 +208,7 @@ def build_cells(
     capabilities: Optional[Dict[str, bool]] = None,
 ) -> List[Cell]:
     aihc_setup_errors = aihc_setup_errors or {}
-    capabilities = capabilities or {name: name != "optimization-flag" for name in CAPABILITIES}
+    capabilities = capabilities or {name: name not in OPTIMIZATION_CAPABILITIES for name in CAPABILITIES}
     platform_values = config["platforms"][platform_id]
     build_command = "build-exe" if capabilities.get("build-exe") else "compile"
     toolchains = os.environ.get("AIHC_BENCH_TOOLCHAINS", "")
@@ -304,10 +321,14 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float, job
             }
         if not cell.artifact.exists():
             return cell, {"status": "compile_failed", "stderr": "compiler did not create the requested artifact"}
+        strip_error = strip_artifact(cell.artifact, root, timeout_seconds)
+        if strip_error:
+            return cell, {"status": "compile_failed", "wall_time_ns": wall_time_ns, "stderr": strip_error[-8192:]}
         return cell, {
             "status": "compiled",
             "wall_time_ns": wall_time_ns,
             "artifact_bytes": cell.artifact.stat().st_size,
+            "stripped": True,
         }
 
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as executor:
@@ -315,6 +336,40 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float, job
         for future in as_completed(futures):
             outcomes.append(future.result())
     return outcomes
+
+
+def strip_command(artifact: Path) -> Tuple[List[str], Optional[Path]]:
+    """The command that strips ``artifact`` in place, and its temporary output if any.
+
+    Neither compiler strips what it links, so the runner does it before
+    recording ``artifact_size``; otherwise the metric mostly compares how much
+    debug and symbol information each toolchain happens to emit. ``llvm-strip``
+    handles Mach-O and ELF. Wasm needs ``wasm-tools`` because AIHC emits a
+    component (``wasm-tools component new``), which neither ``llvm-strip`` nor
+    ``wasm-opt`` can parse; ``--all`` also drops ``name`` and ``producers``,
+    the sections that make up nearly all of the strippable bytes in both the
+    AIHC component and the GHC module. Both tools come from the flake.
+    """
+    if artifact.suffix == ".wasm":
+        stripped = artifact.with_name(artifact.name + ".stripped")
+        return ["wasm-tools", "strip", "--all", str(artifact), "-o", str(stripped)], stripped
+    return ["llvm-strip", str(artifact)], None
+
+
+def strip_artifact(artifact: Path, cwd: Path, timeout_seconds: float) -> Optional[str]:
+    """Strip ``artifact`` in place; return an error message when that fails."""
+    command, stripped = strip_command(artifact)
+    try:
+        process = run_command(command, cwd, timeout_seconds)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"{command[0]} failed: {error}"
+    if process.returncode != 0:
+        return f"{command[0]} exited with {process.returncode}: {process.stderr or process.stdout}"
+    if stripped is not None:
+        if not stripped.exists():
+            return f"{command[0]} did not write {stripped}"
+        os.replace(stripped, artifact)
+    return None
 
 
 def measure_cells(
