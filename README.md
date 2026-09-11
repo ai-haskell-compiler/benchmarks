@@ -52,7 +52,12 @@ emits. Stripping happens after the timed compile. GHC is measured with its
 native and LLVM backends, and with the `ghc-wasm-meta` cross-compiler for
 Wasm. GHC targets `wasm32-wasi` while AIHC targets `wasm32-wasip3`; both run
 under Wasmtime, so the Wasm ratio includes the difference between the two host
-interfaces' startup costs.
+interfaces' startup costs. Every GHC configuration, Wasm included, builds the
+benchmark's Cabal package with `cabal build` against the flake's toolchain
+(`ghc-<version>` plus its `ghc-pkg`/`hsc2hs` siblings), so Hackage
+dependencies are resolved and compiled inside the timed step; a benchmark's
+`cabal.project.freeze` pins those dependencies while boot libraries come from
+whichever GHC is under test.
 
 Results and resumable state are stored in `.state/benchmarks.sqlite3`. A failed
 historical compiler is terminal until its record is deliberately removed:

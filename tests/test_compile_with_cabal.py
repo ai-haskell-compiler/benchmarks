@@ -1,0 +1,71 @@
+import os
+import stat
+import tempfile
+import unittest
+from pathlib import Path
+
+from aihc_bench.scripts.compile_with_cabal import cabal_command, generate_project_file, parse_args, project_constraints, sibling_tool
+
+FREEZE = (
+    "active-repositories: hackage.haskell.org:merge\n"
+    "constraints: any.base ==4.21.2.0,\n"
+    "             any.bytestring ==0.12.2.0,\n"
+    "             any.snappy-hs ==0.1.2.0\n"
+    "index-state: hackage.haskell.org 2026-09-10T11:00:24Z\n"
+)
+
+
+def fake_ghc_pkg(directory: Path, name: str, packages: str) -> Path:
+    tool = directory / name
+    tool.write_text(f"#!/bin/sh\necho '{packages}'\n", encoding="utf-8")
+    tool.chmod(tool.stat().st_mode | stat.S_IXUSR)
+    return tool
+
+
+class CompileWithCabalTests(unittest.TestCase):
+    def test_sibling_tools_share_the_ghc_suffix(self):
+        self.assertEqual(sibling_tool(Path("/t/bin/ghc-9.14.1"), "ghc-pkg"), Path("/t/bin/ghc-pkg-9.14.1"))
+        self.assertEqual(sibling_tool(Path("/t/bin/ghc-9.14.1-wasm"), "hsc2hs"), Path("/t/bin/hsc2hs-9.14.1-wasm"))
+        self.assertEqual(sibling_tool(Path("/t/bin/ghc"), "ghc-pkg"), Path("/t/bin/ghc-pkg"))
+
+    def test_boot_libraries_are_left_to_the_compiler(self):
+        with tempfile.TemporaryDirectory() as directory:
+            freeze = Path(directory) / "cabal.project.freeze"
+            freeze.write_text(FREEZE, encoding="utf-8")
+            # GHC 9.14 ships base-4.22, so the 9.12 pin must not reach it; the
+            # Hackage dependency stays pinned for every toolchain.
+            self.assertEqual(project_constraints(freeze, {"base", "bytestring", "rts"}), ["any.snappy-hs ==0.1.2.0"])
+            self.assertEqual(project_constraints(freeze, set()), ["any.base ==4.21.2.0", "any.bytestring ==0.12.2.0", "any.snappy-hs ==0.1.2.0"])
+
+    def test_generated_project_pins_only_what_ghc_lacks_and_keeps_the_index_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "pkg"
+            source.mkdir()
+            (source / "cabal.project.freeze").write_text(FREEZE, encoding="utf-8")
+            fake_ghc_pkg(root, "ghc-pkg-9.14.1", "base bytestring ghc-prim")
+            args = parse_args(["--source", str(source), "--build-dir", str(root / "build"), "--artifact", str(root / "out"), "--exe", "pkg", "--ghc", str(root / "ghc-9.14.1"), "--optimization", "Os"])
+            project = generate_project_file(args)
+            self.assertEqual(
+                project.read_text(encoding="utf-8"),
+                f"packages: {source.resolve()}\nconstraints: any.snappy-hs ==0.1.2.0\nindex-state: hackage.haskell.org 2026-09-10T11:00:24Z\n",
+            )
+
+    def test_list_bin_repeats_the_build_configuration(self):
+        args = parse_args(["--source", "/src", "--build-dir", "/build", "--artifact", "/out", "--exe", "pkg", "--ghc", "/t/bin/ghc-9.14.1-wasm", "--optimization", "Os", "--ghc-option=-rtsopts"])
+        build = cabal_command(args, Path("/build/cabal.project"), "build")
+        located = cabal_command(args, Path("/build/cabal.project"), "list-bin")
+        # cabal treats any flag difference as a new configuration and resolves
+        # the toolchain again, so the two invocations must match exactly.
+        self.assertEqual(build[2:], located[2:])
+        self.assertEqual(build[:2], ["cabal", "build"])
+        self.assertIn("--with-compiler=/t/bin/ghc-9.14.1-wasm", build)
+        self.assertIn("--with-hc-pkg=/t/bin/ghc-pkg-9.14.1-wasm", build)
+        self.assertIn("--with-hsc2hs=/t/bin/hsc2hs-9.14.1-wasm", build)
+        self.assertIn("-O1", build)  # GHC has no size level
+        self.assertIn("--ghc-options=-rtsopts", build)
+        self.assertEqual(build[-1], "exe:pkg")
+
+
+if __name__ == "__main__":
+    unittest.main()

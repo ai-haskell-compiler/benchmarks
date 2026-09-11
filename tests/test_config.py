@@ -122,28 +122,27 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(baselines, {(backend, profile) for backend in ("native", "llvm", "wasm") for profile in ("O0", "O1", "O2", "Os")})
         for item in config["configurations"]:
             self.assertIn(item.get("runtime_stats"), {"ghc", "aihc"})
+            # Every backend builds the benchmark's Cabal package through the
+            # dependency-aware scripts, so a Hackage dependency such as
+            # snappy-hs is compiled for Wasm exactly like for native code.
             if item["compiler_family"] == "ghc":
                 self.assertNotIn("nix", item["compile"])
-                if item["backend"] == "wasm":
-                    self.assertIn("-rtsopts", item["compile"])
-                    self.assertTrue(item["compile"][0].startswith("{toolchains}/bin/ghc-"))
-                    # GHC has no size level, so the Os profile builds with -O1.
-                    self.assertIn("-O1" if item["optimization"] == "Os" else f"-{item['optimization']}", item["compile"])
-                else:
-                    self.assertEqual(item["compile"][0], "python3")
-                    self.assertIn("compile_with_cabal.py", item["compile"][1])
-                    self.assertTrue(any(value.startswith("{toolchains}/bin/ghc-") for value in item["compile"]))
-                    self.assertIn("--ghc-option=-rtsopts", item["compile"])
-                    self.assertEqual(item["compile"][item["compile"].index("--optimization") + 1], item["optimization"])
+                self.assertEqual(item["compile"][0], "python3")
+                self.assertIn("compile_with_cabal.py", item["compile"][1])
+                ghc = item["compile"][item["compile"].index("--ghc") + 1]
+                self.assertTrue(ghc.startswith("{toolchains}/bin/ghc-"))
+                self.assertEqual(ghc.endswith("-wasm"), item["backend"] == "wasm")
+                self.assertIn("--ghc-option=-rtsopts", item["compile"])
+                self.assertEqual(item["compile"][item["compile"].index("--optimization") + 1], item["optimization"])
             if item["compiler_family"] == "aihc":
                 expected = {"O0": ["optimization-flag"], "O1": ["optimization-O1"], "O2": [], "Os": ["optimization-Os"]}
                 self.assertEqual(item["requires"], expected[item["optimization"]])
-                flag = f"-{item['optimization']}"
+                self.assertEqual(item["compile"][0], "python3")
+                self.assertIn("compile_with_aihc.py", item["compile"][1])
+                self.assertEqual(item["compile"][item["compile"].index("--target") + 1], item["aihc_target"])
                 if item["optimization"] == "O2":
                     self.assertNotIn("--optimization", item["compile"])
                     self.assertFalse(any(part.startswith("-O") for part in item["compile"]))
-                elif item["backend"] == "wasm":
-                    self.assertIn(flag, item["compile"])
                 else:
                     self.assertEqual(item["compile"][item["compile"].index("--optimization") + 1], item["optimization"])
 

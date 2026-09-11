@@ -11,19 +11,36 @@
   }: let
     systems = ["aarch64-darwin" "x86_64-linux"];
     forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs {inherit system;}));
-  in {
-    packages = forAllSystems (pkgs: let
-      ghcWrapper = name: compiler:
-        pkgs.writeShellApplication {
-          inherit name;
-          runtimeInputs = [compiler pkgs.llvmPackages_19.llvm];
-          text = ''exec ghc "$@"'';
-        };
+
+    # Everything the benchmark runner needs from Nix for one system. Shared by
+    # the package, the app and the dev shell so they can never drift apart.
+    tooling = pkgs: let
+      llvm = pkgs.llvmPackages_19;
+      # A GHC toolchain as cabal-install expects to find it: `ghc-<suffix>`
+      # plus its `ghc-pkg-<suffix>` and `hsc2hs-<suffix>` siblings. The
+      # runner's compile script passes ghc-pkg explicitly; without a sibling
+      # cabal would fall back to whatever ghc-pkg is on PATH (nothing, in a
+      # clean Nix environment) and fail to configure the package.
+      ghcToolchain = suffix: compiler: prefix: extraInputs:
+        map (tool:
+          pkgs.writeShellApplication {
+            name = "${tool}-${suffix}";
+            runtimeInputs = [compiler] ++ extraInputs;
+            text = ''exec ${prefix}${tool} "$@"'';
+          }) ["ghc" "ghc-pkg" "hsc2hs"];
+      wasmGhc = ghc-wasm-meta.packages.${pkgs.stdenv.hostPlatform.system}.wasm32-wasi-ghc-9_14;
+      toolchains = pkgs.symlinkJoin {
+        name = "aihc-bench-toolchains";
+        paths =
+          ghcToolchain "9.12.4" pkgs.haskell.compiler.ghc9124 "" [llvm.llvm]
+          ++ ghcToolchain "9.14.1" pkgs.haskell.compiler.ghc9141 "" [llvm.llvm]
+          ++ ghcToolchain "9.14.1-wasm" wasmGhc "wasm32-wasi-" [];
+      };
       wasmClang = pkgs.writeShellApplication {
         name = "clang";
         text = ''
-          exec ${pkgs.llvmPackages_19.clang-unwrapped}/bin/clang \
-            -resource-dir ${pkgs.llvmPackages_19.clang-unwrapped.lib}/lib/clang/19 \
+          exec ${llvm.clang-unwrapped}/bin/clang \
+            -resource-dir ${llvm.clang-unwrapped.lib}/lib/clang/19 \
             "$@"
         '';
       };
@@ -42,30 +59,10 @@
           test -e "$out/include/wasm32-wasip1/stdlib.h"
           test -e "$out/lib/wasm32-wasip1/libc.a"
         '';
-      toolchains = pkgs.symlinkJoin {
-        name = "aihc-bench-toolchains";
-        paths = [
-          (ghcWrapper "ghc-9.12.4" pkgs.haskell.compiler.ghc9124)
-          (ghcWrapper "ghc-9.14.1" pkgs.haskell.compiler.ghc9141)
-          (pkgs.writeShellApplication {
-            name = "ghc-9.14.1-wasm";
-            runtimeInputs = [ghc-wasm-meta.packages.${pkgs.stdenv.hostPlatform.system}.wasm32-wasi-ghc-9_14];
-            text = ''exec wasm32-wasi-ghc "$@"'';
-          })
-        ];
-      };
-    in {
-      ghc-9-12-4 = ghcWrapper "ghc-9.12.4" pkgs.haskell.compiler.ghc9124;
-      ghc-9-14-1 = ghcWrapper "ghc-9.14.1" pkgs.haskell.compiler.ghc9141;
-      wasmtime = pkgs.writeShellApplication {
-        name = "aihc-bench-wasmtime";
-        runtimeInputs = [pkgs.wasmtime];
-        text = ''exec wasmtime "$@"'';
-      };
-      inherit toolchains;
-      default = pkgs.writeShellApplication {
+      runtimeInputs = [pkgs.python3 pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang llvm.lld llvm.bintools pkgs.binaryen pkgs.cabal-install];
+      runner = pkgs.writeShellApplication {
         name = "aihc-bench";
-        runtimeInputs = [pkgs.python3 pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen pkgs.cabal-install];
+        inherit runtimeInputs;
         text = ''
           export AIHC_BENCH_WASM_CLANG=${wasmClang}/bin
           export AIHC_WASM_SYSROOT=${wasiSysroot}
@@ -74,70 +71,30 @@
           exec python3 -m aihc_bench "$@"
         '';
       };
+    in {inherit toolchains runner runtimeInputs;};
+  in {
+    packages = forAllSystems (pkgs: let
+      inherit (tooling pkgs) toolchains runner;
+    in {
+      inherit toolchains;
+      wasmtime = pkgs.writeShellApplication {
+        name = "aihc-bench-wasmtime";
+        runtimeInputs = [pkgs.wasmtime];
+        text = ''exec wasmtime "$@"'';
+      };
+      default = runner;
     });
 
-    apps = forAllSystems (pkgs: let
-      ghcWrapper = name: compiler:
-        pkgs.writeShellApplication {
-          inherit name;
-          runtimeInputs = [compiler pkgs.llvmPackages_19.llvm];
-          text = ''exec ghc "$@"'';
-        };
-      toolchains = pkgs.symlinkJoin {
-        name = "aihc-bench-toolchains";
-        paths = [
-          (ghcWrapper "ghc-9.12.4" pkgs.haskell.compiler.ghc9124)
-          (ghcWrapper "ghc-9.14.1" pkgs.haskell.compiler.ghc9141)
-          (pkgs.writeShellApplication {
-            name = "ghc-9.14.1-wasm";
-            runtimeInputs = [ghc-wasm-meta.packages.${pkgs.stdenv.hostPlatform.system}.wasm32-wasi-ghc-9_14];
-            text = ''exec wasm32-wasi-ghc "$@"'';
-          })
-        ];
-      };
-      wasmClang = pkgs.writeShellApplication {
-        name = "clang";
-        text = ''
-          exec ${pkgs.llvmPackages_19.clang-unwrapped}/bin/clang \
-            -resource-dir ${pkgs.llvmPackages_19.clang-unwrapped.lib}/lib/clang/19 \
-            "$@"
-        '';
-      };
-      wasiSysroot = let
-        wasilibc = pkgs.pkgsCross.wasi32.wasilibc;
-      in
-        pkgs.runCommand "aihc-bench-wasi-sysroot" {} ''
-          mkdir -p "$out/include" "$out/lib"
-          ln -s ${wasilibc.dev}/include/* "$out/include/"
-          ln -s ${wasilibc}/lib/* "$out/lib/"
-          for directory in include lib; do
-            if [ ! -e "$out/$directory/wasm32-wasip1" ]; then
-              ln -s wasm32-wasi "$out/$directory/wasm32-wasip1"
-            fi
-          done
-          test -e "$out/include/wasm32-wasip1/stdlib.h"
-          test -e "$out/lib/wasm32-wasip1/libc.a"
-        '';
-    in {
+    apps = forAllSystems (pkgs: {
       default = {
         type = "app";
-        program = "${pkgs.lib.getExe (pkgs.writeShellApplication {
-          name = "aihc-bench";
-          runtimeInputs = [pkgs.python3 pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen pkgs.cabal-install];
-          text = ''
-            export AIHC_BENCH_WASM_CLANG=${wasmClang}/bin
-            export AIHC_WASM_SYSROOT=${wasiSysroot}
-            export AIHC_BENCH_TOOLCHAINS=${toolchains}
-            export PYTHONPATH=${./.}
-            exec python3 -m aihc_bench "$@"
-          '';
-        })}";
+        program = pkgs.lib.getExe (tooling pkgs).runner;
       };
     });
 
     devShells = forAllSystems (pkgs: {
       default = pkgs.mkShell {
-        packages = [pkgs.python3 pkgs.nodejs pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang pkgs.llvmPackages_19.lld pkgs.llvmPackages_19.bintools pkgs.binaryen pkgs.cabal-install];
+        packages = [pkgs.nodejs] ++ (tooling pkgs).runtimeInputs;
       };
     });
   };

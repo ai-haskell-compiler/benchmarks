@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from aihc_bench.database import Database
 from aihc_bench.uploader import (
@@ -11,6 +12,8 @@ from aihc_bench.uploader import (
     commit_statement,
     envelope_key,
     refresh_overview,
+    USER_AGENT,
+    _open_url,
     run_row_id,
     run_statements,
     sql_literal,
@@ -155,6 +158,32 @@ class UploaderTests(unittest.TestCase):
         self.assertFalse(refresh_overview(insecure, run=wrangler, opener=lambda url, timeout: calls.append(url), log=messages.append))
         self.assertEqual((wrangler.calls, calls), ([], []))
         self.assertIn("https", messages[1])
+
+    def test_refresh_identifies_itself_to_cloudflare(self):
+        # Cloudflare answers urllib's default agent with 403; the runner must
+        # send its own.
+        self.assertTrue(USER_AGENT.startswith("aihc-bench/"))
+        self.assertNotIn("Python-urllib", USER_AGENT)
+        seen = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self):
+                return b""
+
+        def fake_urlopen(request, timeout):
+            seen["agent"] = request.get_header("User-agent")
+            seen["url"] = request.full_url
+            return FakeResponse()
+
+        with patch("aihc_bench.uploader.urllib.request.urlopen", fake_urlopen):
+            _open_url("https://perf.example/api/overview?refresh=1", 1.0)
+        self.assertEqual(seen, {"agent": USER_AGENT, "url": "https://perf.example/api/overview?refresh=1"})
 
     def test_upload_uses_wrangler_and_marks_acknowledged(self):
         with tempfile.TemporaryDirectory() as directory:
