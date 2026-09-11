@@ -7,7 +7,7 @@ const CACHE_SECONDS = 60;
  * the background; `?refresh=1` (sent by the uploader) recomputes synchronously
  * unless the copy is younger than `OVERVIEW_FORCE_SECONDS`.
  */
-const OVERVIEW_KEY = "cache/overview/v1.json";
+const OVERVIEW_KEY = "cache/overview/v2.json";
 const OVERVIEW_FRESH_SECONDS = 60;
 const OVERVIEW_FORCE_SECONDS = 10;
 
@@ -77,12 +77,41 @@ function cachedBody(body: BodyInit, ageSeconds: number): Response {
   });
 }
 
-async function activeExperiment(env: Bindings, url: URL): Promise<string> {
-  const requested = url.searchParams.get("experiment");
-  if (requested) return requested;
-  const row = await env.DB.prepare("SELECT experiment_id FROM runs ORDER BY uploaded_at DESC LIMIT 1").first<{ experiment_id: string }>();
-  if (!row) throw new HttpError(404, "no results have been uploaded");
-  return row.experiment_id;
+/**
+ * The set of experiments the site shows. Experiments are per benchmark; the
+ * uploader records the suite it ran with, mapping benchmark id to experiment
+ * id, and the most recently uploaded suite is active. `?suite=<key>` selects
+ * another recorded suite and `?experiment=<id>` a single experiment.
+ */
+interface Suite {
+  key: string;
+  /** Benchmark id to experiment id; empty when a single experiment was requested. */
+  benchmarks: Record<string, string>;
+  experiments: string[];
+}
+
+async function activeSuite(env: Bindings, url: URL): Promise<Suite> {
+  const experiment = url.searchParams.get("experiment");
+  if (experiment) return { key: experiment, benchmarks: {}, experiments: [experiment] };
+  const requested = url.searchParams.get("suite");
+  const row = requested
+    ? await env.DB.prepare("SELECT suite_key, experiments FROM suites WHERE suite_key = ?").bind(requested).first<{ suite_key: string; experiments: string }>()
+    : await env.DB.prepare("SELECT suite_key, experiments FROM suites ORDER BY uploaded_at DESC LIMIT 1").first<{ suite_key: string; experiments: string }>();
+  if (!row) throw new HttpError(404, requested ? "unknown suite" : "no results have been uploaded");
+  const benchmarks = JSON.parse(row.experiments) as Record<string, string>;
+  const experiments = [...new Set(Object.values(benchmarks))].sort();
+  // Suites backfilled from suite-level uploads without measurements carry no
+  // mapping; such a suite is its single experiment.
+  return { key: row.suite_key, benchmarks, experiments: experiments.length ? experiments : [row.suite_key] };
+}
+
+/** Placeholders for `experiment_id IN (...)`; bind `suite.experiments` after the preceding parameters. */
+function experimentList(suite: Suite): string {
+  return suite.experiments.map(() => "?").join(", ");
+}
+
+function suiteFields(suite: Suite): { suite: string; benchmarks: Record<string, string> } {
+  return { suite: suite.key, benchmarks: suite.benchmarks };
 }
 
 function requireParam(url: URL, name: string): string {
@@ -157,15 +186,19 @@ async function listMachines(env: Bindings): Promise<unknown> {
 }
 
 async function listExperiments(env: Bindings): Promise<unknown> {
+  const suites = await env.DB.prepare("SELECT suite_key, suite_id, experiments, uploaded_at FROM suites ORDER BY uploaded_at DESC").all<{ experiments: string } & Json>();
   const rows = await env.DB.prepare(
     "SELECT experiment_id, machine_id, COUNT(*) AS runs, MAX(uploaded_at) AS last_upload FROM runs GROUP BY experiment_id, machine_id ORDER BY last_upload DESC",
   ).all();
-  const active = rows.results[0]?.experiment_id ?? null;
-  return { active, experiments: rows.results };
+  return {
+    active: suites.results[0]?.suite_key ?? null,
+    suites: suites.results.map((row) => ({ ...row, experiments: JSON.parse(row.experiments) })),
+    experiments: rows.results,
+  };
 }
 
 async function overviewCached(env: Bindings, url: URL, ctx: ExecutionContext): Promise<Response> {
-  if (url.searchParams.get("experiment")) return cached(await overview(env, await activeExperiment(env, url)));
+  if (url.searchParams.get("experiment") || url.searchParams.get("suite")) return cached(await overview(env, await activeSuite(env, url)));
   const object = await env.RAW.get(OVERVIEW_KEY);
   if (object) {
     const ageSeconds = (Date.now() - object.uploaded.getTime()) / 1000;
@@ -180,33 +213,75 @@ async function overviewCached(env: Bindings, url: URL, ctx: ExecutionContext): P
 
 /** Recompute the overview for the active experiment and store it in R2. */
 async function refreshOverview(env: Bindings): Promise<string> {
-  const experiment = await activeExperiment(env, new URL("https://perf.aihc.app/api/overview"));
-  const data = await overview(env, experiment);
+  const suite = await activeSuite(env, new URL("https://perf.aihc.app/api/overview"));
+  const data = await overview(env, suite);
   const body = JSON.stringify({ ...data, computed_at: new Date().toISOString() });
   await env.RAW.put(OVERVIEW_KEY, body, { httpMetadata: { contentType: "application/json" } });
   return body;
 }
 
-async function overview(env: Bindings, experiment: string): Promise<Record<string, unknown>> {
-  const window = await commitWindow(env);
-  const machines = await env.DB.prepare(
-    "SELECT m.machine_id, m.last_seen_at, " +
-      "SUM(CASE WHEN r.inherited_from IS NULL THEN 1 ELSE 0 END) AS measured, " +
-      "SUM(CASE WHEN r.inherited_from IS NOT NULL THEN 1 ELSE 0 END) AS inherited, " +
-      "MAX(CASE WHEN r.inherited_from IS NULL AND r.compiler_status = 'available' THEN r.commit_ordinal END) AS latest_ordinal " +
-      "FROM machines m LEFT JOIN runs r ON r.machine_id = m.machine_id AND r.experiment_id = ? GROUP BY m.machine_id ORDER BY m.machine_id",
-  )
-    .bind(experiment)
-    .all<{ machine_id: string; last_seen_at: string | null; measured: number; inherited: number; latest_ordinal: number | null }>();
+interface CoverageRow {
+  machine_id: string;
+  commit_ordinal: number;
+  experiments: number;
+  measured_runs: number;
+  measured_available: number;
+}
 
-  const measured = machines.results.filter((machine) => machine.latest_ordinal !== null);
+/**
+ * Per machine and commit, how many of the suite's experiments have a run and
+ * how many of those were measured (not inherited) with a working compiler.
+ */
+async function coverageRows(env: Bindings, suite: Suite): Promise<CoverageRow[]> {
+  const rows = await env.DB.prepare(
+    "SELECT machine_id, commit_ordinal, COUNT(DISTINCT experiment_id) AS experiments, " +
+      "SUM(CASE WHEN inherited_from IS NULL THEN 1 ELSE 0 END) AS measured_runs, " +
+      "SUM(CASE WHEN inherited_from IS NULL AND compiler_status = 'available' THEN 1 ELSE 0 END) AS measured_available " +
+      `FROM runs WHERE experiment_id IN (${experimentList(suite)}) GROUP BY machine_id, commit_ordinal`,
+  )
+    .bind(...suite.experiments)
+    .all<CoverageRow>();
+  return rows.results;
+}
+
+async function overview(env: Bindings, suite: Suite): Promise<Record<string, unknown>> {
+  const window = await commitWindow(env);
+  const machines = await env.DB.prepare("SELECT machine_id, last_seen_at FROM machines ORDER BY machine_id").all<{ machine_id: string; last_seen_at: string | null }>();
+  const rows = await coverageRows(env, suite);
+  const size = suite.experiments.length;
+  // A commit counts as covered once every benchmark has a run for it. The
+  // headline commit is the newest one measured for the whole suite, or, while
+  // a new benchmark is still filling in, the newest measured for any of it.
+  const summaries = new Map<string, { measured: number; inherited: number; complete: number | null; partial: number | null }>();
+  for (const machine of machines.results) summaries.set(machine.machine_id, { measured: 0, inherited: 0, complete: null, partial: null });
+  for (const row of rows) {
+    const summary = summaries.get(row.machine_id);
+    if (!summary) continue;
+    if (row.experiments === size) {
+      if (row.measured_runs > 0) summary.measured += 1;
+      else summary.inherited += 1;
+    }
+    if (row.measured_available === size) summary.complete = Math.max(summary.complete ?? -1, row.commit_ordinal);
+    else if (row.measured_available > 0) summary.partial = Math.max(summary.partial ?? -1, row.commit_ordinal);
+  }
+  const latestOrdinal = (machine: string): number | null => {
+    const summary = summaries.get(machine)!;
+    return summary.complete ?? summary.partial;
+  };
+
+  const measured = machines.results.filter((machine) => latestOrdinal(machine.machine_id) !== null);
   const commitStatement = env.DB.prepare("SELECT sha, ordinal, committed_at, subject FROM commits WHERE ordinal = ?");
   const ratioStatement = env.DB.prepare(
     "SELECT benchmark, configuration, compiler_family, backend, optimization, baseline, metric, estimate FROM measurements " +
-      "WHERE machine_id = ? AND experiment_id = ? AND commit_ordinal = ? AND metric IN ('wall_time', 'compile_time', 'artifact_size') AND estimate IS NOT NULL",
+      `WHERE machine_id = ? AND commit_ordinal = ? AND experiment_id IN (${experimentList(suite)}) AND metric IN ('wall_time', 'compile_time', 'artifact_size') AND estimate IS NOT NULL`,
   );
   const results = measured.length
-    ? await env.DB.batch(measured.flatMap((machine) => [commitStatement.bind(machine.latest_ordinal), ratioStatement.bind(machine.machine_id, experiment, machine.latest_ordinal)]))
+    ? await env.DB.batch(
+        measured.flatMap((machine) => [
+          commitStatement.bind(latestOrdinal(machine.machine_id)),
+          ratioStatement.bind(machine.machine_id, latestOrdinal(machine.machine_id), ...suite.experiments),
+        ]),
+      )
     : [];
   const cards = [];
   for (const machine of machines.results) {
@@ -217,17 +292,18 @@ async function overview(env: Bindings, experiment: string): Promise<Record<strin
       latest = results[2 * index].results[0] ?? null;
       ratios = ratioTable(results[2 * index + 1].results as RatioRow[]);
     }
+    const summary = summaries.get(machine.machine_id)!;
     cards.push({
       machine_id: machine.machine_id,
       last_seen_at: machine.last_seen_at,
-      measured: machine.measured ?? 0,
-      inherited: machine.inherited ?? 0,
+      measured: summary.measured,
+      inherited: summary.inherited,
       total_commits: window.total,
       latest,
       ratios,
     });
   }
-  return { experiment, first_ordinal: window.first, head_ordinal: window.head, total_commits: window.total, machines: cards };
+  return { ...suiteFields(suite), first_ordinal: window.first, head_ordinal: window.head, total_commits: window.total, machines: cards };
 }
 
 interface RatioRow {
@@ -269,7 +345,7 @@ function ratioTable(rows: RatioRow[]): unknown[] {
 }
 
 async function series(env: Bindings, url: URL): Promise<unknown> {
-  const experiment = await activeExperiment(env, url);
+  const suite = await activeSuite(env, url);
   const machine = requireParam(url, "machine");
   const benchmark = requireParam(url, "benchmark");
   const metric = url.searchParams.get("metric") ?? "wall_time";
@@ -277,10 +353,10 @@ async function series(env: Bindings, url: URL): Promise<unknown> {
   const rows = await env.DB.prepare(
     "SELECT m.configuration, m.compiler_family, m.compiler_version, m.backend, m.optimization, m.baseline, m.unit, m.commit_ordinal, m.estimate, m.status, " +
       "r.inherited_from IS NOT NULL AS inherited FROM measurements m JOIN runs r ON r.run_id = m.run_id " +
-      "WHERE m.machine_id = ? AND m.experiment_id = ? AND m.benchmark = ? AND m.metric = ? AND (? IS NULL OR m.optimization = ?) " +
+      `WHERE m.machine_id = ? AND m.benchmark = ? AND m.metric = ? AND (? IS NULL OR m.optimization = ?) AND m.experiment_id IN (${experimentList(suite)}) ` +
       "ORDER BY m.configuration, m.commit_ordinal",
   )
-    .bind(machine, experiment, benchmark, metric, profile, profile)
+    .bind(machine, benchmark, metric, profile, profile, ...suite.experiments)
     .all<{
       configuration: string;
       compiler_family: string;
@@ -313,30 +389,30 @@ async function series(env: Bindings, url: URL): Promise<unknown> {
     entry.points.push([row.commit_ordinal, row.estimate, row.status, row.inherited === 1 ? 1 : 0]);
   }
   const environments = await env.DB.prepare(
-    "SELECT MIN(commit_ordinal) AS ordinal, environment_id FROM runs WHERE machine_id = ? AND experiment_id = ? GROUP BY environment_id ORDER BY ordinal",
+    `SELECT MIN(commit_ordinal) AS ordinal, environment_id FROM runs WHERE machine_id = ? AND experiment_id IN (${experimentList(suite)}) GROUP BY environment_id ORDER BY ordinal`,
   )
-    .bind(machine, experiment)
+    .bind(machine, ...suite.experiments)
     .all();
-  return { experiment, machine, benchmark, metric, profile, series: [...grouped.values()], environments: environments.results };
+  return { ...suiteFields(suite), machine, benchmark, metric, profile, series: [...grouped.values()], environments: environments.results };
 }
 
 async function commitDetail(env: Bindings, sha: string, url: URL): Promise<unknown> {
-  const experiment = await activeExperiment(env, url);
+  const suite = await activeSuite(env, url);
   const commit = await env.DB.prepare("SELECT sha, ordinal, committed_at, subject, tree_key FROM commits WHERE sha = ? OR sha LIKE ?")
     .bind(sha, `${sha}%`)
     .first<{ sha: string; ordinal: number }>();
   if (!commit) throw new HttpError(404, "unknown commit");
   const runs = await env.DB.prepare(
-    "SELECT run_id, machine_id, environment_id, compiler_status, unavailable_reason, inherited_from, created_at, uploaded_at, envelope_key " +
-      "FROM runs WHERE commit_sha = ? AND experiment_id = ? ORDER BY machine_id",
+    "SELECT run_id, machine_id, environment_id, experiment_id, compiler_status, unavailable_reason, inherited_from, created_at, uploaded_at, envelope_key " +
+      `FROM runs WHERE commit_sha = ? AND experiment_id IN (${experimentList(suite)}) ORDER BY machine_id, experiment_id`,
   )
-    .bind(commit.sha, experiment)
+    .bind(commit.sha, ...suite.experiments)
     .all();
   const rows = await env.DB.prepare(
     "SELECT machine_id, benchmark, configuration, compiler_family, backend, optimization, metric, unit, status, estimate, commit_ordinal " +
-      "FROM measurements WHERE experiment_id = ? AND commit_ordinal IN (?, ?) ORDER BY machine_id, benchmark, configuration, metric",
+      `FROM measurements WHERE commit_ordinal IN (?, ?) AND experiment_id IN (${experimentList(suite)}) ORDER BY machine_id, benchmark, configuration, metric`,
   )
-    .bind(experiment, commit.ordinal, commit.ordinal - 1)
+    .bind(commit.ordinal, commit.ordinal - 1, ...suite.experiments)
     .all<{ machine_id: string; benchmark: string; configuration: string; compiler_family: string; backend: string; optimization: string; metric: string; unit: string; status: string; estimate: number | null; commit_ordinal: number }>();
   const parents = new Map<string, number | null>();
   for (const row of rows.results) {
@@ -349,30 +425,37 @@ async function commitDetail(env: Bindings, sha: string, url: URL): Promise<unkno
       const { commit_ordinal: _ordinal, ...rest } = row;
       return { ...rest, parent_estimate: parent, ratio_to_parent: parent && row.estimate ? row.estimate / parent : null };
     });
-  return { experiment, commit, runs: runs.results, measurements };
+  return { ...suiteFields(suite), commit, runs: runs.results, measurements };
 }
 
 /**
  * One character per commit from the first commit at or after the cutoff to
- * head: M measured, I inherited, U unavailable, . unmeasured. Cell `i`
- * describes ordinal `first + i`.
+ * head: M measured, I inherited, U unavailable, P partially covered (some
+ * benchmarks still lack a run), . unmeasured. Cell `i` describes ordinal
+ * `first + i`.
  */
 async function coverage(env: Bindings, url: URL): Promise<unknown> {
-  const experiment = await activeExperiment(env, url);
+  const suite = await activeSuite(env, url);
   const machine = requireParam(url, "machine");
   const window = await commitWindow(env);
   const first = window.first ?? 0;
   const total = window.head === null ? 0 : window.head - first + 1;
   const rows = await env.DB.prepare(
-    "SELECT commit_ordinal, compiler_status, inherited_from FROM runs WHERE machine_id = ? AND experiment_id = ? AND commit_ordinal >= ?",
+    "SELECT commit_ordinal, COUNT(DISTINCT experiment_id) AS experiments, " +
+      "SUM(CASE WHEN compiler_status = 'available' THEN 1 ELSE 0 END) AS available, " +
+      "SUM(CASE WHEN inherited_from IS NOT NULL THEN 1 ELSE 0 END) AS inherited " +
+      `FROM runs WHERE machine_id = ? AND commit_ordinal >= ? AND experiment_id IN (${experimentList(suite)}) GROUP BY commit_ordinal`,
   )
-    .bind(machine, experiment, first)
-    .all<{ commit_ordinal: number; compiler_status: string; inherited_from: string | null }>();
+    .bind(machine, first, ...suite.experiments)
+    .all<{ commit_ordinal: number; experiments: number; available: number; inherited: number }>();
   const cells = new Array<string>(total).fill(".");
   for (const row of rows.results) {
     const index = row.commit_ordinal - first;
     if (index < 0 || index >= total) continue;
-    cells[index] = row.compiler_status !== "available" ? "U" : row.inherited_from ? "I" : "M";
+    if (row.experiments < suite.experiments.length) cells[index] = "P";
+    else if (row.available === 0) cells[index] = "U";
+    else if (row.inherited === row.experiments) cells[index] = "I";
+    else cells[index] = "M";
   }
-  return { experiment, machine, first, total, statuses: cells.join("") };
+  return { ...suiteFields(suite), machine, first, total, statuses: cells.join("") };
 }

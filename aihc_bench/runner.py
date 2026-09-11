@@ -48,45 +48,60 @@ def run_commit(
     *,
     database: Database,
     config: Dict[str, Any],
-    experiment_id: str,
+    experiments: Dict[str, str],
+    suite: str,
     platform_id: str,
     machine: Dict[str, Any],
     commit: Dict[str, Any],
     aihc_repository: Path,
     root: Path,
     jobs: int,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
+    """Measure ``commit`` for the benchmarks in ``experiments``.
+
+    ``experiments`` maps benchmark id to experiment id and lists only the
+    benchmarks that still lack a result for this commit. The compiler is
+    built and its store prepared once; every benchmark then gets its own
+    attempt and envelope under its own experiment, so a benchmark added
+    later can be filled in without touching the others. ``suite`` keys the
+    shared AIHC store cache. Returns one envelope per experiment.
+    """
     machine_id = machine["machine_id"]
     environment = environment_record(platform_id, machine.get("derivation", {}).get("cpu_brand", ""))
-    run_id = new_run_id()
-    database.start_attempt(experiment_id, platform_id, commit["sha"], run_id, environment, machine_id)
+    run_ids = {benchmark: new_run_id() for benchmark in experiments}
+    for benchmark, experiment_id in experiments.items():
+        database.start_attempt(experiment_id, platform_id, commit["sha"], run_ids[benchmark], environment, machine_id)
     worktree = root / ".cache" / "aihc-worktree"
     measurement_config = config["measurement"]
     compile_timeout = float(measurement_config["compile_timeout_seconds"])
 
-    def unavailable(reason: str, detail: Optional[str] = None, capabilities: Optional[Dict[str, bool]] = None) -> Dict[str, Any]:
-        envelope = result_envelope(
-            experiment_id=experiment_id,
+    def envelope_for(benchmark: str, **fields: Any) -> Dict[str, Any]:
+        return result_envelope(
+            experiment_id=experiments[benchmark],
             platform_id=platform_id,
             machine_id=machine_id,
             environment=environment,
             commit=commit,
-            compiler_status="unavailable",
-            unavailable_reason=reason,
-            results=[],
-            run_id=run_id,
-            capabilities=capabilities,
+            run_id=run_ids[benchmark],
+            benchmark=benchmark,
+            **fields,
         )
-        database.finish_attempt(
-            experiment_id,
-            platform_id,
-            commit["sha"],
-            "unavailable",
-            envelope,
-            unavailable_reason=reason,
-            detail=detail,
-        )
-        return envelope
+
+    def unavailable(reason: str, detail: Optional[str] = None, capabilities: Optional[Dict[str, bool]] = None) -> List[Dict[str, Any]]:
+        envelopes = []
+        for benchmark, experiment_id in experiments.items():
+            envelope = envelope_for(benchmark, compiler_status="unavailable", unavailable_reason=reason, results=[], capabilities=capabilities)
+            database.finish_attempt(
+                experiment_id,
+                platform_id,
+                commit["sha"],
+                "unavailable",
+                envelope,
+                unavailable_reason=reason,
+                detail=detail,
+            )
+            envelopes.append(envelope)
+        return envelopes
 
     if not path_exists(aihc_repository, commit["sha"], config["aihc_compiler_marker"]):
         return unavailable("no_compiler")
@@ -100,7 +115,7 @@ def run_commit(
         aihc_store: Optional[Path] = None
         aihc_setup_errors: Dict[str, str] = {}
         if capabilities["prepare-runtime"]:
-            aihc_store = root / ".cache" / "aihc-stores" / experiment_id / platform_id / commit["sha"]
+            aihc_store = root / ".cache" / "aihc-stores" / suite / platform_id / commit["sha"]
             aihc_setup_errors = _prepare_aihc_store(
                 config,
                 platform_id,
@@ -117,27 +132,25 @@ def run_commit(
             commit,
             worktree,
             root,
-            experiment_id,
+            experiments,
             aihc_store=aihc_store,
             aihc_setup_errors=aihc_setup_errors,
             capabilities=capabilities,
         )
         compiled = compile_cells(cells, root, compile_timeout, jobs)
         results = measure_cells(compiled, root, measurement_config)
-        envelope = result_envelope(
-            experiment_id=experiment_id,
-            platform_id=platform_id,
-            machine_id=machine_id,
-            environment=environment,
-            commit=commit,
-            compiler_status="available",
-            unavailable_reason=None,
-            results=results,
-            run_id=run_id,
-            capabilities=capabilities,
-        )
-        database.finish_attempt(experiment_id, platform_id, commit["sha"], "complete", envelope)
-        return envelope
+        envelopes = []
+        for benchmark, experiment_id in experiments.items():
+            envelope = envelope_for(
+                benchmark,
+                compiler_status="available",
+                unavailable_reason=None,
+                results=[result for result in results if result["benchmark"] == benchmark],
+                capabilities=capabilities,
+            )
+            database.finish_attempt(experiment_id, platform_id, commit["sha"], "complete", envelope)
+            envelopes.append(envelope)
+        return envelopes
     except subprocess.TimeoutExpired as error:
         return unavailable("build_failed", f"compiler build timed out: {error}")
     finally:
@@ -201,7 +214,7 @@ def build_cells(
     commit: Dict[str, Any],
     worktree: Path,
     root: Path,
-    experiment_id: str,
+    experiments: Dict[str, str],
     *,
     aihc_store: Optional[Path] = None,
     aihc_setup_errors: Optional[Dict[str, str]] = None,
@@ -214,6 +227,9 @@ def build_cells(
     toolchains = os.environ.get("AIHC_BENCH_TOOLCHAINS", "")
     cells: List[Cell] = []
     for benchmark in config["benchmarks"]:
+        if benchmark["id"] not in experiments:
+            continue
+        experiment_id = experiments[benchmark["id"]]
         source = (root / benchmark["source"]).resolve()
         for configuration in config["configurations"]:
             family = configuration["compiler_family"]

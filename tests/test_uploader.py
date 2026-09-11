@@ -14,10 +14,12 @@ from aihc_bench.uploader import (
     run_row_id,
     run_statements,
     sql_literal,
+    suite_statement,
     upload_pending,
 )
 
-CONFIG = {"publishing": {"wrangler_config": "web/wrangler.jsonc", "bucket": "bucket", "database": "db"}}
+CONFIG = {"suite_id": "test", "publishing": {"wrangler_config": "web/wrangler.jsonc", "bucket": "bucket", "database": "db"}}
+EXPERIMENTS = {"fib": "exp"}
 
 
 def envelope(sha, run_id="run-0", inherited_from=None):
@@ -106,6 +108,12 @@ class UploaderTests(unittest.TestCase):
         self.assertEqual(run_row_id(inherited), f"run-0~{'b' * 12}")
         self.assertEqual(run_row_id(source), "run-0")
 
+    def test_suite_statement_records_the_benchmark_mapping(self):
+        statement = suite_statement("test-abc", "test", {"fib": "fib-1", "ack": "ack-2"})
+        self.assertIn("INSERT INTO suites", statement)
+        self.assertIn("'{\"ack\":\"ack-2\",\"fib\":\"fib-1\"}'", statement)
+        self.assertIn("ON CONFLICT(suite_key) DO UPDATE", statement)
+
     def test_commit_statement_upserts(self):
         statement = commit_statement({"sha": "c", "ordinal": 1, "committed_at": "t", "subject": "s", "tree_key": None})
         self.assertIn("ON CONFLICT(sha) DO UPDATE", statement)
@@ -145,10 +153,13 @@ class UploaderTests(unittest.TestCase):
             database.finish_attempt("exp", "plat", "a" * 40, "complete", envelope("a" * 40))
             database.propagate_inherited("exp", "plat")
             wrangler = FakeWrangler()
-            summary = upload_pending(database, "exp", "plat", CONFIG, Path("/root"), database.commits(), run=wrangler, log=lambda _: None)
+            summary = upload_pending(database, EXPERIMENTS, "test-suite", "plat", CONFIG, Path("/root"), database.commits(), run=wrangler, log=lambda _: None)
             self.assertEqual(summary, {"commits": 2, "uploaded": 2, "pending": 0})
             kinds = [(call[1] if call[0] == "wrangler" and call[1] != "--config" else call[3]) for call in wrangler.calls]
-            self.assertEqual(kinds, ["d1", "r2", "d1", "d1"])
+            # Commits, the envelope, two run batches, then the suite record last.
+            self.assertEqual(kinds, ["d1", "r2", "d1", "d1", "d1"])
+            self.assertIn("INSERT INTO suites", wrangler.sql[-1])
+            self.assertIn("'test-suite'", wrangler.sql[-1])
             put = wrangler.calls[1]
             self.assertEqual(put[4], f"bucket/raw/v2/apple-m4-abc123/{'a' * 40}/run-0.json.gz")
             self.assertIn("--content-encoding", put)
@@ -157,7 +168,7 @@ class UploaderTests(unittest.TestCase):
             self.assertIn(f"'run-0~{'b' * 12}'", wrangler.sql[2])
             self.assertEqual(database.pending_uploads("exp", "plat"), [])
 
-            again = upload_pending(database, "exp", "plat", CONFIG, Path("/root"), database.commits(), run=wrangler, log=lambda _: None)
+            again = upload_pending(database, EXPERIMENTS, "test-suite", "plat", CONFIG, Path("/root"), database.commits(), run=wrangler, log=lambda _: None)
             self.assertEqual(again["uploaded"], 0)
             database.close()
 
@@ -168,9 +179,9 @@ class UploaderTests(unittest.TestCase):
             database.start_attempt("exp", "plat", "a" * 40, "run-0", {"id": "env-1"}, "apple-m4-abc123")
             database.finish_attempt("exp", "plat", "a" * 40, "complete", envelope("a" * 40))
             with self.assertRaises(UploadError):
-                upload_pending(database, "exp", "plat", CONFIG, Path("/root"), database.commits(), run=FakeWrangler(fail_on="put"), log=lambda _: None)
+                upload_pending(database, EXPERIMENTS, "test-suite", "plat", CONFIG, Path("/root"), database.commits(), run=FakeWrangler(fail_on="put"), log=lambda _: None)
             self.assertEqual(len(database.pending_uploads("exp", "plat")), 1)
-            dry = upload_pending(database, "exp", "plat", CONFIG, Path("/root"), database.commits(), dry_run=True, run=FakeWrangler(fail_on="d1"), log=lambda _: None)
+            dry = upload_pending(database, EXPERIMENTS, "test-suite", "plat", CONFIG, Path("/root"), database.commits(), dry_run=True, run=FakeWrangler(fail_on="d1"), log=lambda _: None)
             self.assertEqual(dry["pending"], 1)
             database.close()
 
