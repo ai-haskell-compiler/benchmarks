@@ -1,99 +1,159 @@
-import gzip
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 from aihc_bench.database import Database
-from aihc_bench.uploader import UploadError, load_credentials, register, save_credentials, upload_pending
+from aihc_bench.uploader import (
+    UploadError,
+    check_login,
+    commit_statement,
+    envelope_key,
+    run_row_id,
+    run_statements,
+    sql_literal,
+    upload_pending,
+)
+
+CONFIG = {"publishing": {"wrangler_config": "web/wrangler.jsonc", "bucket": "bucket", "database": "db"}}
 
 
-class FakeServer:
-    def __init__(self):
-        self.requests = []
-        self.known = set()
+def envelope(sha, run_id="run-0", inherited_from=None):
+    record = {
+        "schema_version": 2,
+        "run_id": run_id,
+        "created_at": "2026-09-10T00:00:00Z",
+        "experiment_id": "exp",
+        "machine_id": "apple-m4-abc123",
+        "environment": {"id": "env-1", "cpu_brand": "Apple M4"},
+        "aihc_commit": {"sha": sha, "ordinal": 3, "committed_at": "2026-09-01", "subject": "it's fast", "tree_key": "k"},
+        "compiler_status": "available",
+        "unavailable_reason": None,
+        "results": [
+            {
+                "benchmark": "fib",
+                "configuration": "aihc-native-semispace-O2",
+                "compiler_family": "aihc",
+                "compiler_version": sha,
+                "backend": "native",
+                "optimization": "O2",
+                "baseline": False,
+                "measurement": {"status": "converged", "metrics": [
+                    {"metric": "wall_time", "unit": "ns", "status": "ok", "estimate": 90, "samples": [90, 91]},
+                    {"metric": "peak_heap", "unit": "byte", "status": "unavailable", "estimate": None, "samples": []},
+                ]},
+            },
+            {
+                "benchmark": "fib",
+                "configuration": "aihc-native-semispace-O0",
+                "compiler_family": "aihc",
+                "compiler_version": sha,
+                "backend": "native",
+                "optimization": "O0",
+                "measurement": {"status": "unavailable", "reason": "missing_capability:optimization-flag"},
+            },
+        ],
+    }
+    if inherited_from:
+        record["inherited_from"] = inherited_from
+    return record
 
-    def __call__(self, url, body, headers):
-        payload = json.loads(gzip.decompress(body) if headers.get("Content-Encoding") == "gzip" else body)
-        self.requests.append((url, payload, headers))
-        if headers.get("Authorization") != "Bearer machine-token":
-            return 403, {"error": "unknown token"}
-        if url.endswith("/api/commits"):
-            return 200, {"upserted": len(payload["commits"])}
-        if url.endswith("/api/upload"):
-            run_id = payload["run_id"] + ("~" + payload["aihc_commit"]["sha"][:12] if payload.get("inherited_from") else "")
-            if run_id in self.known:
-                return 200, {"run_id": run_id, "inserted": False}
-            self.known.add(run_id)
-            return 201, {"run_id": run_id, "inserted": True}
-        return 404, {"error": "nope"}
+
+class FakeWrangler:
+    """Records wrangler invocations and captures the SQL files before they are deleted."""
+
+    def __init__(self, fail_on=None):
+        self.calls = []
+        self.sql = []
+        self.fail_on = fail_on
+
+    def __call__(self, command):
+        self.calls.append(command)
+        if "--file" in command and command[1] != "r2":
+            self.sql.append(Path(command[command.index("--file") + 1]).read_text())
+        if self.fail_on and self.fail_on in command:
+            return subprocess.CompletedProcess(command, 1, "", "boom")
+        stdout = "👋 You are logged in with an OAuth Token, associated with the email x@y.\n" if "whoami" in command else "[]"
+        return subprocess.CompletedProcess(command, 0, stdout, "")
 
 
 class UploaderTests(unittest.TestCase):
-    def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.state = Path(self.directory.name)
-        self.database = Database(self.state / "state.sqlite3")
-        self.database.replace_commits([
-            {"sha": "c0" * 20, "ordinal": 0, "committed_at": "2026-01-01", "subject": "0", "tree_key": "A"},
-            {"sha": "c1" * 20, "ordinal": 1, "committed_at": "2026-01-01", "subject": "1", "tree_key": "A"},
-        ])
-        self.database.start_attempt("exp", "plat", "c0" * 20, "run-0", {"id": "env"}, "machine")
-        self.database.finish_attempt("exp", "plat", "c0" * 20, "complete", {"schema_version": 2, "run_id": "run-0", "aihc_commit": {"sha": "c0" * 20}, "compiler_status": "available", "results": []})
-        self.database.propagate_inherited("exp", "plat")
-        self.credentials = {"server": "https://fast.test", "token": "machine-token"}
+    def test_sql_literals_escape_quotes_and_types(self):
+        self.assertEqual(sql_literal("it's"), "'it''s'")
+        self.assertEqual(sql_literal(None), "NULL")
+        self.assertEqual(sql_literal(True), "1")
+        self.assertEqual(sql_literal(3), "3")
 
-    def tearDown(self):
-        self.database.close()
-        self.directory.cleanup()
+    def test_run_statements_cover_every_table(self):
+        statements = run_statements(envelope("a" * 40), "raw/v2/m/a/run-0.json.gz")
+        text = "\n".join(statements)
+        self.assertIn("INSERT INTO machines", text)
+        self.assertIn("INSERT INTO commits", text)
+        self.assertIn("INSERT OR IGNORE INTO environments", text)
+        self.assertIn("INSERT OR IGNORE INTO runs", text)
+        self.assertEqual(text.count("INSERT OR REPLACE INTO measurements"), 2)
+        self.assertIn("'it''s fast'", text)
+        self.assertIn("'peak_heap', 'byte', 'unavailable', NULL, 0", text)
+        self.assertNotIn("aihc-native-semispace-O0", text)
 
-    def test_credentials_round_trip(self):
-        self.assertIsNone(load_credentials(self.state))
-        path = save_credentials(self.state, "https://fast.test/", "tok")
-        self.assertEqual(load_credentials(self.state), {"server": "https://fast.test", "token": "tok"})
-        self.assertEqual(oct(path.stat().st_mode & 0o777), "0o600")
+    def test_inherited_runs_reuse_the_source_envelope(self):
+        source = envelope("a" * 40)
+        inherited = envelope("b" * 40, inherited_from="a" * 40)
+        self.assertEqual(envelope_key(source), f"raw/v2/apple-m4-abc123/{'a' * 40}/run-0.json.gz")
+        self.assertEqual(envelope_key(inherited), envelope_key(source))
+        self.assertEqual(run_row_id(inherited), f"run-0~{'b' * 12}")
+        self.assertEqual(run_row_id(source), "run-0")
 
-    def test_register_stores_token_from_server(self):
-        def post(url, body, headers):
-            self.assertEqual(headers["Authorization"], "Bearer admin")
-            return 201, {"machine_id": json.loads(body)["machine_id"], "token": "issued"}
+    def test_commit_statement_upserts(self):
+        statement = commit_statement({"sha": "c", "ordinal": 1, "committed_at": "t", "subject": "s", "tree_key": None})
+        self.assertIn("ON CONFLICT(sha) DO UPDATE", statement)
+        self.assertIn("NULL)", statement)
 
-        self.assertEqual(register("https://fast.test", "admin", "apple-m4-abc123", "laptop", post=post), "issued")
+    def test_check_login_requires_a_session(self):
+        self.assertIn("logged in", check_login(CONFIG, Path("/root"), run=FakeWrangler()))
         with self.assertRaises(UploadError):
-            register("https://fast.test", "admin", "apple-m4-abc123", None, post=lambda *_: (403, {"error": "no"}))
+            check_login(CONFIG, Path("/root"), run=lambda command: subprocess.CompletedProcess(command, 1, "", "not authenticated"))
 
-    def test_uploads_sources_before_inherited_and_marks_acknowledged(self):
-        server = FakeServer()
-        summary = upload_pending(self.database, "exp", "plat", self.credentials, self.database.commits(), post=server, log=lambda _: None)
-        self.assertEqual(summary, {"commits": 2, "uploaded": 2, "skipped": 0, "pending": 0})
-        urls = [url for url, _, _ in server.requests]
-        self.assertEqual(urls, ["https://fast.test/api/commits", "https://fast.test/api/upload", "https://fast.test/api/upload"])
-        self.assertIsNone(server.requests[1][1].get("inherited_from"))
-        self.assertEqual(server.requests[2][1]["inherited_from"], "c0" * 20)
-        self.assertEqual(server.requests[1][2]["Content-Encoding"], "gzip")
-        self.assertTrue(server.requests[1][2]["User-Agent"].startswith("aihc-bench/"))
-        self.assertEqual(self.database.pending_uploads("exp", "plat"), [])
+    def test_upload_uses_wrangler_and_marks_acknowledged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Database(Path(directory) / "state.sqlite3")
+            database.replace_commits([
+                {"sha": "a" * 40, "ordinal": 0, "committed_at": "t", "subject": "0", "tree_key": "A"},
+                {"sha": "b" * 40, "ordinal": 1, "committed_at": "t", "subject": "1", "tree_key": "A"},
+            ])
+            database.start_attempt("exp", "plat", "a" * 40, "run-0", {"id": "env-1"}, "apple-m4-abc123")
+            database.finish_attempt("exp", "plat", "a" * 40, "complete", envelope("a" * 40))
+            database.propagate_inherited("exp", "plat")
+            wrangler = FakeWrangler()
+            summary = upload_pending(database, "exp", "plat", CONFIG, Path("/root"), database.commits(), run=wrangler, log=lambda _: None)
+            self.assertEqual(summary, {"commits": 2, "uploaded": 2, "pending": 0})
+            kinds = [(call[1] if call[0] == "wrangler" and call[1] != "--config" else call[3]) for call in wrangler.calls]
+            self.assertEqual(kinds, ["d1", "r2", "d1", "d1"])
+            put = wrangler.calls[1]
+            self.assertEqual(put[4], f"bucket/raw/v2/apple-m4-abc123/{'a' * 40}/run-0.json.gz")
+            self.assertIn("--content-encoding", put)
+            self.assertIn("--remote", put)
+            self.assertIn("INSERT INTO commits", wrangler.sql[0])
+            self.assertIn(f"'run-0~{'b' * 12}'", wrangler.sql[2])
+            self.assertEqual(database.pending_uploads("exp", "plat"), [])
 
-        again = upload_pending(self.database, "exp", "plat", self.credentials, self.database.commits(), post=server, log=lambda _: None)
-        self.assertEqual(again["uploaded"], 0)
+            again = upload_pending(database, "exp", "plat", CONFIG, Path("/root"), database.commits(), run=wrangler, log=lambda _: None)
+            self.assertEqual(again["uploaded"], 0)
+            database.close()
 
-    def test_dry_run_uploads_nothing(self):
-        server = FakeServer()
-        summary = upload_pending(self.database, "exp", "plat", self.credentials, self.database.commits(), dry_run=True, post=server, log=lambda _: None)
-        self.assertEqual(summary["pending"], 2)
-        self.assertEqual(server.requests, [])
-
-    def test_failed_upload_stops_and_keeps_pending(self):
-        with self.assertRaises(UploadError):
-            upload_pending(self.database, "exp", "plat", {"server": "https://fast.test", "token": "wrong"}, self.database.commits(), post=FakeServer(), log=lambda _: None)
-        self.assertEqual(len(self.database.pending_uploads("exp", "plat")), 2)
-
-    def test_rerun_resets_upload_state(self):
-        server = FakeServer()
-        upload_pending(self.database, "exp", "plat", self.credentials, self.database.commits(), post=server, log=lambda _: None)
-        self.database.start_attempt("exp", "plat", "c0" * 20, "run-0b", {"id": "env"}, "machine")
-        self.database.finish_attempt("exp", "plat", "c0" * 20, "complete", {"schema_version": 2, "run_id": "run-0b", "aihc_commit": {"sha": "c0" * 20}, "compiler_status": "available", "results": []})
-        self.assertEqual([a["commit_sha"] for a in self.database.pending_uploads("exp", "plat")], ["c0" * 20])
+    def test_failed_wrangler_call_keeps_the_run_pending(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Database(Path(directory) / "state.sqlite3")
+            database.replace_commits([{"sha": "a" * 40, "ordinal": 0, "committed_at": "t", "subject": "0", "tree_key": "A"}])
+            database.start_attempt("exp", "plat", "a" * 40, "run-0", {"id": "env-1"}, "apple-m4-abc123")
+            database.finish_attempt("exp", "plat", "a" * 40, "complete", envelope("a" * 40))
+            with self.assertRaises(UploadError):
+                upload_pending(database, "exp", "plat", CONFIG, Path("/root"), database.commits(), run=FakeWrangler(fail_on="put"), log=lambda _: None)
+            self.assertEqual(len(database.pending_uploads("exp", "plat")), 1)
+            dry = upload_pending(database, "exp", "plat", CONFIG, Path("/root"), database.commits(), dry_run=True, run=FakeWrangler(fail_on="d1"), log=lambda _: None)
+            self.assertEqual(dry["pending"], 1)
+            database.close()
 
 
 if __name__ == "__main__":

@@ -74,18 +74,20 @@ samples and the stopping reason are retained.
 
 Results are served by a Cloudflare Worker at
 [fast.aihc.app](https://fast.aihc.app), whose source and static pages live in
-`web/`. Each machine uploads with its own token:
+`web/`. Uploading needs nothing beyond a Cloudflare login on the machine:
 
 ```console
-AIHC_BENCH_ADMIN_TOKEN=... nix run . -- register
+wrangler login
 nix run . -- upload
 nix run . -- run --all --upload
 ```
 
-`register` stores the issued token in `.state/upload.json`. Machines appear on
-the site under their derived id, such as `apple-m4-pro-542f1e`. `upload` pushes
-the commit list and every run the Worker has not acknowledged; `run --upload`
-does the same after each commit. Uploads are idempotent.
+The uploader writes envelopes to the R2 bucket and index rows to the D1
+database through `wrangler`, so whoever can log in to the Cloudflare account
+can upload, and the Worker itself is read-only. `upload` pushes the commit
+list and every run not yet acknowledged; `run --upload` does the same after
+each commit. Uploads are idempotent. Machines appear on the site under their
+derived id, such as `apple-m4-pro-542f1e`.
 
 ## Deploying the Worker
 
@@ -95,9 +97,8 @@ npm run migrate && npm run deploy
 ```
 
 Pushes to `main` that touch `web/` deploy through GitHub Actions using the
-`CLOUDFLARE_API_TOKEN` repository secret. The Worker needs one secret of its
-own, `ADMIN_TOKEN`, set with `wrangler secret put ADMIN_TOKEN`; it authorizes
-`register` and nothing else.
+`CLOUDFLARE_API_TOKEN` repository secret, which needs the Workers Scripts and
+D1 edit permissions.
 
 See [docs/architecture.md](docs/architecture.md) for the data contract and
 [docs/design.md](docs/design.md) for the Worker API.

@@ -1,63 +1,53 @@
-import { SELF } from "cloudflare:test";
+import { SELF, env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 
-const MACHINE = "apple-m4-pro-542f1e";
-let token = "";
+// The uploader writes through wrangler with the same SQL shapes as below, so
+// these tests seed D1 and R2 directly and exercise the read-only API.
 
-function envelope(sha: string, ordinal: number, runId: string, wall: number, extra: Record<string, unknown> = {}) {
-  const results = [];
-  for (const [configuration, family, backend, profile, baseline, estimate] of [
-    ["aihc-native-semispace-O2", "aihc", "native", "O2", false, wall],
-    ["ghc-9.14.1-native-O2", "ghc", "native", "O2", true, 100],
-    ["ghc-9.14.1-native-O0", "ghc", "native", "O0", true, 400],
-    ["aihc-native-semispace-O0", "aihc", "native", "O0", false, null],
-  ] as const) {
-    results.push({
-      benchmark: "fib",
-      configuration,
-      compiler_family: family,
-      compiler_version: family === "ghc" ? "9.14.1" : sha,
-      backend,
-      optimization: profile,
-      baseline,
-      compile: { status: estimate === null ? "unavailable" : "compiled" },
-      measurement:
-        estimate === null
-          ? { status: "unavailable" }
-          : {
-              status: "converged",
-              metrics: [
-                { metric: "wall_time", unit: "ns", status: "ok", estimate, samples: [estimate, estimate] },
-                { metric: "peak_heap", unit: "byte", status: "unavailable", estimate: null, samples: [] },
-              ],
-            },
-    });
-  }
-  return {
-    schema_version: 2,
-    run_id: runId,
-    created_at: "2026-09-10T00:00:00Z",
-    experiment_id: "exp-1",
-    platform: "aarch64-darwin",
-    machine_id: MACHINE,
-    environment: { id: "aarch64-darwin-abc", cpu_brand: "Apple M4 Pro" },
-    aihc_commit: { sha, ordinal, committed_at: "2026-09-01T00:00:00Z", subject: `commit ${ordinal}`, tree_key: `k${ordinal}` },
-    aihc_capabilities: {},
-    compiler_status: "available",
-    unavailable_reason: null,
-    results,
-    ...extra,
-  };
+const MACHINE = "apple-m4-pro-542f1e";
+const EXPERIMENT = "exp-1";
+const ENVIRONMENT = "aarch64-darwin-abc";
+
+function sha(digit: number): string {
+  return String(digit).repeat(40);
 }
 
-async function post(path: string, body: unknown, auth: string, gzip = false) {
-  let payload: BodyInit = JSON.stringify(body);
-  const headers: Record<string, string> = { authorization: `Bearer ${auth}`, "content-type": "application/json" };
-  if (gzip) {
-    payload = await new Response(new Blob([payload]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
-    headers["content-encoding"] = "gzip";
+async function seedCommits(): Promise<void> {
+  const statement = env.DB.prepare(
+    "INSERT INTO commits(sha, ordinal, committed_at, subject, tree_key) VALUES (?, ?, ?, ?, ?) ON CONFLICT(sha) DO UPDATE SET ordinal = excluded.ordinal",
+  );
+  await env.DB.batch([0, 1, 2, 3].map((ordinal) => statement.bind(sha(ordinal), ordinal, "2026-09-01T00:00:00Z", `c${ordinal}`, ordinal === 1 ? "k0" : `k${ordinal}`)));
+}
+
+async function seedRun(ordinal: number, runId: string, wall: number, inheritedFrom: string | null = null): Promise<string> {
+  const rowId = inheritedFrom ? `${runId}~${sha(ordinal).slice(0, 12)}` : runId;
+  const key = `raw/v2/${MACHINE}/${inheritedFrom ?? sha(ordinal)}/${runId}.json.gz`;
+  if (!inheritedFrom) {
+    const body = new Blob([JSON.stringify({ run_id: runId, aihc_commit: { sha: sha(ordinal) } })]).stream().pipeThrough(new CompressionStream("gzip"));
+    await env.RAW.put(key, await new Response(body).arrayBuffer(), { httpMetadata: { contentType: "application/json", contentEncoding: "gzip" } });
   }
-  return SELF.fetch(`https://fast.aihc.app${path}`, { method: "POST", headers, body: payload });
+  const now = "2026-09-10T00:00:00Z";
+  const statements = [
+    env.DB.prepare("INSERT INTO machines(machine_id, token_hash, created_at, last_seen_at) VALUES (?, '', ?, ?) ON CONFLICT(machine_id) DO UPDATE SET last_seen_at = excluded.last_seen_at").bind(MACHINE, now, now),
+    env.DB.prepare("INSERT OR IGNORE INTO environments(environment_id, machine_id, first_seen_at, record) VALUES (?, ?, ?, ?)").bind(ENVIRONMENT, MACHINE, now, JSON.stringify({ id: ENVIRONMENT, cpu_brand: "Apple M4 Pro" })),
+    env.DB.prepare(
+      "INSERT OR IGNORE INTO runs(run_id, machine_id, environment_id, experiment_id, commit_sha, commit_ordinal, compiler_status, unavailable_reason, inherited_from, created_at, uploaded_at, envelope_key) VALUES (?, ?, ?, ?, ?, ?, 'available', NULL, ?, ?, ?, ?)",
+    ).bind(rowId, MACHINE, ENVIRONMENT, EXPERIMENT, sha(ordinal), ordinal, inheritedFrom, now, now, key),
+  ];
+  const measurement = env.DB.prepare(
+    "INSERT OR REPLACE INTO measurements(run_id, machine_id, experiment_id, commit_ordinal, benchmark, configuration, compiler_family, compiler_version, backend, optimization, baseline, metric, unit, status, estimate, sample_count) VALUES (?, ?, ?, ?, 'fib', ?, ?, ?, 'native', ?, ?, ?, ?, ?, ?, ?)",
+  );
+  const cells: Array<[string, string, string, string, number, string, string, string, number | null]> = [
+    ["aihc-native-semispace-O2", "aihc", sha(ordinal), "O2", 0, "wall_time", "ns", "ok", wall],
+    ["aihc-native-semispace-O2", "aihc", sha(ordinal), "O2", 0, "peak_heap", "byte", "unavailable", null],
+    ["ghc-9.14.1-native-O2", "ghc", "9.14.1", "O2", 1, "wall_time", "ns", "ok", 100],
+    ["ghc-9.14.1-native-O0", "ghc", "9.14.1", "O0", 1, "wall_time", "ns", "ok", 400],
+  ];
+  for (const [configuration, family, version, profile, baseline, metric, unit, status, estimate] of cells) {
+    statements.push(measurement.bind(rowId, MACHINE, EXPERIMENT, ordinal, configuration, family, version, profile, baseline, metric, unit, status, estimate, estimate === null ? null : 2));
+  }
+  await env.DB.batch(statements);
+  return key;
 }
 
 async function get(path: string) {
@@ -66,62 +56,38 @@ async function get(path: string) {
 }
 
 describe("fast.aihc.app API", () => {
+  let envelopeKey = "";
+
   beforeAll(async () => {
-    const response = await post("/api/machines", { machine_id: MACHINE, display_name: "Lemmih's laptop" }, "admin-secret");
-    expect(response.status).toBe(201);
-    token = ((await response.json()) as { token: string }).token;
+    await seedCommits();
+    envelopeKey = await seedRun(0, "run-0", 90);
+    await seedRun(1, "run-0", 90, sha(0));
+    await seedRun(3, "run-3", 180);
   });
 
-  it("rejects machine registration without the admin token", async () => {
-    const response = await post("/api/machines", { machine_id: "other" }, "nope");
-    expect(response.status).toBe(403);
+  it("is read-only", async () => {
+    for (const path of ["/api/upload", "/api/machines", "/api/commits"]) {
+      const response = await SELF.fetch(`https://fast.aihc.app${path}`, { method: "POST", body: "{}" });
+      expect(response.status, path).toBe(405);
+    }
   });
 
-  it("rejects uploads without a valid token and for other machines", async () => {
-    expect((await post("/api/upload", envelope("a".repeat(40), 0, "run-a", 90), "bad")).status).toBe(403);
-    const other = await post("/api/upload", { ...envelope("a".repeat(40), 0, "run-a", 90), machine_id: "someone-else" }, token);
-    expect(other.status).toBe(403);
-  });
-
-  it("stores commits, runs, measurements and raw envelopes idempotently", async () => {
-    const commits = await post(
-      "/api/commits",
-      { commits: [0, 1, 2, 3].map((ordinal) => ({ sha: String(ordinal).repeat(40), ordinal, committed_at: "2026-09-01T00:00:00Z", subject: `c${ordinal}`, tree_key: ordinal === 1 ? "k0" : `k${ordinal}` })) },
-      token,
-    );
-    expect(commits.status).toBe(200);
-
-    const first = await post("/api/upload", envelope("0".repeat(40), 0, "run-0", 90), token, true);
-    expect(first.status).toBe(201);
-    const created = (await first.json()) as { run_id: string; inserted: boolean; measurements: number; envelope_key: string };
-    expect(created).toMatchObject({ run_id: "run-0", inserted: true, measurements: 6 });
-
-    const again = await post("/api/upload", envelope("0".repeat(40), 0, "run-0", 90), token);
-    expect(again.status).toBe(200);
-    expect(((await again.json()) as { inserted: boolean }).inserted).toBe(false);
-
-    const raw = await SELF.fetch(`https://fast.aihc.app/api/${created.envelope_key}`);
+  it("serves raw envelopes from R2", async () => {
+    const raw = await SELF.fetch(`https://fast.aihc.app/api/${envelopeKey}`);
     expect(raw.status).toBe(200);
     expect(raw.headers.get("content-encoding")).toBe("gzip");
     const decoded = (await new Response(raw.body!.pipeThrough(new DecompressionStream("gzip"))).json()) as { run_id: string };
     expect(decoded.run_id).toBe("run-0");
-
-    const inherited = await post("/api/upload", envelope("1".repeat(40), 1, "run-0", 90, { inherited_from: "0".repeat(40) }), token);
-    expect(inherited.status).toBe(201);
-    const inheritedBody = (await inherited.json()) as { run_id: string; envelope_key: string };
-    expect(inheritedBody.run_id).toBe("run-0~111111111111");
-    expect(inheritedBody.envelope_key).toBe(created.envelope_key);
-
-    expect((await post("/api/upload", envelope("3".repeat(40), 3, "run-3", 180), token)).status).toBe(201);
+    expect((await SELF.fetch("https://fast.aihc.app/api/raw/v2/nothing")).status).toBe(404);
   });
 
   it("serves the overview with AIHC to baseline ratios", async () => {
     const { status, body } = await get("/api/overview");
     expect(status).toBe(200);
-    expect(body.experiment).toBe("exp-1");
+    expect(body.experiment).toBe(EXPERIMENT);
     const machine = body.machines[0];
-    expect(machine).toMatchObject({ machine_id: MACHINE, display_name: "Lemmih's laptop", measured: 2, inherited: 1, total_commits: 4 });
-    expect(machine.latest.sha).toBe("3".repeat(40));
+    expect(machine).toMatchObject({ machine_id: MACHINE, measured: 2, inherited: 1, total_commits: 4 });
+    expect(machine.latest.sha).toBe(sha(3));
     expect(machine.ratios).toEqual([
       expect.objectContaining({ configuration: "aihc-native-semispace-O2", wall_time: 180, baseline_wall_time: 100, ratio: 1.8 }),
     ]);
@@ -136,18 +102,18 @@ describe("fast.aihc.app API", () => {
       [3, 180, "ok", 0],
     ]);
     expect(body.series.every((entry: any) => entry.optimization === "O2")).toBe(true);
-    expect(body.environments).toEqual([{ ordinal: 0, environment_id: "aarch64-darwin-abc" }]);
+    expect(body.environments).toEqual([{ ordinal: 0, environment_id: ENVIRONMENT }]);
   });
 
   it("serves commit detail with parent deltas and unavailable cells", async () => {
-    const { body } = await get(`/api/commit/${"1".repeat(12)}`);
+    const { body } = await get(`/api/commit/${sha(1).slice(0, 12)}`);
     expect(body.commit.ordinal).toBe(1);
-    expect(body.runs[0].inherited_from).toBe("0".repeat(40));
+    expect(body.runs[0].inherited_from).toBe(sha(0));
+    expect(body.runs[0].envelope_key).toBe(envelopeKey);
     const wall = body.measurements.find((row: any) => row.configuration === "aihc-native-semispace-O2" && row.metric === "wall_time");
     expect(wall).toMatchObject({ estimate: 90, parent_estimate: 90, ratio_to_parent: 1 });
     const heap = body.measurements.find((row: any) => row.configuration === "aihc-native-semispace-O2" && row.metric === "peak_heap");
     expect(heap.status).toBe("unavailable");
-    expect(body.measurements.some((row: any) => row.configuration === "aihc-native-semispace-O0")).toBe(false);
   });
 
   it("reports coverage per ordinal", async () => {
@@ -160,7 +126,7 @@ describe("fast.aihc.app API", () => {
     const machines = (await get("/api/machines")).body.machines;
     expect(machines[0]).toMatchObject({ machine_id: MACHINE, measured_runs: 2, inherited_runs: 1 });
     expect(machines[0].environment.cpu_brand).toBe("Apple M4 Pro");
-    expect((await get("/api/experiments")).body.active).toBe("exp-1");
+    expect((await get("/api/experiments")).body.active).toBe(EXPERIMENT);
     expect((await get("/api/nothing")).status).toBe(404);
   });
 

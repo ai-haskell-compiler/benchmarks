@@ -155,16 +155,15 @@ unavailable metrics.
 
 ## Publication
 
-Results are uploaded to the Worker in `web/`. `POST /api/upload` verifies the
-machine's bearer token, checks that the envelope names the same machine,
-stores the gzip envelope in R2 under
-`raw/v2/<machine>/<commit>/<run_id>.json.gz`, and indexes the run and its
-metric estimates in D1. Inherited runs are indexed under
+Results are uploaded with `wrangler`, authorized by the machine's own
+`wrangler login`. The uploader stores the gzip envelope in R2 under
+`raw/v2/<machine>/<commit>/<run_id>.json.gz` with `wrangler r2 object put`,
+then upserts the commit history and inserts the run and its metric estimates
+into D1 with `wrangler d1 execute`. Inherited runs are indexed under
 `<source run_id>~<sha12>` and point at the source envelope instead of storing
-a copy. `POST /api/commits` upserts the first-parent history so the Worker
-never runs Git. Uploads are idempotent on `run_id`, and the local database
-records `uploaded_at` only after the Worker acknowledged the run, so an
-interrupted upload resumes where it stopped.
+a copy. The Worker in `web/` only reads. Inserts use `INSERT OR IGNORE` on
+their primary keys, and the local database records `uploaded_at` only after
+both commands succeeded, so an interrupted upload resumes where it stopped.
 
 Read endpoints (`/api/overview`, `/api/series`, `/api/commit/<sha>`,
 `/api/coverage`, `/api/commits`, `/api/machines`, `/api/experiments`) are

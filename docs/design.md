@@ -7,9 +7,10 @@ apply unless stated otherwise.
 
 ## Decisions
 
-- fast.aihc.app is one Cloudflare Worker with static assets, a D1 index, and
-  the existing R2 bucket for raw envelopes. GitHub Pages and the results-update
-  PR loop are removed.
+- fast.aihc.app is one read-only Cloudflare Worker with static assets, a D1
+  index, and the existing R2 bucket for raw envelopes. Uploads go through
+  `wrangler`, authorized by the uploader's own Cloudflare login. GitHub Pages
+  and the results-update PR loop are removed.
 - The CLI has three modes over one engine: `compare` (ad-hoc, local only),
   `run` (one commit), and `run --all` (overnight). Ad-hoc results are never
   uploaded.
@@ -73,12 +74,6 @@ Two machines of the same model differ in the suffix only. A Linux reinstall
 changes `/etc/machine-id` and therefore starts a new series, which matches the
 fact that it is a new environment.
 
-The D1 `machines` table carries a mutable `display_name` for the site, so a
-human label can be attached without touching the series key.
-
-The upload token is issued per `machine_id`, so a token cannot write another
-machine's series.
-
 ## Data model
 
 ### Envelope
@@ -105,8 +100,8 @@ The versioned envelope is kept. Changes for `schema_version: 2`:
 ```sql
 CREATE TABLE machines (
   machine_id   TEXT PRIMARY KEY,
-  token_hash   TEXT NOT NULL,
-  display_name TEXT,
+  token_hash   TEXT NOT NULL,    -- legacy, always empty
+  display_name TEXT,             -- legacy, always null
   created_at   TEXT NOT NULL,
   last_seen_at TEXT
 );
@@ -234,8 +229,7 @@ aihc-bench run       [--all] [--until HH:MM] [--upload] [--jobs N]
 aihc-bench compare   <A> <B> [--worktree PATH] [--bench ID...] [--profile O0|O2]
                      [--config ID...] [--rounds N] [--markdown]
 aihc-bench upload    [--dry-run]
-aihc-bench forget    <commit>
-aihc-bench token     --machine <id>            print the upload token (admin)
+upload results through wrangler
 ```
 
 ### run
@@ -316,20 +310,6 @@ Gaps whose endpoints have status `unavailable` on one side carry `signal = 0`.
 All responses are JSON with `Cache-Control: public, max-age=300` except upload.
 
 ```text
-POST /api/machines
-  Authorization: Bearer <ADMIN_TOKEN secret>
-  Body: {machine_id, display_name}. Issues or rotates the machine's token.
-
-POST /api/commits
-  Authorization: Bearer <machine token>
-  Body: {commits: [{sha, ordinal, committed_at, subject, tree_key}]}
-
-POST /api/upload
-  Authorization: Bearer <machine token>
-  Body: gzip envelope
-  Writes raw/v2/<machine>/<commit>/<run_id>.json.gz to R2, upserts
-  commits/environments/runs/measurements. Returns {run_id, inserted}.
-
 GET  /api/overview
   For each machine: latest measured HEAD, geometric-mean AIHC/GHC ratio per
   benchmark per profile, coverage fraction, last upload time.
