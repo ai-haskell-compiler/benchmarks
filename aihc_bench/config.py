@@ -15,7 +15,8 @@ OPTIMIZATION_PROFILES = ("O0", "O1", "O2", "Os")
 
 # Capabilities the runner probes from the AIHC CLI of each commit. A
 # configuration lists the ones it needs in ``requires``; a commit lacking one
-# records the configuration as unavailable instead of failing it.
+# records the configuration as unavailable instead of failing it. AIHC
+# configurations implicitly require ``prepare-runtime``.
 CAPABILITIES = ("build-exe", "compile", "prepare-runtime", "install-offline", "optimization-flag", "optimization-O1", "optimization-Os", "build-root")
 
 # Capabilities that gate an optimization profile. ``optimization-flag`` means

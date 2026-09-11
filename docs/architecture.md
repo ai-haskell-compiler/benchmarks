@@ -95,7 +95,9 @@ available and `compile` otherwise. `install --offline` is passed only when
 advertised, and `--build-root` gives every cell its own build directory so
 parallel compilations do not share the worktree's `.aihc-target`. A configuration
 lists the capabilities it needs in `requires`; a missing one records the cell
-as `missing_capability:<name>`. The probed map is stored in the envelope as
+as `missing_capability:<name>`. Every AIHC configuration implicitly requires
+`prepare-runtime`, so a commit that cannot prepare a runtime produces no
+AIHC cells. The probed map is stored in the envelope as
 `aihc_capabilities`.
 
 The native and LLVM GHC configurations use the default GMP `ghc-bignum`

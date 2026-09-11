@@ -256,7 +256,12 @@ def build_cells(
                 "stats_dir": str(stats_dir),
                 **{key: str(value) for key, value in platform_values.items()},
             }
-            missing = [name for name in configuration.get("requires", []) if not capabilities.get(name)]
+            required = list(configuration.get("requires", []))
+            if family == "aihc" and "prepare-runtime" not in required:
+                # Every AIHC cell links against a prepared runtime; a commit
+                # that cannot prepare one has nothing meaningful to measure.
+                required.insert(0, "prepare-runtime")
+            missing = [name for name in required if not capabilities.get(name)]
             available = configuration.get("available", True) and not missing
             if not configuration.get("available", True):
                 reason: Optional[str] = configuration.get("unavailable_reason", "unsupported_configuration")
