@@ -11,11 +11,14 @@ from typing import Any, Dict, Optional, Tuple
 from .compare import CompareError, format_report, resolve_side, run_compare, select_configuration, worktree_side
 from .config import ConfigError, detect_platform, experiment_id, load_config
 from .database import Database
-from .git_history import GitError, commits, fetch
+from .git_history import DEFAULT_REMOTE, GitError, clone, clone_directory, commits, fetch, is_remote
 from .machine import load_machine
 from .planner import build_plan
 from .runner import run_commit
 from .uploader import UploadError, check_login, upload_pending
+
+
+_REPO_HELP = f"AIHC checkout or clone URL; defaults to {DEFAULT_REMOTE}"
 
 
 def main(argv: Optional[list] = None) -> None:
@@ -52,7 +55,7 @@ def _dispatch(
         _doctor(arguments, root, config, platform_id, experiment, machine)
         return
     if arguments.command == "compare":
-        repository = _repository(arguments)
+        repository = _repository(arguments, root)
         if arguments.b is None and not arguments.worktree:
             raise ValueError("give a second commit or --worktree PATH")
         if arguments.b is not None and arguments.worktree:
@@ -85,7 +88,7 @@ def _dispatch(
         return
 
     if arguments.command in {"plan", "run"}:
-        repository = _repository(arguments)
+        repository = _repository(arguments, root)
         if arguments.fetch:
             fetch(repository)
         history = commits(
@@ -99,7 +102,7 @@ def _dispatch(
         return
 
     if arguments.command == "run":
-        repository = _repository(arguments)
+        repository = _repository(arguments, root)
         if arguments.upload:
             check_login(config, root)
         completed = 0
@@ -173,7 +176,7 @@ def _doctor(
     experiment: str,
     machine: Dict[str, Any],
 ) -> None:
-    repository = _repository(arguments)
+    repository = _repository(arguments, root)
     failures = []
     derivation = machine.get("derivation", {})
     print(f"experiment: {experiment}")
@@ -206,10 +209,16 @@ def _doctor(
         raise ValueError("doctor found missing requirements: " + ", ".join(failures))
 
 
-def _repository(arguments: argparse.Namespace) -> Path:
-    value = arguments.aihc_repo or os.environ.get("AIHC_REPOSITORY")
-    if not value:
-        raise ValueError("provide --aihc-repo or set AIHC_REPOSITORY")
+def _repository(arguments: argparse.Namespace, root: Path) -> Path:
+    """Resolve the AIHC checkout to benchmark.
+
+    ``--aihc-repo`` and ``AIHC_REPOSITORY`` take either a local checkout or a
+    clone URL; without them the upstream repository is used, cloned once into
+    ``.cache/aihc`` and reused afterwards.
+    """
+    value = arguments.aihc_repo or os.environ.get("AIHC_REPOSITORY") or DEFAULT_REMOTE
+    if is_remote(value):
+        return clone(value, clone_directory(root / ".cache" / "aihc", value))
     repository = Path(value).expanduser().resolve()
     if not repository.exists():
         raise ValueError(f"AIHC repository does not exist: {repository}")
@@ -232,15 +241,15 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     doctor = subparsers.add_parser("doctor", help="validate the local environment and print the machine id")
-    doctor.add_argument("--aihc-repo")
+    doctor.add_argument("--aihc-repo", help=_REPO_HELP)
     doctor.add_argument("--machine", help="override and freeze the derived machine id")
 
     plan = subparsers.add_parser("plan", help="show coverage, the next commit, and the highest-scoring gaps")
-    plan.add_argument("--aihc-repo")
+    plan.add_argument("--aihc-repo", help=_REPO_HELP)
     plan.add_argument("--fetch", action="store_true")
 
     run = subparsers.add_parser("run", help="benchmark the next commit")
-    run.add_argument("--aihc-repo")
+    run.add_argument("--aihc-repo", help=_REPO_HELP)
     run.add_argument("--fetch", action="store_true")
     run.add_argument("--jobs", type=int, default=max(1, os.cpu_count() or 1))
     run.add_argument("--all", action="store_true", help="continue until all commits are terminal")
@@ -251,7 +260,7 @@ def _parser() -> argparse.ArgumentParser:
     compare.add_argument("a", help="commit, branch or tag for side A")
     compare.add_argument("b", nargs="?", help="commit, branch or tag for side B")
     compare.add_argument("--worktree", help="use this AIHC checkout, including uncommitted changes, as side B")
-    compare.add_argument("--aihc-repo")
+    compare.add_argument("--aihc-repo", help=_REPO_HELP)
     compare.add_argument("--bench", action="append", default=[], metavar="ID", help="benchmark id; repeatable, default all")
     compare.add_argument("--config", dest="config_ids", action="append", default=[], metavar="ID", help="configuration id; repeatable, default every AIHC configuration")
     compare.add_argument("--profile", choices=["O0", "O2"])

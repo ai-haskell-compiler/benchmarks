@@ -3,7 +3,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aihc_bench.git_history import GitError, commits, parse_cutoff, tree_keys
+from aihc_bench.git_history import (
+    DEFAULT_REMOTE,
+    GitError,
+    clone,
+    clone_directory,
+    commits,
+    is_remote,
+    parse_cutoff,
+    tree_keys,
+)
 
 
 def git(root, *arguments, date=None):
@@ -72,6 +81,53 @@ class CutoffTests(unittest.TestCase):
             self.assertEqual(history, everything[2:])
             with self.assertRaises(GitError):
                 commits(root, "main", ["bin"], since="2027-01-01")
+
+
+class CloneTests(unittest.TestCase):
+    def test_remotes_are_told_from_local_paths(self):
+        self.assertTrue(is_remote(DEFAULT_REMOTE))
+        self.assertTrue(is_remote("github.com/ai-haskell-compiler/aihc"))
+        self.assertTrue(is_remote("git@github.com:ai-haskell-compiler/aihc.git"))
+        self.assertTrue(is_remote("ssh://git@example.org/aihc"))
+        self.assertFalse(is_remote("/path/to/aihc"))
+        self.assertFalse(is_remote("~/coding/aihc"))
+        self.assertFalse(is_remote("../aihc"))
+
+    def test_clone_directory_separates_remotes(self):
+        cache = Path("/cache")
+        self.assertEqual(clone_directory(cache, DEFAULT_REMOTE).name, "https-github-com-ai-haskell-compiler-aihc")
+        self.assertEqual(
+            clone_directory(cache, DEFAULT_REMOTE + ".git"),
+            clone_directory(cache, DEFAULT_REMOTE),
+        )
+        self.assertNotEqual(
+            clone_directory(cache, DEFAULT_REMOTE),
+            clone_directory(cache, "https://example.org/fork/aihc"),
+        )
+
+    def test_clone_creates_a_reusable_checkout_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            origin = root / "origin"
+            origin.mkdir()
+            git(origin, "init", "-q", "-b", "main")
+            (origin / "bin").mkdir()
+            (origin / "bin" / "aihc.txt").write_text("one")
+            git(origin, "add", ".")
+            git(origin, "commit", "-q", "-m", "compiler")
+
+            destination = clone_directory(root / ".cache", str(origin))
+            self.assertEqual(clone(str(origin), destination), destination)
+            history = commits(destination, "origin/main", ["bin"])
+            self.assertEqual([commit["subject"] for commit in history], ["compiler"])
+
+            marker = destination / ".git" / "aihc-bench-marker"
+            marker.write_text("kept")
+            clone(str(origin), destination)
+            self.assertTrue(marker.exists())
+
+            with self.assertRaises(GitError):
+                clone(str(root / "missing"), root / ".cache" / "missing")
 
 
 if __name__ == "__main__":

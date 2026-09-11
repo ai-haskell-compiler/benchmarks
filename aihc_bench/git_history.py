@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -22,12 +23,43 @@ DEFAULT_TREE_PATHS = (
 )
 
 
+# The upstream compiler. Without an explicit local checkout the benchmarks
+# clone this themselves, so a fresh machine needs nothing but Nix and Git.
+DEFAULT_REMOTE = "https://github.com/ai-haskell-compiler/aihc"
+
+
 class GitError(RuntimeError):
     pass
 
 
 def fetch(repository: Path) -> None:
     _git(repository, "fetch", "--prune", "origin", "main")
+
+
+def is_remote(value: str) -> bool:
+    """Tell a clone URL from a path to a local checkout."""
+    return "://" in value or value.startswith("git@") or bool(re.match(r"^[\w.-]+\.[a-z]{2,}/", value))
+
+
+def clone(remote: str, destination: Path) -> Path:
+    """Return a checkout of ``remote``, cloning it into ``destination`` once.
+
+    The clone carries no working tree of its own; every commit is built in a
+    worktree, so only ``origin/main`` and the object store matter here.
+    """
+    if (destination / ".git").is_dir():
+        return destination
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    _git(destination.parent, "clone", "--no-checkout", remote, str(destination))
+    return destination
+
+
+def clone_directory(cache: Path, remote: str) -> Path:
+    """Name a clone after its remote so two remotes never share a directory."""
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", remote.removesuffix(".git")).strip("-").lower()
+    return cache / slug
 
 
 def commits(
