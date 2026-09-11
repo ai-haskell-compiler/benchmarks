@@ -1,6 +1,15 @@
 import type { Bindings } from "./bindings";
 
 const CACHE_SECONDS = 60;
+/**
+ * The overview is materialized in R2 so the front page never waits for D1.
+ * A copy older than `OVERVIEW_FRESH_SECONDS` is served as is and recomputed in
+ * the background; `?refresh=1` (sent by the uploader) recomputes synchronously
+ * unless the copy is younger than `OVERVIEW_FORCE_SECONDS`.
+ */
+const OVERVIEW_KEY = "cache/overview/v1.json";
+const OVERVIEW_FRESH_SECONDS = 60;
+const OVERVIEW_FORCE_SECONDS = 10;
 
 type Json = Record<string, unknown>;
 
@@ -25,7 +34,7 @@ export async function handleApi(request: Request, env: Bindings, url: URL, ctx: 
       case "experiments":
         return cached(await listExperiments(env));
       case "overview":
-        return cached(await overview(env, url));
+        return await overviewCached(env, url, ctx);
       case "series":
         return cached(await series(env, url));
       case "commit":
@@ -54,6 +63,18 @@ function json(data: unknown, status = 200, headers: HeadersInit = {}): Response 
 
 function cached(data: unknown): Response {
   return json(data, 200, { "cache-control": `public, max-age=${CACHE_SECONDS}` });
+}
+
+function cachedBody(body: BodyInit, ageSeconds: number): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "access-control-allow-origin": "*",
+      "cache-control": `public, max-age=${CACHE_SECONDS}`,
+      age: String(Math.floor(ageSeconds)),
+    },
+  });
 }
 
 async function activeExperiment(env: Bindings, url: URL): Promise<string> {
@@ -143,8 +164,30 @@ async function listExperiments(env: Bindings): Promise<unknown> {
   return { active, experiments: rows.results };
 }
 
-async function overview(env: Bindings, url: URL): Promise<unknown> {
-  const experiment = await activeExperiment(env, url);
+async function overviewCached(env: Bindings, url: URL, ctx: ExecutionContext): Promise<Response> {
+  if (url.searchParams.get("experiment")) return cached(await overview(env, await activeExperiment(env, url)));
+  const object = await env.RAW.get(OVERVIEW_KEY);
+  if (object) {
+    const ageSeconds = (Date.now() - object.uploaded.getTime()) / 1000;
+    const force = url.searchParams.has("refresh") && ageSeconds >= OVERVIEW_FORCE_SECONDS;
+    if (!force) {
+      if (ageSeconds >= OVERVIEW_FRESH_SECONDS) ctx.waitUntil(refreshOverview(env).catch((error) => console.error("overview refresh failed", error)));
+      return cachedBody(object.body, ageSeconds);
+    }
+  }
+  return cachedBody(await refreshOverview(env), 0);
+}
+
+/** Recompute the overview for the active experiment and store it in R2. */
+async function refreshOverview(env: Bindings): Promise<string> {
+  const experiment = await activeExperiment(env, new URL("https://perf.aihc.app/api/overview"));
+  const data = await overview(env, experiment);
+  const body = JSON.stringify({ ...data, computed_at: new Date().toISOString() });
+  await env.RAW.put(OVERVIEW_KEY, body, { httpMetadata: { contentType: "application/json" } });
+  return body;
+}
+
+async function overview(env: Bindings, experiment: string): Promise<Record<string, unknown>> {
   const window = await commitWindow(env);
   const machines = await env.DB.prepare(
     "SELECT m.machine_id, m.last_seen_at, " +
@@ -156,19 +199,23 @@ async function overview(env: Bindings, url: URL): Promise<unknown> {
     .bind(experiment)
     .all<{ machine_id: string; last_seen_at: string | null; measured: number; inherited: number; latest_ordinal: number | null }>();
 
+  const measured = machines.results.filter((machine) => machine.latest_ordinal !== null);
+  const commitStatement = env.DB.prepare("SELECT sha, ordinal, committed_at, subject FROM commits WHERE ordinal = ?");
+  const ratioStatement = env.DB.prepare(
+    "SELECT benchmark, configuration, compiler_family, backend, optimization, baseline, metric, estimate FROM measurements " +
+      "WHERE machine_id = ? AND experiment_id = ? AND commit_ordinal = ? AND metric IN ('wall_time', 'compile_time', 'artifact_size') AND estimate IS NOT NULL",
+  );
+  const results = measured.length
+    ? await env.DB.batch(measured.flatMap((machine) => [commitStatement.bind(machine.latest_ordinal), ratioStatement.bind(machine.machine_id, experiment, machine.latest_ordinal)]))
+    : [];
   const cards = [];
   for (const machine of machines.results) {
     let ratios: unknown[] = [];
     let latest: unknown = null;
-    if (machine.latest_ordinal !== null) {
-      latest = await env.DB.prepare("SELECT sha, ordinal, committed_at, subject FROM commits WHERE ordinal = ?").bind(machine.latest_ordinal).first();
-      const rows = await env.DB.prepare(
-        "SELECT benchmark, configuration, compiler_family, backend, optimization, baseline, metric, estimate FROM measurements " +
-          "WHERE machine_id = ? AND experiment_id = ? AND commit_ordinal = ? AND metric IN ('wall_time', 'compile_time', 'artifact_size') AND estimate IS NOT NULL",
-      )
-        .bind(machine.machine_id, experiment, machine.latest_ordinal)
-        .all<RatioRow>();
-      ratios = ratioTable(rows.results);
+    const index = measured.indexOf(machine);
+    if (index >= 0) {
+      latest = results[2 * index].results[0] ?? null;
+      ratios = ratioTable(results[2 * index + 1].results as RatioRow[]);
     }
     cards.push({
       machine_id: machine.machine_id,

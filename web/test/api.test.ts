@@ -108,6 +108,22 @@ describe("perf.aihc.app API", () => {
     );
   });
 
+  it("materializes the overview in R2 and serves it from there", async () => {
+    const first = await get("/api/overview");
+    const stored = await env.RAW.get("cache/overview/v1.json");
+    expect(stored).not.toBeNull();
+    const body = JSON.parse(await stored!.text());
+    expect(body.computed_at).toBeTruthy();
+    expect(body.machines[0].ratios).toEqual(first.body.machines[0].ratios);
+    // A poisoned copy proves the next request is served from R2, and that
+    // ?refresh=1 recomputes only once the copy is old enough.
+    await env.RAW.put("cache/overview/v1.json", JSON.stringify({ ...body, experiment: "stale" }), { httpMetadata: { contentType: "application/json" } });
+    expect((await get("/api/overview")).body.experiment).toBe("stale");
+    expect((await get("/api/overview?refresh=1")).body.experiment).toBe("stale");
+    expect((await get(`/api/overview?experiment=${EXPERIMENT}`)).body.experiment).toBe(EXPERIMENT);
+    await env.RAW.delete("cache/overview/v1.json");
+  });
+
   it("serves series with inherited points and profile filtering", async () => {
     const { body } = await get(`/api/series?machine=${MACHINE}&benchmark=fib&metric=wall_time&profile=O2`);
     const aihc = body.series.find((entry: any) => entry.configuration === "aihc-native-semispace-O2");

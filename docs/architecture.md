@@ -171,6 +171,14 @@ public, cached for one minute, and default to the experiment of the most recent
 upload. `/api/raw/<key>` streams envelopes from R2. The D1 schema is
 `web/migrations/0001_init.sql`.
 
+The overview is materialized: the Worker stores the computed JSON in R2 under
+`cache/overview/v1.json` and serves the front page from that copy without
+touching D1, which is slow from a cold Worker. A copy older than a minute is
+served as is and recomputed in the background. After an upload the uploader
+requests `/api/overview?refresh=1`, which recomputes synchronously so the next
+visitor sees the new results; a refresh request is ignored while the copy is
+younger than ten seconds.
+
 ## Platform independence
 
 Apple Arm64 and Linux AMD64 keep separate local databases and publish separate
