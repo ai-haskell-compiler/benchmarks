@@ -12,6 +12,7 @@ from aihc_bench.compare import (
     bootstrap_ratio,
     format_report,
     measure_interleaved,
+    prepare_side,
     run_compare,
     select_configuration,
     summarize,
@@ -125,6 +126,37 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(len(calls), 8)
         self.assertNotEqual(calls[0], calls[1])
         self.assertEqual(calls[0], calls[2])
+
+    def test_prepare_side_passes_root_and_store_to_store_preparation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "fib.hs").write_text("main = putStrLn \"ok\"\n")
+            selected = select_configuration(CONFIG, benchmarks=["fib"], profile="O2")
+            side = Side("old", "a" * 40, root / "wt-a", False)
+            capabilities = dict(CAPABILITIES, **{"prepare-runtime": True})
+            seen = {}
+
+            def fake_prepare(config, platform_id, worktree, root_, store, timeout_seconds, capabilities_=None):
+                seen.update(root=root_, store=store, timeout=timeout_seconds, capabilities=capabilities_)
+                return {}
+
+            def fake_compile(cells, root_, timeout, jobs):
+                return [(cell, {"status": "compiled", "artifact_bytes": 1}) for cell in cells]
+
+            with (
+                patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": "/toolchains"}),
+                patch("aihc_bench.compare.probe_capabilities", return_value=(capabilities, None)),
+                patch("aihc_bench.compare._prepare_aihc_store", side_effect=fake_prepare),
+                patch("aihc_bench.compare.compile_cells", side_effect=fake_compile),
+            ):
+                prepare_side(side, selected, "test-platform", root, root, 1, lambda _: None)
+            self.assertIsInstance(seen["root"], Path)
+            self.assertEqual(seen["root"], root)
+            self.assertIsInstance(seen["store"], Path)
+            self.assertEqual(seen["store"], root / ".cache" / "compare-stores" / ("a" * 40))
+            self.assertIsInstance(seen["timeout"], float)
+            self.assertEqual(seen["timeout"], 5.0)
+            self.assertIs(seen["capabilities"], capabilities)
 
     def test_run_compare_cleans_up_and_records_locally(self):
         with tempfile.TemporaryDirectory() as directory:

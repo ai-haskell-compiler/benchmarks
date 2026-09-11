@@ -115,7 +115,7 @@ def prepare_side(
     setup_errors: Dict[str, str] = {}
     if capabilities["prepare-runtime"]:
         store = root / ".cache" / "compare-stores" / _side_key(side)
-        setup_errors = _prepare_aihc_store(config, platform_id, side.worktree, store, timeout, capabilities)
+        setup_errors = _prepare_aihc_store(config, platform_id, side.worktree, root, store, timeout, capabilities)
         for target, detail in setup_errors.items():
             log(f"[{side.label}] runtime for {target} unavailable: {detail.splitlines()[0]}")
     cells = build_cells(
