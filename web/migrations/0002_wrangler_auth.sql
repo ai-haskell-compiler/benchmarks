@@ -5,4 +5,4 @@
 -- empty legacy columns; scrub whatever hashes were stored. display_name is
 -- never written by the uploader and is left untouched.
 
-UPDATE machines SET token_hash = '' WHERE token_hash <> '';
+UPDATE machines SET token_hash = '' WHERE length(token_hash) > 0;
