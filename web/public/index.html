@@ -11,16 +11,7 @@
 <link rel="stylesheet" href="/site.css">
 </head>
 <body>
-<header class="site-header">
-  <a class="brand" href="/"><span class="mark"><svg viewBox="0 0 100 100" aria-hidden="true" focusable="false"><defs><clipPath id="mark-clip"><polygon points="18,18 62,18 40,88"/></clipPath></defs><g fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"><path d="M24 54 Q40 36 56 54" clip-path="url(#mark-clip)" stroke-linecap="butt"/><path d="M18 18 L40 88 L62 18"/><path d="M64 88 L79.1 40"/><circle cx="86" cy="18" r="6" fill="currentColor" stroke="none"/></g></svg></span><span>AIHC benchmarks</span></a>
-  <nav>
-    <a href="/">Overview</a>
-    <a href="/timeline.html">Timeline</a>
-    <a href="/coverage.html">Coverage</a>
-  </nav>
-  <span class="spacer"></span>
-  <a class="external" href="https://github.com/ai-haskell-compiler/aihc">ai-haskell-compiler/aihc</a>
-</header>
+<header class="site-header"></header>
 <main>
   <section class="hero">
     <p class="eyebrow">Newest measured commit vs GHC 9.14.1</p>
@@ -36,9 +27,9 @@
   <p class="lede">Every machine measures every configuration itself, so ratios are comparable across machines even though absolute times are not. Artifact size at <code>-Os</code> and runtime at <code>-O1</code> stay blank until AIHC grows those profiles. Commits that leave the compiler untouched inherit their neighbour's result and count toward coverage. The <a href="/timeline.html">timeline</a> shows how each ratio moved over the commit history, the <a href="/coverage.html">coverage</a> page shows which commits have been measured, and every number links to its commit.</p>
 </main>
 <script type="module">
-import { api, el, replaceChildren, formatRatio, formatValue, formatDate, machineLabel, commitLink, setStatus, markCurrentNav, queryState, pushQuery, GITHUB } from "/site.js";
+import { api, el, replaceChildren, formatRatio, formatValue, formatDate, machineLabel, commitLink, setStatus, renderHeader, queryState, pushQuery, GITHUB } from "/site.js";
 
-markCurrentNav();
+renderHeader();
 
 const BACKENDS = ["native", "llvm", "wasm"];
 const BACKEND_LABELS = { native: "Native", llvm: "LLVM", wasm: "Wasm" };

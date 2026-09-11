@@ -10,16 +10,7 @@
 <link rel="stylesheet" href="/site.css">
 </head>
 <body>
-<header class="site-header">
-  <a class="brand" href="/"><span class="mark"><svg viewBox="0 0 100 100" aria-hidden="true" focusable="false"><defs><clipPath id="mark-clip"><polygon points="18,18 62,18 40,88"/></clipPath></defs><g fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"><path d="M24 54 Q40 36 56 54" clip-path="url(#mark-clip)" stroke-linecap="butt"/><path d="M18 18 L40 88 L62 18"/><path d="M64 88 L79.1 40"/><circle cx="86" cy="18" r="6" fill="currentColor" stroke="none"/></g></svg></span><span>AIHC benchmarks</span></a>
-  <nav>
-    <a href="/">Overview</a>
-    <a href="/timeline.html">Timeline</a>
-    <a href="/coverage.html">Coverage</a>
-  </nav>
-  <span class="spacer"></span>
-  <a class="external" href="https://github.com/ai-haskell-compiler/aihc">ai-haskell-compiler/aihc</a>
-</header>
+<header class="site-header"></header>
 <main>
   <h1>Coverage</h1>
   <p class="lede">One cell per first-parent commit on <code>main</code>, oldest on the left. The overnight runner measures HEAD first, then recent commits, then bisects the gaps with the largest observed change. Hover a cell for the commit, click to open it.</p>
@@ -34,9 +25,9 @@
   <div class="tooltip" id="tooltip" hidden></div>
 </main>
 <script type="module">
-import { api, el, replaceChildren, setStatus, markCurrentNav, commitIndex, machineLabel, formatDate } from "/site.js";
+import { api, el, replaceChildren, setStatus, renderHeader, commitIndex, machineLabel, formatDate } from "/site.js";
 
-markCurrentNav();
+renderHeader();
 const COLORS = { M: "--cover-measured", I: "--cover-inherited", U: "--cover-unavailable", ".": "--cover-pending" };
 const LABELS = { M: "measured", I: "inherited", U: "compiler unavailable", ".": "not measured" };
 const tooltip = document.getElementById("tooltip");

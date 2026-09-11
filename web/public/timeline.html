@@ -11,16 +11,7 @@
 <script src="/vendor/uPlot.iife.min.js"></script>
 </head>
 <body>
-<header class="site-header">
-  <a class="brand" href="/"><span class="mark"><svg viewBox="0 0 100 100" aria-hidden="true" focusable="false"><defs><clipPath id="mark-clip"><polygon points="18,18 62,18 40,88"/></clipPath></defs><g fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"><path d="M24 54 Q40 36 56 54" clip-path="url(#mark-clip)" stroke-linecap="butt"/><path d="M18 18 L40 88 L62 18"/><path d="M64 88 L79.1 40"/><circle cx="86" cy="18" r="6" fill="currentColor" stroke="none"/></g></svg></span><span>AIHC benchmarks</span></a>
-  <nav>
-    <a href="/">Overview</a>
-    <a href="/timeline.html">Timeline</a>
-    <a href="/coverage.html">Coverage</a>
-  </nav>
-  <span class="spacer"></span>
-  <a class="external" href="https://github.com/ai-haskell-compiler/aihc">ai-haskell-compiler/aihc</a>
-</header>
+<header class="site-header"></header>
 <main>
   <h1>Timeline</h1>
   <p class="lede">One point per measured commit, in first-parent order. Hover for the commit, click a point to open it. Dashed lines mark a change of machine environment, such as an OS update.</p>
@@ -49,9 +40,9 @@
   </div>
 </main>
 <script type="module">
-import { api, el, replaceChildren, formatValue, formatRatio, queryState, pushQuery, fillSelect, setStatus, markCurrentNav, commitIndex, seriesKey, seriesColor, SERIES_SLOTS, METRIC_LABELS, machineLabel, describeConfiguration, commitLink, changeCell } from "/site.js";
+import { api, el, replaceChildren, formatValue, formatRatio, queryState, pushQuery, fillSelect, setStatus, renderHeader, commitIndex, seriesKey, seriesColor, SERIES_SLOTS, METRIC_LABELS, machineLabel, describeConfiguration, commitLink, changeCell } from "/site.js";
 
-markCurrentNav();
+renderHeader();
 const defaults = { machine: "", benchmark: "", metric: "wall_time", profile: "O2", view: "ratio", log: "", allghc: "" };
 const state = queryState(defaults);
 const controls = Object.fromEntries(["machine", "benchmark", "metric", "profile", "view", "log", "allghc"].map((id) => [id, document.getElementById(id)]));
