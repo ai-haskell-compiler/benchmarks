@@ -174,6 +174,18 @@ class RunnerTests(unittest.TestCase):
             self.assertIsNone(default["aihc-native-Os"].compile_command)
             self.assertIsNotNone(default["aihc-native-O2"].compile_command)
 
+    def test_aihc_cells_require_prepare_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = {cell.configuration["id"]: cell for cell in self.build(root, {**self.capabilities, "prepare-runtime": False})}
+            aihc = [cell for cell in cells.values() if cell.configuration["compiler_family"] == "aihc"]
+            self.assertTrue(aihc)
+            for cell in aihc:
+                self.assertIsNone(cell.compile_command)
+                self.assertEqual(cell.unavailable_reason, "missing_capability:prepare-runtime")
+            ghc = [cell for cell in cells.values() if cell.configuration["compiler_family"] == "ghc"]
+            self.assertTrue(all(cell.compile_command for cell in ghc))
+
     def test_build_root_is_per_cell_when_supported(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

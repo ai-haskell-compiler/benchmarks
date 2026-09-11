@@ -196,7 +196,8 @@ The AIHC command line is probed per commit instead. `build-exe` replaced
 `compile` in aihc#1543 and `install --offline` was removed later, so the runner
 reads `--help` for the capabilities `build-exe`, `compile`, `prepare-runtime`,
 `install-offline` and `optimization-flag` and adapts its commands. A
-configuration lists required capabilities in `requires`.
+configuration lists required capabilities in `requires`; AIHC configurations
+always require `prepare-runtime`.
 
 ## Configurations
 

@@ -50,7 +50,7 @@ CONFIG = {
         configuration("ghc-native-O2", family="ghc"),
     ],
 }
-CAPABILITIES = {"build-exe": True, "compile": False, "prepare-runtime": False, "install-offline": False, "optimization-flag": True, "optimization-O1": True, "optimization-Os": True, "build-root": False}
+CAPABILITIES = {"build-exe": True, "compile": False, "prepare-runtime": True, "install-offline": False, "optimization-flag": True, "optimization-O1": True, "optimization-Os": True, "build-root": False}
 
 
 def sample(wall, stats=None):
@@ -133,7 +133,7 @@ class CompareTests(unittest.TestCase):
             (root / "fib.hs").write_text("main = putStrLn \"ok\"\n")
             selected = select_configuration(CONFIG, benchmarks=["fib"], profile="O2")
             side = Side("old", "a" * 40, root / "wt-a", False)
-            capabilities = dict(CAPABILITIES, **{"prepare-runtime": True})
+            capabilities = dict(CAPABILITIES)
             seen = {}
 
             def fake_prepare(config, platform_id, worktree, root_, store, timeout_seconds, capabilities_=None):
@@ -174,6 +174,7 @@ class CompareTests(unittest.TestCase):
                 patch("aihc_bench.compare.create_worktree"),
                 patch("aihc_bench.compare.remove_worktree", side_effect=lambda repo, path: removed.append(path)),
                 patch("aihc_bench.compare.probe_capabilities", return_value=(CAPABILITIES, None)),
+                patch("aihc_bench.compare._prepare_aihc_store", return_value={}),
                 patch("aihc_bench.compare.compile_cells", side_effect=fake_compile),
             ):
                 report = run_compare(
