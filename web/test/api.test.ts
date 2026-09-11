@@ -12,11 +12,16 @@ function sha(digit: number): string {
   return String(digit).repeat(40);
 }
 
+// Ordinal 0 is committed at 01:00 in UTC+2, an hour before the AIHC_SINCE
+// cutoff of 2026-09-01T00:00:00Z, so every listing must start at ordinal 1.
 async function seedCommits(): Promise<void> {
   const statement = env.DB.prepare(
     "INSERT INTO commits(sha, ordinal, committed_at, subject, tree_key) VALUES (?, ?, ?, ?, ?) ON CONFLICT(sha) DO UPDATE SET ordinal = excluded.ordinal",
   );
-  await env.DB.batch([0, 1, 2, 3].map((ordinal) => statement.bind(sha(ordinal), ordinal, "2026-09-01T00:00:00Z", `c${ordinal}`, ordinal === 1 ? "k0" : `k${ordinal}`)));
+  await env.DB.batch([
+    statement.bind(sha(0), 0, "2026-09-01T01:00:00+02:00", "before cutoff", "k0"),
+    ...[1, 2, 3, 4].map((ordinal) => statement.bind(sha(ordinal), ordinal, "2026-09-01T00:00:00Z", `c${ordinal}`, ordinal === 2 ? "k1" : `k${ordinal}`)),
+  ]);
 }
 
 async function seedRun(ordinal: number, runId: string, wall: number, inheritedFrom: string | null = null): Promise<string> {
@@ -60,9 +65,10 @@ describe("perf.aihc.app API", () => {
 
   beforeAll(async () => {
     await seedCommits();
-    envelopeKey = await seedRun(0, "run-0", 90);
-    await seedRun(1, "run-0", 90, sha(0));
-    await seedRun(3, "run-3", 180);
+    await seedRun(0, "run-old", 50);
+    envelopeKey = await seedRun(1, "run-1", 90);
+    await seedRun(2, "run-1", 90, sha(1));
+    await seedRun(4, "run-4", 180);
   });
 
   it("is read-only", async () => {
@@ -77,7 +83,7 @@ describe("perf.aihc.app API", () => {
     expect(raw.status).toBe(200);
     expect(raw.headers.get("content-encoding")).toBe("gzip");
     const decoded = (await new Response(raw.body!.pipeThrough(new DecompressionStream("gzip"))).json()) as { run_id: string };
-    expect(decoded.run_id).toBe("run-0");
+    expect(decoded.run_id).toBe("run-1");
     expect((await SELF.fetch("https://perf.aihc.app/api/raw/v2/nothing")).status).toBe(404);
   });
 
@@ -86,8 +92,9 @@ describe("perf.aihc.app API", () => {
     expect(status).toBe(200);
     expect(body.experiment).toBe(EXPERIMENT);
     const machine = body.machines[0];
-    expect(machine).toMatchObject({ machine_id: MACHINE, measured: 2, inherited: 1, total_commits: 4 });
-    expect(machine.latest.sha).toBe(sha(3));
+    expect(machine).toMatchObject({ machine_id: MACHINE, measured: 3, inherited: 1, total_commits: 4 });
+    expect(body).toMatchObject({ first_ordinal: 1, head_ordinal: 4, total_commits: 4 });
+    expect(machine.latest.sha).toBe(sha(4));
     expect(machine.ratios).toEqual([
       expect.objectContaining({ configuration: "aihc-native-semispace-O2", wall_time: 180, baseline_wall_time: 100, ratio: 1.8 }),
     ]);
@@ -97,18 +104,19 @@ describe("perf.aihc.app API", () => {
     const { body } = await get(`/api/series?machine=${MACHINE}&benchmark=fib&metric=wall_time&profile=O2`);
     const aihc = body.series.find((entry: any) => entry.configuration === "aihc-native-semispace-O2");
     expect(aihc.points).toEqual([
-      [0, 90, "ok", 0],
-      [1, 90, "ok", 1],
-      [3, 180, "ok", 0],
+      [0, 50, "ok", 0],
+      [1, 90, "ok", 0],
+      [2, 90, "ok", 1],
+      [4, 180, "ok", 0],
     ]);
     expect(body.series.every((entry: any) => entry.optimization === "O2")).toBe(true);
     expect(body.environments).toEqual([{ ordinal: 0, environment_id: ENVIRONMENT }]);
   });
 
   it("serves commit detail with parent deltas and unavailable cells", async () => {
-    const { body } = await get(`/api/commit/${sha(1).slice(0, 12)}`);
-    expect(body.commit.ordinal).toBe(1);
-    expect(body.runs[0].inherited_from).toBe(sha(0));
+    const { body } = await get(`/api/commit/${sha(2).slice(0, 12)}`);
+    expect(body.commit.ordinal).toBe(2);
+    expect(body.runs[0].inherited_from).toBe(sha(1));
     expect(body.runs[0].envelope_key).toBe(envelopeKey);
     const wall = body.measurements.find((row: any) => row.configuration === "aihc-native-semispace-O2" && row.metric === "wall_time");
     expect(wall).toMatchObject({ estimate: 90, parent_estimate: 90, ratio_to_parent: 1 });
@@ -116,15 +124,15 @@ describe("perf.aihc.app API", () => {
     expect(heap.status).toBe("unavailable");
   });
 
-  it("reports coverage per ordinal", async () => {
+  it("reports coverage per ordinal from the cutoff onwards", async () => {
     const { body } = await get(`/api/coverage?machine=${MACHINE}`);
-    expect(body).toMatchObject({ total: 4, statuses: "MI.M" });
+    expect(body).toMatchObject({ first: 1, total: 4, statuses: "MI.M" });
   });
 
   it("lists commits, machines and experiments", async () => {
-    expect((await get("/api/commits")).body.commits.map((c: any) => c.ordinal)).toEqual([3, 2, 1, 0]);
+    expect((await get("/api/commits")).body.commits.map((c: any) => c.ordinal)).toEqual([4, 3, 2, 1]);
     const machines = (await get("/api/machines")).body.machines;
-    expect(machines[0]).toMatchObject({ machine_id: MACHINE, measured_runs: 2, inherited_runs: 1 });
+    expect(machines[0]).toMatchObject({ machine_id: MACHINE, measured_runs: 3, inherited_runs: 1 });
     expect(machines[0].environment.cpu_brand).toBe("Apple M4 Pro");
     expect((await get("/api/experiments")).body.active).toBe(EXPERIMENT);
     expect((await get("/api/nothing")).status).toBe(404);

@@ -70,6 +70,32 @@ function requireParam(url: URL, name: string): string {
   return value;
 }
 
+interface CommitWindow {
+  /** Ordinal of the first commit at or after the cutoff, or null when there are none. */
+  first: number | null;
+  head: number | null;
+  total: number;
+}
+
+/**
+ * The commits the site shows: those committed at or after `AIHC_SINCE`.
+ * `committed_at` carries a zone offset, so the comparison goes through
+ * SQLite's `datetime`, which normalizes both sides to UTC.
+ */
+function sinceClause(env: Bindings): { sql: string; params: string[] } {
+  const since = env.AIHC_SINCE?.trim();
+  if (!since) return { sql: "1", params: [] };
+  return { sql: "datetime(committed_at) >= datetime(?)", params: [since] };
+}
+
+async function commitWindow(env: Bindings): Promise<CommitWindow> {
+  const since = sinceClause(env);
+  const row = await env.DB.prepare(`SELECT MIN(ordinal) AS first, MAX(ordinal) AS head, COUNT(*) AS n FROM commits WHERE ${since.sql}`)
+    .bind(...since.params)
+    .first<{ first: number | null; head: number | null; n: number }>();
+  return { first: row?.first ?? null, head: row?.head ?? null, total: row?.n ?? 0 };
+}
+
 // ---------------------------------------------------------------------------
 // Reads
 
@@ -89,8 +115,9 @@ async function serveRaw(env: Bindings, key: string): Promise<Response> {
 
 async function listCommits(env: Bindings, url: URL): Promise<unknown> {
   const limit = Math.min(Number(url.searchParams.get("limit") ?? 5000), 5000);
-  const rows = await env.DB.prepare("SELECT sha, ordinal, committed_at, subject, tree_key FROM commits ORDER BY ordinal DESC LIMIT ?")
-    .bind(limit)
+  const since = sinceClause(env);
+  const rows = await env.DB.prepare(`SELECT sha, ordinal, committed_at, subject, tree_key FROM commits WHERE ${since.sql} ORDER BY ordinal DESC LIMIT ?`)
+    .bind(...since.params, limit)
     .all();
   return { commits: rows.results };
 }
@@ -118,7 +145,7 @@ async function listExperiments(env: Bindings): Promise<unknown> {
 
 async function overview(env: Bindings, url: URL): Promise<unknown> {
   const experiment = await activeExperiment(env, url);
-  const total = await env.DB.prepare("SELECT COUNT(*) AS n, MAX(ordinal) AS head FROM commits").first<{ n: number; head: number | null }>();
+  const window = await commitWindow(env);
   const machines = await env.DB.prepare(
     "SELECT m.machine_id, m.last_seen_at, " +
       "SUM(CASE WHEN r.inherited_from IS NULL THEN 1 ELSE 0 END) AS measured, " +
@@ -148,12 +175,12 @@ async function overview(env: Bindings, url: URL): Promise<unknown> {
       last_seen_at: machine.last_seen_at,
       measured: machine.measured ?? 0,
       inherited: machine.inherited ?? 0,
-      total_commits: total?.n ?? 0,
+      total_commits: window.total,
       latest,
       ratios,
     });
   }
-  return { experiment, head_ordinal: total?.head ?? null, machines: cards };
+  return { experiment, first_ordinal: window.first, head_ordinal: window.head, total_commits: window.total, machines: cards };
 }
 
 /** AIHC wall time divided by the baseline GHC wall time, per benchmark, backend and profile. */
@@ -265,21 +292,27 @@ async function commitDetail(env: Bindings, sha: string, url: URL): Promise<unkno
   return { experiment, commit, runs: runs.results, measurements };
 }
 
-/** One character per commit ordinal: M measured, I inherited, U unavailable, . unmeasured. */
+/**
+ * One character per commit from the first commit at or after the cutoff to
+ * head: M measured, I inherited, U unavailable, . unmeasured. Cell `i`
+ * describes ordinal `first + i`.
+ */
 async function coverage(env: Bindings, url: URL): Promise<unknown> {
   const experiment = await activeExperiment(env, url);
   const machine = requireParam(url, "machine");
-  const head = await env.DB.prepare("SELECT MAX(ordinal) AS head FROM commits").first<{ head: number | null }>();
-  const total = head?.head === null || head?.head === undefined ? 0 : head.head + 1;
+  const window = await commitWindow(env);
+  const first = window.first ?? 0;
+  const total = window.head === null ? 0 : window.head - first + 1;
   const rows = await env.DB.prepare(
-    "SELECT commit_ordinal, compiler_status, inherited_from FROM runs WHERE machine_id = ? AND experiment_id = ?",
+    "SELECT commit_ordinal, compiler_status, inherited_from FROM runs WHERE machine_id = ? AND experiment_id = ? AND commit_ordinal >= ?",
   )
-    .bind(machine, experiment)
+    .bind(machine, experiment, first)
     .all<{ commit_ordinal: number; compiler_status: string; inherited_from: string | null }>();
   const cells = new Array<string>(total).fill(".");
   for (const row of rows.results) {
-    if (row.commit_ordinal < 0 || row.commit_ordinal >= total) continue;
-    cells[row.commit_ordinal] = row.compiler_status !== "available" ? "U" : row.inherited_from ? "I" : "M";
+    const index = row.commit_ordinal - first;
+    if (index < 0 || index >= total) continue;
+    cells[index] = row.compiler_status !== "available" ? "U" : row.inherited_from ? "I" : "M";
   }
-  return { experiment, machine, total, statuses: cells.join("") };
+  return { experiment, machine, first, total, statuses: cells.join("") };
 }

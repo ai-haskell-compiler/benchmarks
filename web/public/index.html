@@ -91,7 +91,7 @@ function card(machine) {
 try {
   const overview = await api("/api/overview");
   replaceChildren(document.getElementById("machines"), ...overview.machines.map(card));
-  setStatus(`Experiment ${overview.experiment} · ${overview.machines.length} machine${overview.machines.length === 1 ? "" : "s"} · ${overview.head_ordinal + 1} commits on main`);
+  setStatus(`Experiment ${overview.experiment} · ${overview.machines.length} machine${overview.machines.length === 1 ? "" : "s"} · ${overview.total_commits} commits on main`);
 } catch (error) {
   setStatus(`No results yet: ${error.message}`, true);
 }

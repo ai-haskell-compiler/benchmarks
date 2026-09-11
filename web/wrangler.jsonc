@@ -9,6 +9,10 @@
     "not_found_handling": "404-page"
   },
   "routes": [{ "pattern": "perf.aihc.app", "custom_domain": true }],
+  // Commits committed before this ISO 8601 timestamp predate a usable
+  // compiler and are hidden from every listing. Keep it equal to
+  // `aihc_since` in ../benchmark.json.
+  "vars": { "AIHC_SINCE": "2026-09-01" },
   "d1_databases": [
     {
       "binding": "DB",

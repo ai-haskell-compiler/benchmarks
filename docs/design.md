@@ -271,6 +271,10 @@ a usable compiler and are dropped from the local state together with their
 attempts. Ordinals are positions in the full first-parent history, so moving
 the cutoff never renumbers the commits that remain or the results already
 published under them.
+The site applies the same cutoff through the `AIHC_SINCE` variable in
+`web/wrangler.jsonc`: the commit index, the overview totals and the coverage
+strip all start at the first commit at or after it, so commits uploaded before
+the cutoff was introduced stay in D1 without being shown.
 
 ### Stage 0: tree keys
 
