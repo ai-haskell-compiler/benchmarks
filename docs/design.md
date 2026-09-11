@@ -323,8 +323,9 @@ All responses are JSON with `Cache-Control: public, max-age=300` except upload.
 
 ```text
 GET  /api/overview
-  For each machine: latest measured HEAD, geometric-mean AIHC/GHC ratio per
-  benchmark per profile, coverage fraction, last upload time.
+  For each machine: latest measured HEAD, AIHC/GHC ratio per benchmark,
+  backend, profile and headline metric (wall time, compile time, artifact
+  size), coverage fraction, last upload time.
 
 GET  /api/series?machine=&benchmark=&metric=&profile=
   Arrays of {ordinal, sha, estimate, status} per configuration, plus
@@ -349,9 +350,11 @@ already has whenever it uploads. The Worker never runs Git.
 Four pages, vanilla JavaScript, uPlot for charts. Comparing two arbitrary
 commits is a CLI-only feature; the site links commits to their parents instead.
 
-- **Overview** (`/`): the `/api/overview` scorecard. One card per machine
-  with `cpu_brand`, a ratio per benchmark and profile, and a 90-commit
-  sparkline of the geometric mean.
+- **Overview** (`/`): the `/api/overview` scorecard. A backend switcher
+  (native, LLVM, Wasm) and one card per machine with four headline ratios as
+  geometric means over the suite: artifact size at `-Os`, compile time at
+  `-O0`, runtime at `-O1` and runtime at `-O2`. Profiles AIHC does not
+  measure yet show a dash. The per-benchmark table sits behind a disclosure.
 - **Timeline** (`/timeline`): x-axis is commit ordinal, one line per
   configuration, machine and profile toggles, log scale toggle, ratio to the
   canary GHC configuration as the default view with absolute values as an

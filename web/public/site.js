@@ -163,6 +163,38 @@ export function setStatus(text, isError = false) {
   node.classList.toggle("worse", isError);
 }
 
+const NAV = [
+  ["/", "Overview"],
+  ["/timeline.html", "Timeline"],
+  ["/coverage.html", "Coverage"],
+];
+
+/** The ∀i mark shared with blog.aihc.app; strokes use currentColor. */
+function brandMark() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 100 100");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML =
+    '<defs><clipPath id="mark-clip"><polygon points="18,18 62,18 40,88"/></clipPath></defs>' +
+    '<g fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M24 54 Q40 36 56 54" clip-path="url(#mark-clip)" stroke-linecap="butt"/><path d="M18 18 L40 88 L62 18"/><path d="M64 88 L79.1 40"/>' +
+    '<circle cx="86" cy="18" r="6" fill="currentColor" stroke="none"/></g>';
+  return svg;
+}
+
+/** Fill the page's `.site-header` placeholder with the brand, navigation and repository link. */
+export function renderHeader() {
+  const header = document.querySelector(".site-header");
+  if (!header) return;
+  replaceChildren(header,
+    el("a", { class: "brand", href: "/" }, el("span", { class: "mark" }, brandMark()), el("span", {}, "AIHC benchmarks")),
+    el("nav", {}, ...NAV.map(([href, label]) => el("a", { href }, label))),
+    el("span", { class: "spacer" }),
+    el("a", { class: "external", href: GITHUB }, "ai-haskell-compiler/aihc"),
+  );
+  markCurrentNav();
+}
+
 export function markCurrentNav() {
   const here = location.pathname === "/" ? "/index.html" : location.pathname;
   for (const link of document.querySelectorAll(".site-header nav a")) {

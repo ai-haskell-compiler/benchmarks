@@ -45,7 +45,10 @@ async function seedRun(ordinal: number, runId: string, wall: number, inheritedFr
   const cells: Array<[string, string, string, string, number, string, string, string, number | null]> = [
     ["aihc-native-semispace-O2", "aihc", sha(ordinal), "O2", 0, "wall_time", "ns", "ok", wall],
     ["aihc-native-semispace-O2", "aihc", sha(ordinal), "O2", 0, "peak_heap", "byte", "unavailable", null],
+    ["aihc-native-semispace-O2", "aihc", sha(ordinal), "O2", 0, "compile_time", "ns", "ok", 3000],
+    ["aihc-native-semispace-O2", "aihc", sha(ordinal), "O2", 0, "artifact_size", "byte", "ok", 5000],
     ["ghc-9.14.1-native-O2", "ghc", "9.14.1", "O2", 1, "wall_time", "ns", "ok", 100],
+    ["ghc-9.14.1-native-O2", "ghc", "9.14.1", "O2", 1, "compile_time", "ns", "ok", 1000],
     ["ghc-9.14.1-native-O0", "ghc", "9.14.1", "O0", 1, "wall_time", "ns", "ok", 400],
   ];
   for (const [configuration, family, version, profile, baseline, metric, unit, status, estimate] of cells) {
@@ -95,9 +98,14 @@ describe("perf.aihc.app API", () => {
     expect(machine).toMatchObject({ machine_id: MACHINE, measured: 3, inherited: 1, total_commits: 4 });
     expect(body).toMatchObject({ first_ordinal: 1, head_ordinal: 4, total_commits: 4 });
     expect(machine.latest.sha).toBe(sha(4));
-    expect(machine.ratios).toEqual([
-      expect.objectContaining({ configuration: "aihc-native-semispace-O2", wall_time: 180, baseline_wall_time: 100, ratio: 1.8 }),
-    ]);
+    expect(machine.ratios).toHaveLength(3);
+    expect(machine.ratios).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ configuration: "aihc-native-semispace-O2", metric: "wall_time", value: 180, baseline_value: 100, ratio: 1.8 }),
+        expect.objectContaining({ configuration: "aihc-native-semispace-O2", metric: "compile_time", value: 3000, baseline_value: 1000, ratio: 3 }),
+        expect.objectContaining({ configuration: "aihc-native-semispace-O2", metric: "artifact_size", value: 5000, baseline_value: null, ratio: null }),
+      ]),
+    );
   });
 
   it("serves series with inherited points and profile filtering", async () => {

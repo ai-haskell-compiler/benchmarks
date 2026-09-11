@@ -4,19 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Commit · AIHC benchmarks</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151318" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/site.css">
 </head>
 <body>
-<header class="site-header">
-  <a class="brand" href="/">AIHC benchmarks</a>
-  <nav>
-    <a href="/">Overview</a>
-    <a href="/timeline.html">Timeline</a>
-    <a href="/coverage.html">Coverage</a>
-  </nav>
-  <span class="spacer"></span>
-  <a class="external" href="https://github.com/ai-haskell-compiler/aihc">ai-haskell-compiler/aihc</a>
-</header>
+<header class="site-header"></header>
 <main>
   <h1 id="title">Commit</h1>
   <p class="lede" id="subtitle"></p>
@@ -29,9 +23,9 @@
   <div id="tables"></div>
 </main>
 <script type="module">
-import { api, el, replaceChildren, formatValue, formatDate, queryState, pushQuery, fillSelect, setStatus, markCurrentNav, commitIndex, seriesColor, METRIC_LABELS, describeConfiguration, changeCell, GITHUB, shortSha } from "/site.js";
+import { api, el, replaceChildren, formatValue, formatDate, queryState, pushQuery, fillSelect, setStatus, renderHeader, commitIndex, seriesColor, METRIC_LABELS, describeConfiguration, changeCell, GITHUB, shortSha } from "./site.js";
 
-markCurrentNav();
+renderHeader();
 const defaults = { sha: "", metric: "wall_time", profile: "all" };
 const state = queryState(defaults);
 const metricSelect = document.getElementById("metric");

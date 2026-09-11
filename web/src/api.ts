@@ -163,11 +163,11 @@ async function overview(env: Bindings, url: URL): Promise<unknown> {
     if (machine.latest_ordinal !== null) {
       latest = await env.DB.prepare("SELECT sha, ordinal, committed_at, subject FROM commits WHERE ordinal = ?").bind(machine.latest_ordinal).first();
       const rows = await env.DB.prepare(
-        "SELECT benchmark, configuration, compiler_family, backend, optimization, baseline, estimate FROM measurements " +
-          "WHERE machine_id = ? AND experiment_id = ? AND commit_ordinal = ? AND metric = 'wall_time' AND estimate IS NOT NULL",
+        "SELECT benchmark, configuration, compiler_family, backend, optimization, baseline, metric, estimate FROM measurements " +
+          "WHERE machine_id = ? AND experiment_id = ? AND commit_ordinal = ? AND metric IN ('wall_time', 'compile_time', 'artifact_size') AND estimate IS NOT NULL",
       )
         .bind(machine.machine_id, experiment, machine.latest_ordinal)
-        .all<{ benchmark: string; configuration: string; compiler_family: string; backend: string; optimization: string; baseline: number; estimate: number }>();
+        .all<RatioRow>();
       ratios = ratioTable(rows.results);
     }
     cards.push({
@@ -183,25 +183,38 @@ async function overview(env: Bindings, url: URL): Promise<unknown> {
   return { experiment, first_ordinal: window.first, head_ordinal: window.head, total_commits: window.total, machines: cards };
 }
 
-/** AIHC wall time divided by the baseline GHC wall time, per benchmark, backend and profile. */
-function ratioTable(
-  rows: Array<{ benchmark: string; configuration: string; compiler_family: string; backend: string; optimization: string; baseline: number; estimate: number }>,
-): unknown[] {
+interface RatioRow {
+  benchmark: string;
+  configuration: string;
+  compiler_family: string;
+  backend: string;
+  optimization: string;
+  baseline: number;
+  metric: string;
+  estimate: number;
+}
+
+/**
+ * AIHC divided by the baseline GHC value, per benchmark, backend, profile and
+ * metric, for the headline metrics: wall time, compile time and artifact size.
+ */
+function ratioTable(rows: RatioRow[]): unknown[] {
   const baselines = new Map<string, number>();
   for (const row of rows) {
-    if (row.compiler_family === "ghc" && row.baseline) baselines.set(`${row.benchmark}|${row.backend}|${row.optimization}`, row.estimate);
+    if (row.compiler_family === "ghc" && row.baseline) baselines.set(`${row.benchmark}|${row.backend}|${row.optimization}|${row.metric}`, row.estimate);
   }
   const table = [];
   for (const row of rows) {
     if (row.compiler_family !== "aihc") continue;
-    const baseline = baselines.get(`${row.benchmark}|${row.backend}|${row.optimization}`) ?? null;
+    const baseline = baselines.get(`${row.benchmark}|${row.backend}|${row.optimization}|${row.metric}`) ?? null;
     table.push({
       benchmark: row.benchmark,
       configuration: row.configuration,
       backend: row.backend,
       optimization: row.optimization,
-      wall_time: row.estimate,
-      baseline_wall_time: baseline,
+      metric: row.metric,
+      value: row.estimate,
+      baseline_value: baseline,
       ratio: baseline ? row.estimate / baseline : null,
     });
   }

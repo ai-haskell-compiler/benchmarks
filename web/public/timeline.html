@@ -4,20 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Timeline · AIHC benchmarks</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151318" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/site.css">
 <script src="/vendor/uPlot.iife.min.js"></script>
 </head>
 <body>
-<header class="site-header">
-  <a class="brand" href="/">AIHC benchmarks</a>
-  <nav>
-    <a href="/">Overview</a>
-    <a href="/timeline.html">Timeline</a>
-    <a href="/coverage.html">Coverage</a>
-  </nav>
-  <span class="spacer"></span>
-  <a class="external" href="https://github.com/ai-haskell-compiler/aihc">ai-haskell-compiler/aihc</a>
-</header>
+<header class="site-header"></header>
 <main>
   <h1>Timeline</h1>
   <p class="lede">One point per measured commit, in first-parent order. Hover for the commit, click a point to open it. Dashed lines mark a change of machine environment, such as an OS update.</p>
@@ -46,9 +40,9 @@
   </div>
 </main>
 <script type="module">
-import { api, el, replaceChildren, formatValue, formatRatio, queryState, pushQuery, fillSelect, setStatus, markCurrentNav, commitIndex, seriesKey, seriesColor, SERIES_SLOTS, METRIC_LABELS, machineLabel, describeConfiguration, commitLink, changeCell } from "/site.js";
+import { api, el, replaceChildren, formatValue, formatRatio, queryState, pushQuery, fillSelect, setStatus, renderHeader, commitIndex, seriesKey, seriesColor, SERIES_SLOTS, METRIC_LABELS, machineLabel, describeConfiguration, commitLink, changeCell } from "./site.js";
 
-markCurrentNav();
+renderHeader();
 const defaults = { machine: "", benchmark: "", metric: "wall_time", profile: "O2", view: "ratio", log: "", allghc: "" };
 const state = queryState(defaults);
 const controls = Object.fromEntries(["machine", "benchmark", "metric", "profile", "view", "log", "allghc"].map((id) => [id, document.getElementById(id)]));

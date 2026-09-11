@@ -4,19 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Coverage · AIHC benchmarks</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151318" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/site.css">
 </head>
 <body>
-<header class="site-header">
-  <a class="brand" href="/">AIHC benchmarks</a>
-  <nav>
-    <a href="/">Overview</a>
-    <a href="/timeline.html">Timeline</a>
-    <a href="/coverage.html">Coverage</a>
-  </nav>
-  <span class="spacer"></span>
-  <a class="external" href="https://github.com/ai-haskell-compiler/aihc">ai-haskell-compiler/aihc</a>
-</header>
+<header class="site-header"></header>
 <main>
   <h1>Coverage</h1>
   <p class="lede">One cell per first-parent commit on <code>main</code>, oldest on the left. The overnight runner measures HEAD first, then recent commits, then bisects the gaps with the largest observed change. Hover a cell for the commit, click to open it.</p>
@@ -31,9 +25,9 @@
   <div class="tooltip" id="tooltip" hidden></div>
 </main>
 <script type="module">
-import { api, el, replaceChildren, setStatus, markCurrentNav, commitIndex, machineLabel, formatDate } from "/site.js";
+import { api, el, replaceChildren, setStatus, renderHeader, commitIndex, machineLabel, formatDate } from "./site.js";
 
-markCurrentNav();
+renderHeader();
 const COLORS = { M: "--cover-measured", I: "--cover-inherited", U: "--cover-unavailable", ".": "--cover-pending" };
 const LABELS = { M: "measured", I: "inherited", U: "compiler unavailable", ".": "not measured" };
 const tooltip = document.getElementById("tooltip");
