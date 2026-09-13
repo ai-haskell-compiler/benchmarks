@@ -95,12 +95,11 @@ class ConfigTests(unittest.TestCase):
             for broken in (
                 {**BASE, "optimization": "O3"},
                 {**BASE, "runtime_stats": "rust"},
-                {**BASE, "requires": ["teleport"]},
                 {key: value for key, value in BASE.items() if key != "optimization"},
             ):
                 with self.assertRaises(ConfigError):
                     load_config(write_config(root, broken))
-            self.assertTrue(load_config(write_config(root, {**BASE, "runtime_stats": "ghc", "requires": ["build-exe"]})))
+            self.assertTrue(load_config(write_config(root, {**BASE, "runtime_stats": "ghc"})))
 
     def test_aihc_since_must_be_a_timestamp(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -135,16 +134,13 @@ class ConfigTests(unittest.TestCase):
                 self.assertIn("--ghc-option=-rtsopts", item["compile"])
                 self.assertEqual(item["compile"][item["compile"].index("--optimization") + 1], item["optimization"])
             if item["compiler_family"] == "aihc":
-                expected = {"O0": ["optimization-flag"], "O1": ["optimization-O1"], "O2": [], "Os": ["optimization-Os"]}
-                self.assertEqual(item["requires"], expected[item["optimization"]])
-                self.assertEqual(item["compile"][0], "python3")
-                self.assertIn("compile_with_aihc.py", item["compile"][1])
+                # aihc build reads the package directory itself; the runner
+                # adds only --store and --build-root.
+                self.assertEqual(item["compile"][:6], ["nix", "run", "{worktree}#aihc", "--", "build", "{source}"])
                 self.assertEqual(item["compile"][item["compile"].index("--target") + 1], item["aihc_target"])
-                if item["optimization"] == "O2":
-                    self.assertNotIn("--optimization", item["compile"])
-                    self.assertFalse(any(part.startswith("-O") for part in item["compile"]))
-                else:
-                    self.assertEqual(item["compile"][item["compile"].index("--optimization") + 1], item["optimization"])
+                self.assertEqual(item["compile"][item["compile"].index("--gc") + 1], item["gc"])
+                self.assertIn(f"-{item['optimization']}", item["compile"])
+                self.assertEqual(item["compile"][item["compile"].index("-o") + 1], "{artifact_dir}")
 
 
 if __name__ == "__main__":

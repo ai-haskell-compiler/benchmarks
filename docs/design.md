@@ -80,8 +80,8 @@ fact that it is a new environment.
 
 The versioned envelope is kept. Changes for `schema_version: 2`:
 
-- Add `machine_id` and `aihc_capabilities` at the top level. The environment
-  `id` now hashes only descriptive fields, not the hostname.
+- Add `machine_id` at the top level. The environment `id` now hashes only
+  descriptive fields, not the hostname.
 - Add `cpu_time_ns` to every sample (from `ru_utime + ru_stime`).
 - Add optional `runtime_stats` to every sample: `peak_heap_bytes`,
   `allocated_bytes`, `gc_count`, `gc_time_ns`. Absent when the runtime did not
@@ -204,23 +204,18 @@ The runner needs no probe for the hook: the statistics file is removed before
 each invocation, so a runtime that writes nothing yields `peak_heap`,
 `allocated_bytes`, `gc_count` and `gc_time` with status `unavailable`.
 
-The AIHC command line is probed per commit instead. `build-exe` replaced
-`compile` in aihc#1543 and `install --offline` was removed later, so the runner
-reads `--help` for the capabilities `build-exe`, `compile`, `prepare-runtime`,
-`install-offline` and `optimization-flag` and adapts its commands. A
-configuration lists required capabilities in `requires`; AIHC configurations
-always require `prepare-runtime`.
+The AIHC command line is not probed either. Only its current shape is
+supported -- `build`, `install` and `prepare-runtime` as `aihc_since` pins them
+-- so the runner only checks that the commit's compiler builds at all. A
+commit whose compiler does not build is `build_failed`; moving `aihc_since`
+back would produce a run of them rather than a silently different measurement.
 
 ## Configurations
 
 `optimization` is a configuration dimension. `benchmark.json` has `O0`, `O1`
 and `Os` variants of every `O2` configuration. GHC passes the matching flag,
-with `Os` mapped to `-O1`. AIHC passes `-O0` once `build-exe --help` advertises
-an optimization flag (the `optimization-flag` capability), and `-O1`/`-Os` once
-that help text lists the level (`optimization-O1`, `optimization-Os`). Until
-then the AIHC configuration is recorded as `missing_capability:<name>`, which
-keeps the experiment ID honest rather than silently measuring the default
-pipeline several times.
+with `Os` mapped to `-O1`. AIHC passes the matching flag to `aihc build`,
+where `-O2` and `-Os` also compile the whole program at once.
 
 Artifacts are stripped before `artifact_size` is recorded (`llvm-strip`, or
 `wasm-tools strip --all` for Wasm including AIHC's component output), outside
@@ -390,8 +385,8 @@ Every filter state is reflected in the URL so views can be linked.
 ## Rollout
 
 1. **Metrics and identity.** Add `machine_id`, CPU time, compile metrics,
-   `schema_version: 2`, the GHC RTS stats mapping, capability probing and
-   `O0` configurations (done in this repository). Land the AIHC runtime hook
+   `schema_version: 2`, the GHC RTS stats mapping and the `O0` configurations
+   (done in this repository). Land the AIHC runtime hook
    and `-O0` flag in the AIHC repository (tracked separately). This starts
    new experiment IDs, so it should land before any long overnight run.
 2. **Planner.** Tree keys, inherited results, warmup and scored gaps (done).
