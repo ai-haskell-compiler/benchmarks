@@ -13,19 +13,6 @@ from .stats import STATS_FORMATS
 CONFIG_SCHEMA_VERSION = 2
 OPTIMIZATION_PROFILES = ("O0", "O1", "O2", "Os")
 
-# Capabilities the runner probes from the AIHC CLI of each commit. A
-# configuration lists the ones it needs in ``requires``; a commit lacking one
-# records the configuration as unavailable instead of failing it. AIHC
-# configurations implicitly require ``prepare-runtime``.
-CAPABILITIES = ("build-exe", "compile", "prepare-runtime", "install-offline", "optimization-flag", "optimization-O1", "optimization-Os", "build-root")
-
-# Capabilities that gate an optimization profile. ``optimization-flag`` means
-# ``build-exe`` accepts ``-O`` at all (enough for ``-O0``); the other two mean
-# its help text lists that level explicitly. They are opt-in: without a probe
-# result they default to absent, so a profile is never measured on a commit
-# whose compiler silently ignores or rejects the flag.
-OPTIMIZATION_CAPABILITIES = ("optimization-flag", "optimization-O1", "optimization-Os")
-
 
 class ConfigError(ValueError):
     pass
@@ -47,11 +34,9 @@ def load_config(path: Path) -> Dict[str, Any]:
     _validate_unique(config["configurations"], "configuration")
     for configuration in config["configurations"]:
         _validate_configuration(configuration)
-    ghc_boot_libraries = config.setdefault("ghc_boot_libraries", {})
-    if not isinstance(ghc_boot_libraries, dict) or not all(
-        isinstance(name, str) and isinstance(version, str) for name, version in ghc_boot_libraries.items()
-    ):
-        raise ConfigError("ghc_boot_libraries must be a map of package name to version")
+    ghc_boot_libraries = config.setdefault("ghc_boot_libraries", [])
+    if not isinstance(ghc_boot_libraries, list) or not all(isinstance(name, str) and name for name in ghc_boot_libraries):
+        raise ConfigError("ghc_boot_libraries must be a list of package names")
     for benchmark in config["benchmarks"]:
         if not benchmark.get("package"):
             raise ConfigError(f"benchmark {benchmark.get('id')} lacks a package (its cabal executable name)")
@@ -120,9 +105,6 @@ def _validate_configuration(configuration: Dict[str, Any]) -> None:
     stats_format = configuration.get("runtime_stats")
     if stats_format is not None and stats_format not in STATS_FORMATS:
         raise ConfigError(f"configuration {identifier} has an unknown runtime_stats format")
-    unknown = sorted(set(configuration.get("requires", [])) - set(CAPABILITIES))
-    if unknown:
-        raise ConfigError(f"configuration {identifier} requires unknown capabilities: {', '.join(unknown)}")
 
 
 def _validate_unique(items: Iterable[Dict[str, Any]], kind: str) -> None:

@@ -85,7 +85,6 @@ def result_envelope(
     unavailable_reason: Optional[str],
     results: Iterable[Dict[str, Any]],
     run_id: Optional[str] = None,
-    capabilities: Optional[Dict[str, bool]] = None,
     benchmark: Optional[str] = None,
 ) -> Dict[str, Any]:
     return {
@@ -98,7 +97,6 @@ def result_envelope(
         "machine_id": machine_id,
         "environment": environment,
         "aihc_commit": commit,
-        "aihc_capabilities": dict(capabilities or {}),
         "compiler_status": compiler_status,
         "unavailable_reason": unavailable_reason,
         "results": list(results),

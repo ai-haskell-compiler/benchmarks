@@ -2,8 +2,8 @@
 
 Historical runtime benchmarks for every first-parent commit on
 [`ai-haskell-compiler/aihc`](https://github.com/ai-haskell-compiler/aihc)
-since `aihc_since` in `benchmark.json` (2026-09-01); earlier commits predate a
-usable compiler and are never planned.
+since `aihc_since` in `benchmark.json` (2026-09-12); earlier commits predate
+the current `aihc` command line and are never planned.
 
 Results are published at [perf.aihc.app](https://perf.aihc.app): an overview
 of AIHC against GHC for the newest measured commit, a timeline per benchmark
@@ -43,10 +43,9 @@ untouched inherit their neighbour's result instead of being measured.
 within a revision are parallel; benchmark executions are sequential.
 
 Every configuration is measured in four profiles: `O0`, `O1`, `O2` and `Os`.
-AIHC `O2` uses the default optimizing pipeline; the other AIHC profiles are
-recorded as unavailable until a commit's `build-exe` advertises that level.
-GHC has no size level, so its `Os` profile builds with `-O1`. Every artifact
-is stripped before its size is recorded: `llvm-strip` for native binaries and
+AIHC passes the matching `-O` flag to `aihc build`, where `-O2` and `-Os` also
+compile the whole program at once. GHC has no size level, so its `Os` profile
+builds with `-O1`. Every artifact is stripped before its size is recorded: `llvm-strip` for native binaries and
 `wasm-tools strip --all` for Wasm, which also handles the component AIHC
 emits. Stripping happens after the timed compile. GHC is measured with its
 native and LLVM backends, and with the `ghc-wasm-meta` cross-compiler for
@@ -58,6 +57,20 @@ benchmark's Cabal package with `cabal build` against the flake's toolchain
 dependencies are resolved and compiled inside the timed step; a benchmark's
 `cabal.project.freeze` pins those dependencies while boot libraries come from
 whichever GHC is under test.
+
+AIHC builds the same package directory with `aihc build`, which reads the
+`.cabal` file and resolves its dependencies itself rather than the freeze
+file. Non-boot Hackage dependencies therefore carry an exact `==` bound in the
+benchmark's `.cabal` (matching the freeze pin), so both toolchains compile the
+same version of, say, `snappy-hs`. Boot libraries are deliberately left
+unbounded: GHC ships its own and the versions differ per release, so pinning
+them in the `.cabal` would break every toolchain but the one the freeze file
+was written under.
+
+Before the timed compile the runner installs `aihc-base` and the dependencies
+GHC ships as boot libraries into a per-commit store, once per target and
+optimization level, so both toolchains pay for the same work inside the timed
+step: the benchmark and its non-boot Hackage dependencies.
 
 Results and resumable state are stored in `.state/benchmarks.sqlite3`. A failed
 historical compiler is terminal until its record is deliberately removed:

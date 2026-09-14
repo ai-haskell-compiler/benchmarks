@@ -9,7 +9,10 @@ export default defineConfig(async () => {
       cloudflareTest({
         wrangler: { configPath: "./wrangler.jsonc" },
         miniflare: {
-          bindings: { TEST_MIGRATIONS: migrations },
+          // The cutoff is pinned here rather than taken from wrangler.jsonc:
+          // the fixtures exercise the boundary itself, so they must not move
+          // every time the production AIHC_SINCE advances.
+          bindings: { TEST_MIGRATIONS: migrations, AIHC_SINCE: "2026-09-01T00:00:00Z" },
         },
       }),
     ],

@@ -2,28 +2,21 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from .config import CAPABILITIES, OPTIMIZATION_CAPABILITIES, expand_command
+from .config import expand_command
 from .database import Database
-from .freeze import AIHC_IMPLICIT_PACKAGES, parse_build_depends, parse_freeze
+from .freeze import AIHC_IMPLICIT_PACKAGES, parse_build_depends
 from .git_history import create_worktree, path_exists, remove_worktree
 from .measurement import compile_metrics, measure_adaptively
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
-
-_OPTIMIZATION_FLAG = re.compile(r"(^|[\s\[])-O(?=[0-3\s,\]]|$)|--optimi[sz]ation|--opt-level")
-# The levels ``build-exe --help`` lists for ``-O``, e.g. "Optimization level
-# for C sources and LLVM output: 0, 1, 2 or s". optparse-applicative wraps the
-# sentence, so the match runs until the default marker or the next option.
-_OPTIMIZATION_LEVELS = re.compile(r"optimi[sz]ation level[^:]*:\s*(.*?)(?:\(default|\n\s*-|\n\s*\n|\Z)", re.IGNORECASE | re.DOTALL)
 
 
 @dataclass(frozen=True)
@@ -87,10 +80,10 @@ def run_commit(
             **fields,
         )
 
-    def unavailable(reason: str, detail: Optional[str] = None, capabilities: Optional[Dict[str, bool]] = None) -> List[Dict[str, Any]]:
+    def unavailable(reason: str, detail: Optional[str] = None) -> List[Dict[str, Any]]:
         envelopes = []
         for benchmark, experiment_id in experiments.items():
-            envelope = envelope_for(benchmark, compiler_status="unavailable", unavailable_reason=reason, results=[], capabilities=capabilities)
+            envelope = envelope_for(benchmark, compiler_status="unavailable", unavailable_reason=reason, results=[])
             database.finish_attempt(
                 experiment_id,
                 platform_id,
@@ -108,23 +101,12 @@ def run_commit(
 
     try:
         create_worktree(aihc_repository, worktree, commit["sha"])
-        capabilities, probe_error = probe_capabilities(worktree, root, compile_timeout)
-        if probe_error is not None:
-            return unavailable("build_failed", probe_error)
+        build_error = build_compiler(worktree, root, compile_timeout)
+        if build_error is not None:
+            return unavailable("build_failed", build_error)
 
-        aihc_store: Optional[Path] = None
-        aihc_setup_errors: Dict[str, str] = {}
-        if capabilities["prepare-runtime"]:
-            aihc_store = root / ".cache" / "aihc-stores" / suite / platform_id / commit["sha"]
-            aihc_setup_errors = _prepare_aihc_store(
-                config,
-                platform_id,
-                worktree,
-                root,
-                aihc_store,
-                compile_timeout,
-                capabilities,
-            )
+        aihc_store = root / ".cache" / "aihc-stores" / suite / platform_id / commit["sha"]
+        aihc_setup_errors = _prepare_aihc_store(config, platform_id, worktree, root, aihc_store, compile_timeout)
 
         cells = build_cells(
             config,
@@ -135,7 +117,6 @@ def run_commit(
             experiments,
             aihc_store=aihc_store,
             aihc_setup_errors=aihc_setup_errors,
-            capabilities=capabilities,
         )
         compiled = compile_cells(cells, root, compile_timeout, jobs)
         results = measure_cells(compiled, root, measurement_config)
@@ -146,7 +127,6 @@ def run_commit(
                 compiler_status="available",
                 unavailable_reason=None,
                 results=[result for result in results if result["benchmark"] == benchmark],
-                capabilities=capabilities,
             )
             database.finish_attempt(experiment_id, platform_id, commit["sha"], "complete", envelope)
             envelopes.append(envelope)
@@ -157,55 +137,18 @@ def run_commit(
         remove_worktree(aihc_repository, worktree)
 
 
-def probe_capabilities(worktree: Path, root: Path, timeout_seconds: float) -> Tuple[Dict[str, bool], Optional[str]]:
-    """Build the commit's compiler and read its help text for optional features.
+def build_compiler(worktree: Path, root: Path, timeout_seconds: float) -> Optional[str]:
+    """Build the commit's compiler, returning the build output when it fails.
 
-    Returns the capability map and, when the compiler cannot be built at all,
-    the build output as an error.
+    The suite tracks the current AIHC command line only, so a commit whose
+    ``aihc`` builds is assumed to offer ``build``, ``install`` and
+    ``prepare-runtime`` with the flags ``benchmark.json`` passes them. Commits
+    older than ``aihc_since`` predate that command line and are never planned.
     """
-    base = ["nix", "run", f"{worktree}#aihc", "--"]
-    probe = run_command(base + ["--help"], root, timeout_seconds)
+    probe = run_command(["nix", "run", f"{worktree}#aihc", "--", "--help"], root, timeout_seconds)
     if probe.returncode != 0:
-        return {name: False for name in CAPABILITIES}, (probe.stderr or probe.stdout)[-8192:]
-    help_text = f"{probe.stdout}\n{probe.stderr}"
-    capabilities = capabilities_from_help(help_text)
-    if capabilities["build-exe"]:
-        build_help = run_command(base + ["build-exe", "--help"], root, timeout_seconds)
-        build_help_text = f"{build_help.stdout}\n{build_help.stderr}"
-        capabilities["optimization-flag"] = bool(_OPTIMIZATION_FLAG.search(build_help_text))
-        levels = optimization_levels(build_help_text)
-        capabilities["optimization-O1"] = "1" in levels
-        capabilities["optimization-Os"] = "s" in levels
-        capabilities["build-root"] = "--build-root" in build_help_text
-    if _mentions_command(help_text, "install"):
-        install_help = run_command(base + ["install", "--help"], root, timeout_seconds)
-        capabilities["install-offline"] = "--offline" in f"{install_help.stdout}\n{install_help.stderr}"
-    return capabilities, None
-
-
-def capabilities_from_help(help_text: str) -> Dict[str, bool]:
-    return {
-        "build-exe": _mentions_command(help_text, "build-exe"),
-        "compile": _mentions_command(help_text, "compile"),
-        "prepare-runtime": _mentions_command(help_text, "prepare-runtime"),
-        "install-offline": False,
-        "optimization-flag": False,
-        "optimization-O1": False,
-        "optimization-Os": False,
-        "build-root": False,
-    }
-
-
-def optimization_levels(build_help_text: str) -> Set[str]:
-    """Return the ``-O`` levels a commit's ``build-exe --help`` advertises."""
-    match = _OPTIMIZATION_LEVELS.search(build_help_text)
-    if not match:
-        return set()
-    return set(re.findall(r"(?<![\w-])([0-3]|s)(?!\w)", match.group(1)))
-
-
-def _mentions_command(help_text: str, command: str) -> bool:
-    return re.search(rf"(^|\s){re.escape(command)}(\s|$)", help_text) is not None
+        return (probe.stderr or probe.stdout)[-8192:]
+    return None
 
 
 def build_cells(
@@ -218,12 +161,9 @@ def build_cells(
     *,
     aihc_store: Optional[Path] = None,
     aihc_setup_errors: Optional[Dict[str, str]] = None,
-    capabilities: Optional[Dict[str, bool]] = None,
 ) -> List[Cell]:
     aihc_setup_errors = aihc_setup_errors or {}
-    capabilities = capabilities or {name: name not in OPTIMIZATION_CAPABILITIES for name in CAPABILITIES}
     platform_values = config["platforms"][platform_id]
-    build_command = "build-exe" if capabilities.get("build-exe") else "compile"
     toolchains = os.environ.get("AIHC_BENCH_TOOLCHAINS", "")
     cells: List[Cell] = []
     for benchmark in config["benchmarks"]:
@@ -237,7 +177,12 @@ def build_cells(
             artifact_root = root / ".cache" / "artifacts" / experiment_id / platform_id / version_root
             identity = f"{benchmark['id']}--{configuration['id']}"
             suffix = configuration.get("artifact_suffix", "")
-            artifact = artifact_root / identity / f"program{suffix}"
+            # ``aihc build`` writes the executables of a Cabal package into a
+            # directory, naming each after its own executable stanza, so an
+            # AIHC artifact carries the benchmark's package name. The GHC
+            # script copies the binary to a path this suite chooses.
+            stem = benchmark["package"] if family == "aihc" else "program"
+            artifact = artifact_root / identity / f"{stem}{suffix}"
             build_dir = artifact.parent / "build"
             stats_dir = root / ".cache" / "stats" / experiment_id / platform_id / commit["sha"]
             stats_file = stats_dir / f"{identity}.stats"
@@ -248,31 +193,20 @@ def build_cells(
                 "main_file": str(source / "Main.hs"),
                 "package": benchmark.get("package", ""),
                 "artifact": str(artifact),
+                "artifact_dir": str(artifact.parent),
                 "build_dir": str(build_dir),
                 "commit": commit["sha"],
-                "aihc_build_command": build_command,
                 "toolchains": toolchains,
                 "stats_file": str(stats_file),
                 "stats_dir": str(stats_dir),
                 **{key: str(value) for key, value in platform_values.items()},
             }
-            required = list(configuration.get("requires", []))
-            if family == "aihc" and "prepare-runtime" not in required:
-                # Every AIHC cell links against a prepared runtime; a commit
-                # that cannot prepare one has nothing meaningful to measure.
-                required.insert(0, "prepare-runtime")
-            missing = [name for name in required if not capabilities.get(name)]
-            available = configuration.get("available", True) and not missing
-            if not configuration.get("available", True):
-                reason: Optional[str] = configuration.get("unavailable_reason", "unsupported_configuration")
-            elif missing:
-                reason = f"missing_capability:{missing[0]}"
-            else:
-                reason = None
+            available = configuration.get("available", True)
+            reason: Optional[str] = None if available else configuration.get("unavailable_reason", "unsupported_configuration")
             compile_command = expand_command(configuration["compile"], values) if available else None
-            if compile_command and family == "aihc" and aihc_store is not None:
-                compile_command.extend(["--store", str(aihc_store)])
-            if compile_command and family == "aihc" and capabilities.get("build-root"):
+            if compile_command and family == "aihc":
+                if aihc_store is not None:
+                    compile_command.extend(["--store", str(aihc_store)])
                 # Each cell compiles in its own build root; the default
                 # .aihc-target inside the worktree races between parallel cells.
                 compile_command.extend(["--build-root", str(build_dir)])
@@ -457,9 +391,14 @@ def _compile_environment(configuration: Dict[str, Any]) -> Dict[str, str]:
     return environment
 
 
-def _configured_aihc_targets(config: Dict[str, Any], platform_id: str) -> List[Tuple[str, str, Dict[str, str]]]:
+def _configured_aihc_builds(config: Dict[str, Any], platform_id: str) -> List[Tuple[str, str, str, Dict[str, str]]]:
+    """``(target, gc, optimization, environment)`` for every AIHC configuration.
+
+    An installed package is keyed on its optimization level, so a store entry
+    is only reused by the configurations built at the same level.
+    """
     platform_values = config["platforms"][platform_id]
-    targets: List[Tuple[str, str, Dict[str, str]]] = []
+    builds: List[Tuple[str, str, str, Dict[str, str]]] = []
     seen = set()
     for configuration in config["configurations"]:
         if configuration["compiler_family"] != "aihc" or not configuration.get("available", True):
@@ -468,12 +407,12 @@ def _configured_aihc_targets(config: Dict[str, Any], platform_id: str) -> List[T
         if not target_template:
             continue
         target = target_template.format(**platform_values)
-        key = (target, configuration["gc"])
+        key = (target, configuration["gc"], configuration["optimization"])
         if key in seen:
             continue
         seen.add(key)
-        targets.append((target, configuration["gc"], _compile_environment(configuration)))
-    return targets
+        builds.append((*key, _compile_environment(configuration)))
+    return builds
 
 
 def _prepare_aihc_store(
@@ -483,23 +422,33 @@ def _prepare_aihc_store(
     root: Path,
     store: Path,
     timeout_seconds: float,
-    capabilities: Optional[Dict[str, bool]] = None,
 ) -> Dict[str, str]:
     """Prepare runtimes and install ``aihc-base`` and boot-equivalents per target.
+
+    ``aihc build`` resolves and installs the dependencies of a benchmark's
+    Cabal package itself, inside the timed compile. GHC gets its boot
+    libraries for free, so the ones AIHC does not stand in for are installed
+    here instead, once per target and optimization level, together with
+    ``aihc-base`` -- AIHC's ``base``. What remains inside the timed compile is
+    what ``cabal build`` also compiles there: the benchmark and its non-boot
+    Hackage dependencies.
 
     Returns setup errors keyed by target. A target whose runtime or library
     preparation fails does not affect the others, so a missing Wasm sysroot
     leaves the native and LLVM configurations measurable.
     """
-    targets = _configured_aihc_targets(config, platform_id)
+    builds = _configured_aihc_builds(config, platform_id)
     errors: Dict[str, str] = {}
-    if not targets:
+    if not builds:
         return errors
 
     store.mkdir(parents=True, exist_ok=True)
     base_command = ["nix", "run", f"{worktree}#aihc", "--"]
-    prepared: List[Tuple[str, Dict[str, str]]] = []
-    for target, garbage_collector, environment in targets:
+    runtimes: List[Tuple[str, str, Dict[str, str]]] = []
+    for target, garbage_collector, _, environment in builds:
+        if (target, garbage_collector) not in [(name, gc) for name, gc, _ in runtimes]:
+            runtimes.append((target, garbage_collector, environment))
+    for target, garbage_collector, environment in runtimes:
         if target in errors:
             continue
         command = base_command + [
@@ -514,29 +463,29 @@ def _prepare_aihc_store(
         error = _run_setup_command(command, worktree, timeout_seconds, environment, f"runtime preparation for {target}")
         if error:
             errors[target] = error
-        elif target not in [name for name, _ in prepared]:
-            prepared.append((target, environment))
 
-    boot_equivalents = _boot_equivalent_dependencies(config, root)
-    for target, environment in prepared:
-        install_command = base_command + ["install", str(worktree / "core-libs" / "aihc-base")]
-        if (capabilities or {}).get("install-offline"):
-            install_command.append("--offline")
-        install_command.extend(["--store", str(store), "--target", target])
-        error = _run_setup_command(install_command, worktree, timeout_seconds, environment, f"library installation for {target}")
-        if error:
-            errors[target] = error
+    # ``aihc-base`` is named by its path in the worktree, which makes it a
+    # local package that ``install`` would build in place under the source
+    # tree. ``aihc build`` resolves it as a core standin instead and looks for
+    # it in the store, so ``--immutable`` is what puts it where the build
+    # reads it -- with the identical store key, since that hashes the package
+    # and the build, not how it was named.
+    #
+    # Only the boot libraries benchmarks actually depend on are installed
+    # (not GHC's full set), so a package a future benchmark adds keeps
+    # getting picked up automatically without touching this code.
+    core_base = str(worktree / "core-libs" / "aihc-base")
+    packages = [core_base, *_boot_equivalent_dependencies(config, root)]
+    for target, _, optimization, environment in builds:
+        if target in errors:
             continue
-        # Only the packages benchmarks actually depend on are installed here
-        # (not GHC's full boot set), so a package a future benchmark adds
-        # keeps getting picked up automatically without touching this code.
-        for name, version in boot_equivalents.items():
-            boot_command = base_command + ["install", f"{name}-{version}"]
-            if (capabilities or {}).get("install-offline"):
-                boot_command.append("--offline")
-            boot_command.extend(["--store", str(store), "--target", target])
+        for package in packages:
+            command = base_command + ["install", package]
+            if package == core_base:
+                command.append("--immutable")
+            command.extend(["--store", str(store), "--target", target, f"-{optimization}"])
             error = _run_setup_command(
-                boot_command, worktree, timeout_seconds, environment, f"boot library {name} installation for {target}"
+                command, worktree, timeout_seconds, environment, f"installation of {package} for {target} at -{optimization}"
             )
             if error:
                 errors[target] = error
@@ -544,30 +493,27 @@ def _prepare_aihc_store(
     return errors
 
 
-def _boot_equivalent_dependencies(config: Dict[str, Any], root: Path) -> Dict[str, str]:
+def _boot_equivalent_dependencies(config: Dict[str, Any], root: Path) -> List[str]:
     """Direct dependencies of any benchmark that GHC ships as a boot library.
 
     AIHC only stands in for base/ghc-internal/ghc-prim/system-cxx-std-lib/
     template-haskell (see ``aihc_bench.freeze.AIHC_IMPLICIT_PACKAGES``);
     everything else GHC ships for free needs installing into the AIHC store
     ahead of time so it is equally free there, matching GHC's boot set
-    (see benchmark.json's ``ghc_boot_libraries``).
+    (see benchmark.json's ``ghc_boot_libraries``). No version is pinned: the
+    resolver picks the same one it would pick during the build.
     """
-    ghc_boot_libraries = config.get("ghc_boot_libraries", {})
-    dependencies: Dict[str, str] = {}
+    ghc_boot_libraries = set(config.get("ghc_boot_libraries", []))
+    dependencies: List[str] = []
     for benchmark in config["benchmarks"]:
         source = (root / benchmark["source"]).resolve()
-        if not source.is_dir():
+        cabal_files = list(source.glob("*.cabal")) if source.is_dir() else []
+        if not cabal_files:
             continue
-        freeze_file = source / "cabal.project.freeze"
-        cabal_files = list(source.glob("*.cabal"))
-        if not freeze_file.is_file() or not cabal_files:
-            continue
-        pinned = parse_freeze(freeze_file)
         for name in parse_build_depends(cabal_files[0]):
-            if name in AIHC_IMPLICIT_PACKAGES or name not in ghc_boot_libraries:
+            if name in AIHC_IMPLICIT_PACKAGES or name not in ghc_boot_libraries or name in dependencies:
                 continue
-            dependencies[name] = pinned.get(name, ghc_boot_libraries[name])
+            dependencies.append(name)
     return dependencies
 
 

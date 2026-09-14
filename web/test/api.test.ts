@@ -18,7 +18,8 @@ function sha(digit: number): string {
 }
 
 // Ordinal 0 is committed at 01:00 in UTC+2, an hour before the AIHC_SINCE
-// cutoff of 2026-09-01T00:00:00Z, so every listing must start at ordinal 1.
+// cutoff these tests pin in vitest.config.ts (2026-09-01T00:00:00Z), so every
+// listing must start at ordinal 1.
 async function seedCommits(): Promise<void> {
   const statement = env.DB.prepare(
     "INSERT INTO commits(sha, ordinal, committed_at, subject, tree_key) VALUES (?, ?, ?, ?, ?) ON CONFLICT(sha) DO UPDATE SET ordinal = excluded.ordinal",

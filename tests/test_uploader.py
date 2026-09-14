@@ -57,7 +57,7 @@ def envelope(sha, run_id="run-0", inherited_from=None):
                 "compiler_version": sha,
                 "backend": "native",
                 "optimization": "O0",
-                "measurement": {"status": "unavailable", "reason": "missing_capability:optimization-flag"},
+                "measurement": {"status": "unavailable", "reason": "compile_failed"},
             },
         ],
     }

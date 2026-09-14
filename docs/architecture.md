@@ -57,12 +57,8 @@ commit inherit its result instead of being measured; see
 
 Every configuration carries an `optimization` profile: `O0`, `O1`, `O2` or
 `Os`. GHC receives the matching flag, except that `Os` builds with `-O1`
-because GHC has no size level. AIHC `O2` uses the compiler's default
-optimizing pipeline. AIHC `O0` configurations require the `optimization-flag`
-capability (`build-exe --help` accepts `-O` at all); `O1` and `Os` require
-`optimization-O1` and `optimization-Os`, probed from the levels that help text
-lists. A commit lacking the capability records the configuration as
-unavailable, so the history stays honest until the flag exists.
+because GHC has no size level. AIHC receives the matching flag too; at `-O2`
+and `-Os` `aihc build` also compiles the whole program at once.
 
 After a successful compile the runner strips the artifact in place before
 recording `artifact_size`: `llvm-strip` for native binaries, `wasm-tools strip
@@ -84,35 +80,51 @@ into the Nix store on every compile and raced with the AIHC store preparation
 writing there. The toolchain versions are pinned by `flake.lock`, which is part
 of the experiment ID.
 
-## Compiler capabilities
+## Compiling with AIHC
 
-The AIHC command line changed over the history, so the runner probes each
-commit's `--help` output rather than assuming a shape. The capabilities are
-`build-exe`, `compile`, `prepare-runtime`, `install-offline`,
-`optimization-flag` and `build-root`. The compile template uses the
-`{aihc_build_command}` placeholder, which resolves to `build-exe` when
-available and `compile` otherwise. `install --offline` is passed only when
-advertised, and `--build-root` gives every cell its own build directory so
-parallel compilations do not share the worktree's `.aihc-target`. A configuration
-lists the capabilities it needs in `requires`; a missing one records the cell
-as `missing_capability:<name>`. Every AIHC configuration implicitly requires
-`prepare-runtime`, so a commit that cannot prepare a runtime produces no
-AIHC cells. The probed map is stored in the envelope as
-`aihc_capabilities`.
+Only the current `aihc` command line is supported, so the runner probes
+nothing: it builds the commit's compiler once (`nix run <worktree>#aihc --
+--help`), and a commit whose compiler does not build is recorded as
+`build_failed`. Commits older than `aihc_since` predate that command line and
+are never planned.
+
+`aihc build <package directory>` builds every executable of a Cabal package,
+resolving and installing the `build-depends` of each executable stanza
+itself, so the compile template is the command itself rather than a wrapper
+script:
+
+```text
+nix run {worktree}#aihc -- build {source} --target T --gc semispace -O<level> -o {artifact_dir}
+```
+
+The executables land in `{artifact_dir}` under the names their stanzas carry
+(plus `.wasm` for the WebAssembly target), which is why an AIHC artifact is
+named after the benchmark's `package`. The runner appends `--store` and
+`--build-root`; the latter gives every cell its own build directory so
+parallel compilations do not share the worktree's `.aihc-target`.
 
 The native and LLVM GHC configurations use the default GMP `ghc-bignum`
 backend. The Wasm GHC is `native-bignum` by construction, since there is no
 GMP for `wasm32`, so Wasm ratios compare against a native-bignum GHC while the
 other backends compare against GMP.
 
-For AIHC revisions with the `prepare-runtime` capability, the runner creates a
-store scoped to the suite key, platform, and commit. It prepares each selected
-target/GC runtime and installs `aihc-base` for all selected targets before the
-parallel compilation phase. Older revisions retain their original self-contained
-compile path. Runtime preparation and library installation run per target, so
-a failure for one target (for example a missing WASI sysroot) is recorded on
-that target's AIHC cells only. The flake exports `AIHC_WASM_SYSROOT`, built
-from the nixpkgs `wasilibc` the same way AIHC's own flake does.
+Before the parallel compilation phase the runner creates a store scoped to the
+suite key, platform, and commit. It prepares each selected target/GC runtime,
+then installs `aihc-base` and the benchmarks' boot-library dependencies once
+per target and optimization level -- a level is part of an installed package's
+identity, so a store entry is only reused by builds at the same level.
+`aihc-base` is installed with `--immutable`: it is named by its path in the
+worktree, which would otherwise make it a local package that `install` builds
+in place under the source tree, while `aihc build` resolves it as a core
+standin and looks for it in the store. The store key is the same either way,
+since it hashes the package and the build rather than how it was named. GHC
+gets its boot libraries for free, so this keeps the timed compile comparable:
+what remains inside it is the benchmark and its non-boot Hackage
+dependencies, exactly what `cabal build` compiles there. Runtime preparation
+and library installation run per target, so a failure for one target (for
+example a missing WASI sysroot) is recorded on that target's AIHC cells only.
+The flake exports `AIHC_WASM_SYSROOT`, built from the nixpkgs `wasilibc` the
+same way AIHC's own flake does.
 
 ## Result envelope
 
@@ -128,7 +140,6 @@ platform
 machine_id
 environment               fingerprint with id, cpu_brand, cpu_cores, memory_bytes
 aihc_commit
-aihc_capabilities
 compiler_status
 unavailable_reason
 results[]

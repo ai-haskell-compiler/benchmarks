@@ -41,8 +41,8 @@ CONFIG = {
     "platforms": {"test-platform": {"aihc_native_target": "test-native"}},
     "measurement": {"process_timeout_seconds": 5, "compile_timeout_seconds": 5, "relative_threshold": 0.01, "maximum_bucket_size": 4},
     "benchmarks": [
-        {"id": "fib", "source": "fib.hs", "expected_stdout": "ok\n"},
-        {"id": "fact", "source": "fact.hs", "expected_stdout": "ok\n"},
+        {"id": "fib", "package": "fib", "source": "fib.hs", "expected_stdout": "ok\n"},
+        {"id": "fact", "package": "fact", "source": "fact.hs", "expected_stdout": "ok\n"},
     ],
     "configurations": [
         configuration("aihc-native-O2"),
@@ -50,7 +50,6 @@ CONFIG = {
         configuration("ghc-native-O2", family="ghc"),
     ],
 }
-CAPABILITIES = {"build-exe": True, "compile": False, "prepare-runtime": True, "install-offline": False, "optimization-flag": True, "optimization-O1": True, "optimization-Os": True, "build-root": False}
 
 
 def sample(wall, stats=None):
@@ -98,7 +97,7 @@ class CompareTests(unittest.TestCase):
             with patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": "/toolchains"}):
                 sides = []
                 for label in ("aaaa", "bbbb"):
-                    cells = build_cells(selected, "test-platform", {"sha": label * 10}, root / label, root, {b["id"]: "compare" for b in selected["benchmarks"]}, capabilities=CAPABILITIES)
+                    cells = build_cells(selected, "test-platform", {"sha": label * 10}, root / label, root, {b["id"]: "compare" for b in selected["benchmarks"]})
                     sides.append([(cell, {"status": "compiled", "artifact_bytes": 1}) for cell in cells])
             sides[1][1] = (sides[1][1][0], {"status": "compile_failed", "stderr": "boom"})
 
@@ -133,11 +132,10 @@ class CompareTests(unittest.TestCase):
             (root / "fib.hs").write_text("main = putStrLn \"ok\"\n")
             selected = select_configuration(CONFIG, benchmarks=["fib"], profile="O2")
             side = Side("old", "a" * 40, root / "wt-a", False)
-            capabilities = dict(CAPABILITIES)
             seen = {}
 
-            def fake_prepare(config, platform_id, worktree, root_, store, timeout_seconds, capabilities_=None):
-                seen.update(root=root_, store=store, timeout=timeout_seconds, capabilities=capabilities_)
+            def fake_prepare(config, platform_id, worktree, root_, store, timeout_seconds):
+                seen.update(root=root_, store=store, timeout=timeout_seconds)
                 return {}
 
             def fake_compile(cells, root_, timeout, jobs):
@@ -145,7 +143,7 @@ class CompareTests(unittest.TestCase):
 
             with (
                 patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": "/toolchains"}),
-                patch("aihc_bench.compare.probe_capabilities", return_value=(capabilities, None)),
+                patch("aihc_bench.compare.build_compiler", return_value=None),
                 patch("aihc_bench.compare._prepare_aihc_store", side_effect=fake_prepare),
                 patch("aihc_bench.compare.compile_cells", side_effect=fake_compile),
             ):
@@ -156,7 +154,6 @@ class CompareTests(unittest.TestCase):
             self.assertEqual(seen["store"], root / ".cache" / "compare-stores" / ("a" * 40))
             self.assertIsInstance(seen["timeout"], float)
             self.assertEqual(seen["timeout"], 5.0)
-            self.assertIs(seen["capabilities"], capabilities)
 
     def test_run_compare_cleans_up_and_records_locally(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -173,7 +170,7 @@ class CompareTests(unittest.TestCase):
                 patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": "/toolchains"}),
                 patch("aihc_bench.compare.create_worktree"),
                 patch("aihc_bench.compare.remove_worktree", side_effect=lambda repo, path: removed.append(path)),
-                patch("aihc_bench.compare.probe_capabilities", return_value=(CAPABILITIES, None)),
+                patch("aihc_bench.compare.build_compiler", return_value=None),
                 patch("aihc_bench.compare._prepare_aihc_store", return_value={}),
                 patch("aihc_bench.compare.compile_cells", side_effect=fake_compile),
             ):
