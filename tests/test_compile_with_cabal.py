@@ -66,14 +66,26 @@ class CompileWithCabalTests(unittest.TestCase):
         located = cabal_command(args, Path("/build/cabal.project"), "list-bin")
         # cabal treats any flag difference as a new configuration and resolves
         # the toolchain again, so the two invocations must match exactly.
-        self.assertEqual(build[2:], located[2:])
-        self.assertEqual(build[:2], ["cabal", "build"])
+        self.assertEqual(build[3:], located[3:])
+        self.assertEqual([build[0], build[2]], ["cabal", "build"])
+        self.assertEqual([located[0], located[2]], ["cabal", "list-bin"])
         self.assertIn("--with-compiler=/t/bin/ghc-9.14.1-wasm", build)
         self.assertIn("--with-hc-pkg=/t/bin/ghc-pkg-9.14.1-wasm", build)
         self.assertIn("--with-hsc2hs=/t/bin/hsc2hs-9.14.1-wasm", build)
         self.assertIn("-O1", build)  # GHC has no size level
         self.assertIn("--ghc-options=-rtsopts", build)
         self.assertEqual(build[-1], "exe:pkg")
+
+    def test_each_configuration_builds_in_its_own_store(self):
+        """A shared store would give every configuration after the first its
+        dependencies pre-compiled, and racing cabals fight over its package db."""
+        args = parse_args(["--source", "/src", "--build-dir", "/build", "--artifact", "/out", "--exe", "pkg", "--ghc", "/t/bin/ghc-9.14.1", "--optimization", "O2"])
+        build = cabal_command(args, Path("/build/cabal.project"), "build")
+        self.assertIn("--builddir=/build/dist", build)
+        # --store-dir is a global flag: after the verb cabal rejects it with
+        # "unrecognized 'build' option".
+        self.assertEqual(build[1], "--store-dir=/build/store")
+        self.assertEqual(build[2], "build")
 
     def test_ghc_is_given_the_whole_machine(self):
         """Compile time is measured multithreaded, so GHC itself runs with -N."""

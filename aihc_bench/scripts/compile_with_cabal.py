@@ -5,7 +5,10 @@ Invoked as the ``compile`` command for GHC configurations in
 ``benchmark.json``. Unlike the old single-file ``ghc`` invocation, this runs
 a real ``cabal build`` against the benchmark's own ``cabal.project.freeze``,
 so dependency resolution and dependency compilation are included in the
-wall-clock time the runner measures around this whole process.
+wall-clock time the runner measures around this whole process. That also
+means a private ``--store-dir`` per configuration: sharing the user's store
+would let the first configuration pay for the dependencies and the rest
+measure only the benchmark.
 
 A generated, out-of-tree project file (rather than editing the benchmark's
 own ``cabal.project``) keeps the checked-in benchmark directory untouched and
@@ -117,6 +120,14 @@ def cabal_command(args: argparse.Namespace, project_file: Path, verb: str) -> li
     """``cabal <verb>`` with the full configuration; identical for build and list-bin."""
     command = [
         args.cabal,
+        # A private store per configuration.  The shared user-wide store hands
+        # every configuration after the first its dependencies already
+        # compiled, so compile time would describe the benchmark alone for
+        # some configurations and the benchmark plus its dependencies for
+        # others; concurrent configurations also raced to create the shared
+        # store's package db ("cannot create: ... package.db already exists").
+        # This is a global flag, so it precedes the verb.
+        f"--store-dir={args.build_dir / 'store'}",
         verb,
         f"--project-file={project_file}",
         f"--builddir={args.build_dir / 'dist'}",
