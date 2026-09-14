@@ -178,10 +178,15 @@ class RunnerTests(unittest.TestCase):
         # aihc-base once per target and optimization level, since the level is
         # part of an installed package's identity.
         installs = [command for command in commands if "install" in command]
+        levels = [next(item for item in command if item.startswith("-O")) for command in installs]
         self.assertEqual(
-            [(command[command.index("--target") + 1], command[-1]) for command in installs],
+            list(zip([command[command.index("--target") + 1] for command in installs], levels)),
             [("test-native", "-O2"), ("wasm32-wasip3", "-O2"), ("llvm", "-O2"), ("test-native", "-O0"), ("test-native", "-O1"), ("test-native", "-Os")],
         )
+        # Preparing the runtime and installing the core libraries are
+        # compilations too, so aihc gets every core there as well.
+        for command in runtimes + installs:
+            self.assertEqual(command[-3:], ["+RTS", "-N", "-RTS"])
         # aihc-base is a local path, so only --immutable puts it in the store
         # where aihc build resolves it as a core standin; without it the
         # install lands under the worktree and the build compiles base again.

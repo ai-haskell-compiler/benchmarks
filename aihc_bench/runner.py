@@ -240,6 +240,12 @@ def build_cells(
     return cells
 
 
+#: Preparing the runtime and installing the core libraries are compilations
+#: too, so aihc gets the whole machine there as well as in the timed step
+#: (where ``benchmark.json`` carries the same options).
+AIHC_RTS_OPTIONS = ["+RTS", "-N", "-RTS"]
+
+
 def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float, jobs: int) -> List[Tuple[Cell, Dict[str, Any]]]:
     cell_list = list(cells)
     outcomes: List[Tuple[Cell, Dict[str, Any]]] = []
@@ -464,6 +470,7 @@ def _prepare_aihc_store(
             garbage_collector,
             "--store",
             str(store),
+            *AIHC_RTS_OPTIONS,
         ]
         error = _run_setup_command(command, worktree, timeout_seconds, environment, f"runtime preparation for {target}")
         if error:
@@ -488,7 +495,7 @@ def _prepare_aihc_store(
             command = base_command + ["install", package]
             if package == core_base:
                 command.append("--immutable")
-            command.extend(["--store", str(store), "--target", target, f"-{optimization}"])
+            command.extend(["--store", str(store), "--target", target, f"-{optimization}", *AIHC_RTS_OPTIONS])
             error = _run_setup_command(
                 command, worktree, timeout_seconds, environment, f"installation of {package} for {target} at -{optimization}"
             )
