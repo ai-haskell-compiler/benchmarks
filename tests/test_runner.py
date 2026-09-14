@@ -236,7 +236,7 @@ class RunnerTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
-                compiled = compile_cells(cells, root, 30, 1)
+                compiled = compile_cells(cells, root, 30)
             by_id = {cell.configuration["id"]: outcome for cell, outcome in compiled}
             self.assertEqual([command[0] for command in commands], ["/toolchains/bin/ghc-9.14.1", "llvm-strip"])
             # Artifact size is recorded after stripping.
@@ -277,10 +277,45 @@ class RunnerTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
-                (_, outcome), = compile_cells(cells, root, 30, 1)
+                (_, outcome), = compile_cells(cells, root, 30)
             self.assertEqual(commands, ["/toolchains/bin/ghc-9.14.1", "llvm-strip"])
             self.assertNotIn("cached", outcome)
             self.assertGreater(outcome["wall_time_ns"], 0)
+
+    def test_compiles_run_one_at_a_time(self):
+        """Compile time is published, so a compile owns the machine.
+
+        Concurrent compiles made compile time a measure of how many other
+        compilers happened to be running; with -N each of them takes every
+        core, so a 32-core machine defaulted to 32 compilers on 32 cores.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = self.build(root)
+            concurrent = 0
+            peak = 0
+
+            def fake_compile(command, cwd, timeout, environment=None):
+                nonlocal concurrent, peak
+                concurrent += 1
+                peak = max(peak, concurrent)
+                try:
+                    if command[0] in ("llvm-strip", "wasm-tools"):
+                        Path(command[-1]).write_bytes(b"bin")
+                    else:
+                        target = Path(command[command.index("-o") + 1]) if "-o" in command else Path(command[-1])
+                        if target.is_dir() or command[0].endswith("aihc"):
+                            target.mkdir(parents=True, exist_ok=True)
+                            (target / "example").write_bytes(b"binary")
+                        else:
+                            Path(command[-1]).write_bytes(b"binary")
+                    return subprocess.CompletedProcess(command, 0, "", "")
+                finally:
+                    concurrent -= 1
+
+            with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
+                compile_cells(cells, root, 30)
+            self.assertEqual(peak, 1, "compiles overlapped")
 
     def test_strip_tool_follows_the_artifact_kind(self):
         native, temporary = strip_command(Path("/a/program"))
@@ -304,7 +339,7 @@ class RunnerTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
-                (cell, outcome), = compile_cells(cells, root, 30, 1)
+                (cell, outcome), = compile_cells(cells, root, 30)
             self.assertEqual(outcome["status"], "compiled")
             self.assertEqual(outcome["artifact_bytes"], 5)
             self.assertEqual(cell.artifact.read_bytes(), b"small")
@@ -322,7 +357,7 @@ class RunnerTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
-                (_, outcome), = compile_cells(cells, root, 30, 1)
+                (_, outcome), = compile_cells(cells, root, 30)
             self.assertEqual(outcome["status"], "compile_failed")
             self.assertIn("llvm-strip", outcome["stderr"])
             self.assertIn("not an object file", outcome["stderr"])

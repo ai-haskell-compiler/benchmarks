@@ -5,7 +5,6 @@ import os
 import shutil
 import subprocess
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -49,7 +48,6 @@ def run_commit(
     commit: Dict[str, Any],
     aihc_repository: Path,
     root: Path,
-    jobs: int,
 ) -> List[Dict[str, Any]]:
     """Measure ``commit`` for the benchmarks in ``experiments``.
 
@@ -119,7 +117,7 @@ def run_commit(
             aihc_store=aihc_store,
             aihc_setup_errors=aihc_setup_errors,
         )
-        compiled = compile_cells(cells, root, compile_timeout, jobs)
+        compiled = compile_cells(cells, root, compile_timeout)
         results = measure_cells(compiled, root, measurement_config)
         envelopes = []
         for benchmark, experiment_id in experiments.items():
@@ -321,7 +319,16 @@ def build_cells(
 AIHC_RTS_OPTIONS = ["+RTS", "-N", "-RTS"]
 
 
-def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float, jobs: int) -> List[Tuple[Cell, Dict[str, Any]]]:
+def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> List[Tuple[Cell, Dict[str, Any]]]:
+    """Compile every cell, one at a time.
+
+    Compile time is a published metric, so compilation is as timing-sensitive
+    as execution and gets the machine to itself. Compiling configurations
+    concurrently made compile time a measure of how many other compilers
+    happened to be running -- with ``-N`` giving each of them every core, a
+    32-core machine defaulted to 32 compilers claiming 32 cores each. The
+    compiler still uses the whole machine; only one does at a time.
+    """
     cell_list = list(cells)
     outcomes: List[Tuple[Cell, Dict[str, Any]]] = []
     available = [cell for cell in cell_list if cell.compile_command and not cell.setup_error]
@@ -372,10 +379,8 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float, job
             "stripped": True,
         }
 
-    with ThreadPoolExecutor(max_workers=max(1, jobs)) as executor:
-        futures = [executor.submit(compile_one, cell) for cell in available]
-        for future in as_completed(futures):
-            outcomes.append(future.result())
+    for cell in available:
+        outcomes.append(compile_one(cell))
     return outcomes
 
 

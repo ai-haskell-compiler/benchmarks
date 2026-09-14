@@ -76,7 +76,6 @@ def _dispatch(
             aihc_repository=repository,
             sides=(side_a, side_b),
             rounds=arguments.rounds,
-            jobs=arguments.jobs,
             log=lambda message: print(message, file=sys.stderr),
         )
         database.record_adhoc(report)
@@ -147,8 +146,7 @@ def _dispatch(
                 commit=next_commit,
                 aihc_repository=repository,
                 root=root,
-                jobs=arguments.jobs,
-            )
+                )
             for envelope in envelopes:
                 print(f"recorded {envelope['compiler_status']} result {envelope['run_id']} for {envelope['benchmark']}")
             inherited = sum(database.propagate_inherited(experiment, platform_id) for experiment in missing.values())
@@ -335,7 +333,6 @@ def _parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser("run", help="benchmark the next commit")
     run.add_argument("--aihc-repo", help=_REPO_HELP)
     run.add_argument("--fetch", action="store_true")
-    run.add_argument("--jobs", type=int, default=max(1, os.cpu_count() or 1))
     run.add_argument("--all", action="store_true", help="continue until all commits are terminal")
     run.add_argument("--limit", type=int, default=0, help="maximum commits for --all; zero means unlimited")
     run.add_argument("--upload", action="store_true", help="upload results to the Worker after each commit")
@@ -349,7 +346,6 @@ def _parser() -> argparse.ArgumentParser:
     compare.add_argument("--config", dest="config_ids", action="append", default=[], metavar="ID", help="configuration id; repeatable, default every AIHC configuration")
     compare.add_argument("--profile", choices=list(OPTIMIZATION_PROFILES))
     compare.add_argument("--rounds", type=int, default=10, help="interleaved A/B rounds per cell")
-    compare.add_argument("--jobs", type=int, default=max(1, os.cpu_count() or 1))
     compare.add_argument("--markdown", action="store_true", help="print a Markdown table")
 
     upload_parser = subparsers.add_parser("upload", help="upload results the Worker has not acknowledged")

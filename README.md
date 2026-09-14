@@ -19,7 +19,7 @@ populates once per machine.
 nix develop --command cabal update
 nix run . -- doctor
 nix run . -- plan --fetch
-nix run . -- run --jobs 8
+nix run . -- run
 ```
 
 Without `--aihc-repo` the commands use
@@ -29,7 +29,7 @@ set `AIHC_REPOSITORY`) to benchmark another clone URL, or a local checkout
 with an `origin/main` remote:
 
 ```console
-nix run . -- run --aihc-repo /path/to/aihc --jobs 8
+nix run . -- run --aihc-repo /path/to/aihc
 ```
 
 `doctor` prints the machine ID that keys this machine's results. It is derived
@@ -42,8 +42,10 @@ the newest 20 commits, then bisects the gap with the highest score, where a
 gap scores by its width, by the change observed between its measured
 endpoints, and by recency. Commits that leave the compiler-relevant paths
 untouched inherit their neighbour's result instead of being measured.
-`plan` reports measured and inherited coverage separately. Compilations
-within a revision are parallel; benchmark executions are sequential.
+`plan` reports measured and inherited coverage separately. Compile time is a
+published metric, so compilation is as timing-sensitive as execution: both are
+sequential and neither shares the machine with anything else the suite does.
+Building the compiler itself is not timed and may use the whole machine.
 
 Every configuration is measured in four profiles: `O0`, `O1`, `O2` and `Os`.
 AIHC passes the matching `-O` flag to `aihc build`, where `-O2` and `-Os` also
@@ -117,9 +119,9 @@ it. Compile time and artifact size are recorded per compilation. Every
 configuration is compiled from scratch -- the build directory and any previous
 artifact are removed first -- so compile time always describes a full compile
 rather than an incremental no-op. Both compilers run with `+RTS -N -RTS` and so
-use every core, which makes compile time a multithreaded measurement: run with
-`--jobs 1` to measure it without configurations competing for the machine. All
-raw samples and the stopping reason are retained.
+use every core, which makes compile time a multithreaded measurement of one
+compiler with the machine to itself. All raw samples and the stopping reason
+are retained.
 
 ## Uploading
 
