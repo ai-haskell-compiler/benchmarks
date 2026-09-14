@@ -76,6 +76,14 @@ GHC ships as boot libraries into a per-commit store, once per target and
 optimization level, so both toolchains pay for the same work inside the timed
 step: the benchmark and its non-boot Hackage dependencies.
 
+Before measuring anything, `run` refreshes AIHC's Hackage index with the
+compiler at `aihc_ref`. A measured commit that found the index stale would
+refresh it with its own code, so whether a historical commit builds would
+depend on how old the cache happened to be when it was scheduled -- and a
+failure is terminal. Warming it first means every commit in a run resolves
+against the same index and none of them performs the refresh. A warming
+failure is reported and the run continues against whatever is cached.
+
 Results and resumable state are stored in `.state/benchmarks.sqlite3`. A failed
 historical compiler is terminal until its record is deliberately removed:
 

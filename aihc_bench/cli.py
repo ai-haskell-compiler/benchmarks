@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -16,7 +17,7 @@ from .git_history import DEFAULT_REMOTE, GitError, clone, clone_directory, commi
 from .machine import load_machine
 from .planner import build_plan, merge_terminal_attempts
 from .process import run_command, utf8_locale
-from .runner import run_commit
+from .runner import hackage_index_cache, run_commit, warm_hackage_index
 from .uploader import UploadError, check_login, refresh_overview, upload_pending
 
 
@@ -112,6 +113,11 @@ def _dispatch(
         repository = _repository(arguments, root)
         if arguments.upload:
             check_login(config, root)
+        # Refresh the index before any commit is measured, so no measured
+        # commit performs the refresh itself. See warm_hackage_index.
+        index_error = warm_hackage_index(config, platform_id, repository, root, float(config["measurement"]["compile_timeout_seconds"]))
+        if index_error:
+            print(f"warning: could not warm the Hackage index, measuring against whatever is cached: {index_error.splitlines()[0]}")
         completed = 0
         while True:
             by_experiment = _terminal_by_experiment(database, experiments, platform_id)
@@ -238,6 +244,12 @@ def _doctor(
     print(f"locale:     {locale_name or 'missing (no UTF-8 locale is supported; aihc cannot write its core files)'}")
     if not locale_name:
         failures.append("utf8 locale")
+    derived = hackage_index_cache()
+    if derived.is_file():
+        age = (time.time() - derived.stat().st_mtime) / 3600
+        print(f"aihc index: {derived} ({age:.1f}h old)")
+    else:
+        print(f"aihc index: missing ({derived}); run will fetch it before measuring")
     index = _hackage_index(root)
     if index is None:
         print("hackage:    missing (could not ask cabal for its cache directory)")
