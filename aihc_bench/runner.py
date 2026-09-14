@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -250,12 +251,16 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float, job
             outcomes.append((cell, {"status": "unavailable", "reason": cell.unavailable_reason}))
 
     def compile_one(cell: Cell) -> Tuple[Cell, Dict[str, Any]]:
+        # Compile time is a published metric, so every cell is compiled from
+        # scratch: a reused artifact has no compile time at all, and a warm
+        # cabal ``dist`` or aihc build directory would time an incremental
+        # no-op rather than the compile the metric claims to describe.
+        shutil.rmtree(cell.build_dir, ignore_errors=True)
+        cell.artifact.unlink(missing_ok=True)
         cell.build_dir.mkdir(parents=True, exist_ok=True)
         cell.artifact.parent.mkdir(parents=True, exist_ok=True)
         if cell.stats_file:
             Path(cell.stats_file).parent.mkdir(parents=True, exist_ok=True)
-        if cell.configuration["compiler_family"] == "ghc" and cell.artifact.exists():
-            return cell, {"status": "compiled", "artifact_bytes": cell.artifact.stat().st_size, "cached": True}
         start = time.perf_counter_ns()
         try:
             process = run_command(

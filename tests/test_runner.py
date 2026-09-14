@@ -243,6 +243,36 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(results["ghc-native-O2"]["optimization"], "O2")
             self.assertEqual([item["metric"] for item in results["ghc-native-O2"]["measurement"]["metrics"]], ["wall_time", "compile_time", "artifact_size"])
 
+    def test_every_compile_is_timed_from_scratch(self):
+        """A reused artifact has no compile time, and a warm build directory
+        would time an incremental no-op rather than a compile."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = [cell for cell in self.build(root) if cell.configuration["id"] == "ghc-native-O2"]
+            cell = cells[0]
+            cell.artifact.parent.mkdir(parents=True, exist_ok=True)
+            cell.artifact.write_bytes(b"stale artifact")
+            cell.build_dir.mkdir(parents=True, exist_ok=True)
+            (cell.build_dir / "dist").mkdir()
+            (cell.build_dir / "dist" / "warm").write_bytes(b"incremental state")
+
+            commands = []
+
+            def fake_compile(command, cwd, timeout, environment=None):
+                commands.append(command[0])
+                if command[0] == "llvm-strip":
+                    Path(command[-1]).write_bytes(b"bin")
+                else:
+                    self.assertFalse((cell.build_dir / "dist").exists(), "build directory was not cleared")
+                    Path(command[-1]).write_bytes(b"binary")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
+                (_, outcome), = compile_cells(cells, root, 30, 1)
+            self.assertEqual(commands, ["/toolchains/bin/ghc-9.14.1", "llvm-strip"])
+            self.assertNotIn("cached", outcome)
+            self.assertGreater(outcome["wall_time_ns"], 0)
+
     def test_strip_tool_follows_the_artifact_kind(self):
         native, temporary = strip_command(Path("/a/program"))
         self.assertEqual(native, ["llvm-strip", "/a/program"])

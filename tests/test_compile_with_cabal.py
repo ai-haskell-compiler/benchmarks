@@ -4,7 +4,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aihc_bench.scripts.compile_with_cabal import cabal_command, generate_project_file, parse_args, project_constraints, sibling_tool
+from aihc_bench.scripts.compile_with_cabal import (
+    RTS_OPTIONS,
+    cabal_command,
+    cabal_environment,
+    generate_project_file,
+    parse_args,
+    project_constraints,
+    sibling_tool,
+    toolchain_path,
+)
 
 FREEZE = (
     "active-repositories: hackage.haskell.org:merge\n"
@@ -65,6 +74,44 @@ class CompileWithCabalTests(unittest.TestCase):
         self.assertIn("-O1", build)  # GHC has no size level
         self.assertIn("--ghc-options=-rtsopts", build)
         self.assertEqual(build[-1], "exe:pkg")
+
+    def test_ghc_is_given_the_whole_machine(self):
+        """Compile time is measured multithreaded, so GHC itself runs with -N."""
+        args = parse_args(["--source", "/src", "--build-dir", "/build", "--artifact", "/out", "--exe", "pkg", "--ghc", "/t/bin/ghc-9.14.1", "--optimization", "O2"])
+        build = cabal_command(args, Path("/build/cabal.project"), "build")
+        self.assertIn(f"--ghc-options={RTS_OPTIONS}", build)
+        self.assertEqual(RTS_OPTIONS, "+RTS -N -RTS")
+
+    def test_the_toolchain_is_on_path_under_bare_names(self):
+        """Cabal falls back to bare names for lookups --with-* does not cover.
+
+        A cross build hit [Cabal-7620] for 'ghc-pkg' while --with-hc-pkg was
+        being passed, so the same tools are also reachable by bare name.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            toolchain = root / "bin"
+            toolchain.mkdir()
+            for name in ("ghc-9.14.1-wasm", "ghc-pkg-9.14.1-wasm", "hsc2hs-9.14.1-wasm"):
+                (toolchain / name).write_text("#!/bin/sh\n", encoding="utf-8")
+            args = parse_args(["--source", "/src", "--build-dir", str(root / "build"), "--artifact", "/out", "--exe", "pkg", "--ghc", str(toolchain / "ghc-9.14.1-wasm"), "--optimization", "O2"])
+            links = toolchain_path(args)
+            self.assertEqual(sorted(p.name for p in links.iterdir()), ["ghc", "ghc-pkg", "hsc2hs"])
+            self.assertEqual((links / "ghc-pkg").resolve(), (toolchain / "ghc-pkg-9.14.1-wasm").resolve())
+            environment = cabal_environment(args)
+            self.assertEqual(environment["PATH"].split(os.pathsep)[0], str(links))
+
+    def test_the_toolchain_links_survive_a_rebuild(self):
+        """The build directory is reused across configurations of a run."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            toolchain = root / "bin"
+            toolchain.mkdir()
+            for name in ("ghc-9.14.1", "ghc-pkg-9.14.1", "hsc2hs-9.14.1"):
+                (toolchain / name).write_text("#!/bin/sh\n", encoding="utf-8")
+            args = parse_args(["--source", "/src", "--build-dir", str(root / "build"), "--artifact", "/out", "--exe", "pkg", "--ghc", str(toolchain / "ghc-9.14.1"), "--optimization", "O2"])
+            toolchain_path(args)
+            self.assertEqual((toolchain_path(args) / "ghc").resolve(), (toolchain / "ghc-9.14.1").resolve())
 
 
 if __name__ == "__main__":

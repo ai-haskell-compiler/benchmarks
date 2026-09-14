@@ -20,10 +20,14 @@ constraints for packages the chosen GHC does not already provide: the
 Hackage dependencies stay pinned to the same version for every toolchain
 while boot libraries come from the compiler under test.
 
-The toolchain's ``ghc-pkg`` and ``hsc2hs`` are always passed explicitly.
-Cabal otherwise guesses them from the ``ghc`` path and falls back to whatever
-is on ``PATH``, which is either nothing (a clean Nix environment) or a
-different GHC's tools, and either way the build fails. ``cabal list-bin`` is
+The toolchain's ``ghc-pkg`` and ``hsc2hs`` are always passed explicitly, and
+the same tools are also put on ``PATH`` under their bare names. Cabal
+otherwise guesses them from the ``ghc`` path and falls back to whatever is on
+``PATH``, which is either nothing (a clean Nix environment) or a different
+GHC's tools, and either way the build fails; the explicit flags do not cover
+every lookup cabal makes, which is how a cross build reached
+``[Cabal-7620] The program 'ghc-pkg' is required but it could not be found``
+while ``--with-hc-pkg`` was being passed. ``cabal list-bin`` is
 given exactly the flags ``cabal build`` was, because cabal treats any
 difference as a new configuration and resolves the toolchain again.
 """
@@ -31,6 +35,7 @@ difference as a new configuration and resolves the toolchain again.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -40,6 +45,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from aihc_bench.freeze import parse_freeze  # noqa: E402
+
+#: Run GHC itself with every core available.  ``-N`` alone needs the threaded
+#: RTS, which every GHC the suite measures is built with.
+RTS_OPTIONS = "+RTS -N -RTS"
 
 # The cabal -O level for each benchmark profile. GHC has no size-oriented
 # level, so the Os profile records what GHC produces at -O1.
@@ -115,11 +124,40 @@ def cabal_command(args: argparse.Namespace, project_file: Path, verb: str) -> li
         f"--with-hc-pkg={args.ghc_pkg}",
         f"--with-hsc2hs={args.hsc2hs}",
         f"-{args.ghc_level}",
+        # Compile time is measured on a multi-core machine, so the compiler
+        # gets the whole machine's parallelism rather than one capability.
+        f"--ghc-options={RTS_OPTIONS}",
     ]
     if args.ghc_option:
         command.append("--ghc-options=" + " ".join(args.ghc_option))
     command.append(f"exe:{args.exe}")
     return command
+
+
+def toolchain_path(args: argparse.Namespace) -> Path:
+    """A directory of bare-named links to this configuration's toolchain.
+
+    ``--with-compiler``/``--with-hc-pkg``/``--with-hsc2hs`` cover most of what
+    cabal runs, but not all of it, and an uncovered lookup falls back to the
+    bare name on ``PATH``.  Pointing those bare names at the very tools the
+    flags name keeps the fallback on the same toolchain instead of failing or,
+    worse, silently using a different GHC's ``ghc-pkg``.
+    """
+    directory = args.build_dir / "toolchain"
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, tool in (("ghc", args.ghc), ("ghc-pkg", args.ghc_pkg), ("hsc2hs", args.hsc2hs)):
+        link = directory / name
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(tool)
+    return directory
+
+
+def cabal_environment(args: argparse.Namespace) -> dict:
+    """The environment cabal runs under, with the toolchain first on ``PATH``."""
+    environment = os.environ.copy()
+    environment["PATH"] = os.pathsep.join([str(toolchain_path(args)), environment.get("PATH", "")])
+    return environment
 
 
 def main(argv: list[str]) -> int:
@@ -129,13 +167,18 @@ def main(argv: list[str]) -> int:
             sys.stderr.write(f"{name} for {args.ghc} not found at {tool}; pass --{name}\n")
             return 1
     project_file = generate_project_file(args)
-    build = subprocess.run(cabal_command(args, project_file, "build"), capture_output=True, text=True)
+    environment = cabal_environment(args)
+    build = subprocess.run(
+        cabal_command(args, project_file, "build"), capture_output=True, text=True, env=environment
+    )
     if build.returncode != 0:
         sys.stderr.write(build.stdout)
         sys.stderr.write(build.stderr)
         return build.returncode
 
-    located = subprocess.run(cabal_command(args, project_file, "list-bin"), capture_output=True, text=True)
+    located = subprocess.run(
+        cabal_command(args, project_file, "list-bin"), capture_output=True, text=True, env=environment
+    )
     if located.returncode != 0:
         sys.stderr.write(located.stdout)
         sys.stderr.write(located.stderr)

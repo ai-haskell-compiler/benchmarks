@@ -104,8 +104,13 @@ Wasmtime startup. It records wall time, CPU time and peak RSS for run buckets
 of 1, 2, 4, 8, 16, 32, and 64 processes, stopping when adjacent bucket means
 are within 1%. Peak heap, bytes allocated, GC count and GC time come from GHC's
 `+RTS -t` output and from the `AIHC_RTS_STATS` hook once the AIHC runtime has
-it. Compile time and artifact size are recorded per compilation. All raw
-samples and the stopping reason are retained.
+it. Compile time and artifact size are recorded per compilation. Every
+configuration is compiled from scratch -- the build directory and any previous
+artifact are removed first -- so compile time always describes a full compile
+rather than an incremental no-op. Both compilers run with `+RTS -N -RTS` and so
+use every core, which makes compile time a multithreaded measurement: run with
+`--jobs 1` to measure it without configurations competing for the machine. All
+raw samples and the stopping reason are retained.
 
 ## Uploading
 
