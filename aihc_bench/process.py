@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+import locale as locale_module
 import os
 import signal
 import subprocess
@@ -32,6 +34,45 @@ class _AlarmExpired(Exception):
     pass
 
 
+# Every child process runs under a fixed locale so tool output is byte-stable
+# across machines, but that locale must be UTF-8: ``aihc`` writes core files
+# containing characters like U+2200 FOR ALL, and a GHC-compiled program under
+# ``LC_ALL=C`` gets ASCII output handles and dies with
+# ``commitAndReleaseBuffer: invalid argument``.  ``C.UTF-8`` is the neutral
+# choice and exists on glibc; macOS needs one of the fallbacks.
+_UTF8_LOCALES = ("C.UTF-8", "C.utf8", "en_US.UTF-8", "en_US.utf8")
+
+
+@functools.lru_cache(maxsize=1)
+def utf8_locale() -> Optional[str]:
+    """The most neutral UTF-8 locale this machine supports, or ``None``.
+
+    Probing with ``setlocale`` is what the child's libc will do, so a name
+    accepted here is a name the child accepts too.  The process locale is
+    restored before returning; ``None`` means no candidate was supported and
+    the caller should surface that rather than silently fall back to ``C``.
+    """
+    previous = locale_module.setlocale(locale_module.LC_CTYPE)
+    try:
+        for candidate in _UTF8_LOCALES:
+            try:
+                locale_module.setlocale(locale_module.LC_CTYPE, candidate)
+            except locale_module.Error:
+                continue
+            return candidate
+        return None
+    finally:
+        locale_module.setlocale(locale_module.LC_CTYPE, previous)
+
+
+def _base_environment() -> Dict[str, str]:
+    """A child environment with a deterministic, UTF-8 locale."""
+    environment = os.environ.copy()
+    environment["LC_ALL"] = utf8_locale() or "C.UTF-8"
+    return environment
+
+
+
 def run_measured(
     command: Iterable[str],
     cwd: Path,
@@ -50,8 +91,7 @@ def run_measured(
     argv = list(command)
     if not argv:
         raise ValueError("cannot run an empty command")
-    environment = os.environ.copy()
-    environment["LC_ALL"] = "C"
+    environment = _base_environment()
     environment.update(environment_overrides or {})
     if stats_file:
         try:
@@ -140,8 +180,7 @@ def run_command(
     timeout_seconds: float,
     environment_overrides: Optional[Dict[str, str]] = None,
 ) -> subprocess.CompletedProcess:
-    environment = os.environ.copy()
-    environment["LC_ALL"] = "C"
+    environment = _base_environment()
     environment.update(environment_overrides or {})
     return subprocess.run(
         list(command),

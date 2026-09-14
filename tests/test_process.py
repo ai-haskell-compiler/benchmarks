@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aihc_bench.process import run_measured
+from aihc_bench.process import run_command, run_measured, utf8_locale
 
 
 @unittest.skipUnless(hasattr(__import__("os"), "wait4"), "wait4 is required")
@@ -59,3 +59,45 @@ class ProcessTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LocaleTests(unittest.TestCase):
+    """The child locale must be deterministic *and* UTF-8.
+
+    ``aihc`` writes core files containing U+2200; under ``LC_ALL=C`` a
+    GHC-compiled program gets ASCII output handles and fails with
+    ``commitAndReleaseBuffer: invalid argument``, which is how every AIHC
+    configuration silently failed to compile.
+
+    Python is not a faithful stand-in for GHC here -- PEP 538 quietly coerces
+    the C locale to C.UTF-8 -- so the children below disable that coercion and
+    UTF-8 mode, leaving the interpreter to honour the locale the way a
+    GHC-compiled binary does.
+    """
+
+    #: Defeat PEP 538 coercion and PEP 540 UTF-8 mode in the child.
+    _HONOUR_LOCALE = {"PYTHONCOERCECLOCALE": "0", "PYTHONUTF8": "0"}
+
+    _WRITE_FOR_ALL = "import sys; sys.stdout.write('\\u2200')"
+
+    def test_a_utf8_locale_is_available(self):
+        self.assertIsNotNone(utf8_locale(), "no UTF-8 locale is supported on this machine")
+
+    def test_children_can_write_non_ascii(self):
+        result = run_command(
+            [sys.executable, "-c", self._WRITE_FOR_ALL], Path("."), 30, dict(self._HONOUR_LOCALE)
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "\u2200")
+
+    def test_measured_children_can_write_non_ascii(self):
+        result = run_measured(
+            [sys.executable, "-c", self._WRITE_FOR_ALL], Path("."), 30, dict(self._HONOUR_LOCALE)
+        )
+        self.assertEqual(result.exit_code, 0, result.stderr)
+        self.assertEqual(result.stdout.decode("utf-8"), "\u2200")
+
+    def test_the_locale_is_pinned_rather_than_inherited(self):
+        program = "import os; print(os.environ['LC_ALL'])"
+        result = run_command([sys.executable, "-c", program], Path("."), 30)
+        self.assertEqual(result.stdout.strip(), utf8_locale())

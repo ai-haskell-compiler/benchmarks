@@ -11,9 +11,12 @@ and metric, a page per commit, and the coverage of the commit history.
 
 ## Running locally
 
-Requirements are Nix and Git.
+Requirements are Nix and Git. The GHC side resolves its dependencies against a
+local Hackage package list, which `doctor` checks for and `cabal update`
+populates once per machine.
 
 ```console
+nix develop --command cabal update
 nix run . -- doctor
 nix run . -- plan --fetch
 nix run . -- run --jobs 8

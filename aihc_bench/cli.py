@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -14,6 +15,7 @@ from .database import Database
 from .git_history import DEFAULT_REMOTE, GitError, clone, clone_directory, commits, fetch, is_remote
 from .machine import load_machine
 from .planner import build_plan, merge_terminal_attempts
+from .process import run_command, utf8_locale
 from .runner import run_commit
 from .uploader import UploadError, check_login, refresh_overview, upload_pending
 
@@ -232,6 +234,19 @@ def _doctor(
     print(f"toolchains: {toolchains or 'missing (run through the flake so AIHC_BENCH_TOOLCHAINS is set)'}")
     if not toolchains or not (Path(toolchains) / "bin").is_dir():
         failures.append("toolchains")
+    locale_name = utf8_locale()
+    print(f"locale:     {locale_name or 'missing (no UTF-8 locale is supported; aihc cannot write its core files)'}")
+    if not locale_name:
+        failures.append("utf8 locale")
+    index = _hackage_index(root)
+    if index is None:
+        print("hackage:    missing (could not ask cabal for its cache directory)")
+        failures.append("hackage index")
+    elif not index.is_file() or index.stat().st_size == 0:
+        print(f"hackage:    missing (no package list at {index}; run 'cabal update')")
+        failures.append("hackage index")
+    else:
+        print(f"hackage:    {index}")
     if not (repository / ".git").exists() and not (repository / "HEAD").exists():
         failures.append("aihc repository")
         print("repository does not appear to be a Git checkout")
@@ -243,6 +258,27 @@ def _doctor(
         failures.append("wrangler login")
     if failures:
         raise ValueError("doctor found missing requirements: " + ", ".join(failures))
+
+
+def _hackage_index(root: Path) -> Optional[Path]:
+    """The Hackage package list ``cabal build`` resolves dependencies against.
+
+    Without it every GHC configuration of a benchmark with a non-boot
+    dependency fails to resolve, so doctor checks for it rather than letting
+    the failure surface once per configuration inside a run.  ``cabal path``
+    is asked rather than assuming ``~/.cache/cabal``, since ``CABAL_DIR`` and
+    the XDG layout both move it.
+    """
+    try:
+        process = run_command(["cabal", "path", "--cache-home"], root, 60.0)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if process.returncode != 0:
+        return None
+    cache_home = process.stdout.strip().splitlines()
+    if not cache_home:
+        return None
+    return Path(cache_home[-1]) / "packages" / "hackage.haskell.org" / "01-index.tar"
 
 
 def _repository(arguments: argparse.Namespace, root: Path) -> Path:
