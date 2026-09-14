@@ -1,5 +1,6 @@
 import os
 import subprocess
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,14 +8,17 @@ from unittest.mock import patch
 
 from aihc_bench.config import load_config
 from aihc_bench.runner import (
+    INDEX_WARM_AGE_SECONDS,
     _boot_equivalent_dependencies,
     _configured_aihc_builds,
     _prepare_aihc_store,
     build_cells,
     build_compiler,
     compile_cells,
+    hackage_index_cache,
     measure_cells,
     strip_command,
+    warm_hackage_index,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -232,7 +236,7 @@ class RunnerTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
-                compiled = compile_cells(cells, root, 30, 1)
+                compiled = compile_cells(cells, root, 30)
             by_id = {cell.configuration["id"]: outcome for cell, outcome in compiled}
             self.assertEqual([command[0] for command in commands], ["/toolchains/bin/ghc-9.14.1", "llvm-strip"])
             # Artifact size is recorded after stripping.
@@ -273,10 +277,45 @@ class RunnerTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
-                (_, outcome), = compile_cells(cells, root, 30, 1)
+                (_, outcome), = compile_cells(cells, root, 30)
             self.assertEqual(commands, ["/toolchains/bin/ghc-9.14.1", "llvm-strip"])
             self.assertNotIn("cached", outcome)
             self.assertGreater(outcome["wall_time_ns"], 0)
+
+    def test_compiles_run_one_at_a_time(self):
+        """Compile time is published, so a compile owns the machine.
+
+        Concurrent compiles made compile time a measure of how many other
+        compilers happened to be running; with -N each of them takes every
+        core, so a 32-core machine defaulted to 32 compilers on 32 cores.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = self.build(root)
+            concurrent = 0
+            peak = 0
+
+            def fake_compile(command, cwd, timeout, environment=None):
+                nonlocal concurrent, peak
+                concurrent += 1
+                peak = max(peak, concurrent)
+                try:
+                    if command[0] in ("llvm-strip", "wasm-tools"):
+                        Path(command[-1]).write_bytes(b"bin")
+                    else:
+                        target = Path(command[command.index("-o") + 1]) if "-o" in command else Path(command[-1])
+                        if target.is_dir() or command[0].endswith("aihc"):
+                            target.mkdir(parents=True, exist_ok=True)
+                            (target / "example").write_bytes(b"binary")
+                        else:
+                            Path(command[-1]).write_bytes(b"binary")
+                    return subprocess.CompletedProcess(command, 0, "", "")
+                finally:
+                    concurrent -= 1
+
+            with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
+                compile_cells(cells, root, 30)
+            self.assertEqual(peak, 1, "compiles overlapped")
 
     def test_strip_tool_follows_the_artifact_kind(self):
         native, temporary = strip_command(Path("/a/program"))
@@ -300,7 +339,7 @@ class RunnerTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
-                (cell, outcome), = compile_cells(cells, root, 30, 1)
+                (cell, outcome), = compile_cells(cells, root, 30)
             self.assertEqual(outcome["status"], "compiled")
             self.assertEqual(outcome["artifact_bytes"], 5)
             self.assertEqual(cell.artifact.read_bytes(), b"small")
@@ -318,7 +357,7 @@ class RunnerTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
-                (_, outcome), = compile_cells(cells, root, 30, 1)
+                (_, outcome), = compile_cells(cells, root, 30)
             self.assertEqual(outcome["status"], "compile_failed")
             self.assertIn("llvm-strip", outcome["stderr"])
             self.assertIn("not an object file", outcome["stderr"])
@@ -332,6 +371,96 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("bytestring", dependencies)
         self.assertNotIn("snappy-hs", dependencies)
         self.assertNotIn("base", dependencies)  # implicit for AIHC, never installed explicitly
+
+
+
+class HackageIndexWarmingTests(unittest.TestCase):
+    """A measured commit must never refresh AIHC's Hackage index itself.
+
+    The refresh runs the measured compiler's own code, so a commit from before
+    ai-haskell-compiler/aihc#2057 heap-overflows on it. Whether a historical
+    commit built would otherwise depend on how old the cache happened to be
+    when it was scheduled, and a failure is terminal until ``forget``.
+    """
+
+    config = {
+        "aihc_ref": "origin/main",
+        "platforms": {"test-platform": {"aihc_native_target": "test-native"}},
+    }
+
+    def test_a_fresh_index_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory) / "preferred-versions.txt"
+            derived.write_text("a 1.0\n", encoding="utf-8")
+            with (
+                patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
+                patch("aihc_bench.runner.run_command") as run,
+            ):
+                self.assertIsNone(warm_hackage_index(self.config, "test-platform", Path("/repo"), Path("/root"), 30))
+            run.assert_not_called()
+
+    def test_a_stale_index_is_refreshed_with_the_current_compiler(self):
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory) / "preferred-versions.txt"
+            derived.write_text("a 1.0\n", encoding="utf-8")
+            old = time.time() - INDEX_WARM_AGE_SECONDS - 60
+            os.utime(derived, (old, old))
+            root = Path(directory) / "root"
+            with (
+                patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
+                patch("aihc_bench.runner.rev_parse", return_value="f" * 40),
+                patch("aihc_bench.runner.create_worktree"),
+                patch("aihc_bench.runner.remove_worktree") as remove,
+                patch("aihc_bench.runner.build_compiler", return_value=None),
+                patch(
+                    "aihc_bench.runner.run_command",
+                    return_value=subprocess.CompletedProcess([], 0, "", ""),
+                ) as run,
+            ):
+                self.assertIsNone(warm_hackage_index(self.config, "test-platform", Path("/repo"), root, 30))
+            command = run.call_args.args[0]
+            self.assertEqual(command[4:6], ["install", "bytestring"])
+            self.assertIn("--target", command)
+            self.assertEqual(command[command.index("--target") + 1], "test-native")
+            # The worktree is cleaned up even on the happy path.
+            remove.assert_called_once()
+
+    def test_a_missing_index_is_fetched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory) / "absent.txt"
+            with (
+                patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
+                patch("aihc_bench.runner.rev_parse", return_value="f" * 40),
+                patch("aihc_bench.runner.create_worktree"),
+                patch("aihc_bench.runner.remove_worktree"),
+                patch("aihc_bench.runner.build_compiler", return_value=None),
+                patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], 0, "", "")) as run,
+            ):
+                self.assertIsNone(
+                    warm_hackage_index(self.config, "test-platform", Path("/repo"), Path(directory) / "root", 30)
+                )
+            run.assert_called_once()
+
+    def test_a_failed_warming_is_reported_not_fatal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory) / "absent.txt"
+            with (
+                patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
+                patch("aihc_bench.runner.rev_parse", return_value="f" * 40),
+                patch("aihc_bench.runner.create_worktree"),
+                patch("aihc_bench.runner.remove_worktree") as remove,
+                patch("aihc_bench.runner.build_compiler", return_value=None),
+                patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], 1, "", "boom")),
+            ):
+                self.assertEqual(
+                    warm_hackage_index(self.config, "test-platform", Path("/repo"), Path(directory) / "root", 30),
+                    "boom",
+                )
+            remove.assert_called_once()
+
+    def test_the_cache_path_follows_xdg(self):
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": "/xdg"}):
+            self.assertEqual(hackage_index_cache(), Path("/xdg/aihc/hackage-index/preferred-versions.txt"))
 
 
 if __name__ == "__main__":

@@ -138,7 +138,7 @@ class CompareTests(unittest.TestCase):
                 seen.update(root=root_, store=store, timeout=timeout_seconds)
                 return {}
 
-            def fake_compile(cells, root_, timeout, jobs):
+            def fake_compile(cells, root_, timeout):
                 return [(cell, {"status": "compiled", "artifact_bytes": 1}) for cell in cells]
 
             with (
@@ -147,7 +147,7 @@ class CompareTests(unittest.TestCase):
                 patch("aihc_bench.compare._prepare_aihc_store", side_effect=fake_prepare),
                 patch("aihc_bench.compare.compile_cells", side_effect=fake_compile),
             ):
-                prepare_side(side, selected, "test-platform", root, root, 1, lambda _: None)
+                prepare_side(side, selected, "test-platform", root, root, lambda _: None)
             self.assertIsInstance(seen["root"], Path)
             self.assertEqual(seen["root"], root)
             self.assertIsInstance(seen["store"], Path)
@@ -163,7 +163,7 @@ class CompareTests(unittest.TestCase):
             sides = (Side("old", "a" * 40, root / "wt-a", True), Side("new", "b" * 40, root / "wt-b", True))
             removed = []
 
-            def fake_compile(cells, root_, timeout, jobs):
+            def fake_compile(cells, root_, timeout):
                 return [(cell, {"status": "compiled", "artifact_bytes": 1}) for cell in cells]
 
             with (
@@ -175,7 +175,7 @@ class CompareTests(unittest.TestCase):
                 patch("aihc_bench.compare.compile_cells", side_effect=fake_compile),
             ):
                 report = run_compare(
-                    config=selected, platform_id="test-platform", root=root, aihc_repository=root, sides=sides, rounds=2, jobs=1,
+                    config=selected, platform_id="test-platform", root=root, aihc_repository=root, sides=sides, rounds=2,
                     invoke=lambda *args, **kwargs: sample(100), log=lambda _: None,
                 )
             self.assertEqual(removed, [root / "wt-a", root / "wt-b"])

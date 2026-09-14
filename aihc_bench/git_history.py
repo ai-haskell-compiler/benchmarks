@@ -177,6 +177,11 @@ def remove_worktree(repository: Path, destination: Path) -> None:
     )
 
 
+def rev_parse(repository: Path, ref: str) -> str:
+    """The commit a ref names."""
+    return _git(repository, "rev-parse", ref).strip()
+
+
 def _git(repository: Path, *arguments: str) -> str:
     try:
         return subprocess.check_output(

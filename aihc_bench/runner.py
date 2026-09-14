@@ -5,7 +5,6 @@ import os
 import shutil
 import subprocess
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -14,7 +13,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from .config import expand_command
 from .database import Database
 from .freeze import AIHC_IMPLICIT_PACKAGES, parse_build_depends
-from .git_history import create_worktree, path_exists, remove_worktree
+from .git_history import GitError, create_worktree, path_exists, remove_worktree, rev_parse
 from .measurement import compile_metrics, measure_adaptively
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
@@ -49,7 +48,6 @@ def run_commit(
     commit: Dict[str, Any],
     aihc_repository: Path,
     root: Path,
-    jobs: int,
 ) -> List[Dict[str, Any]]:
     """Measure ``commit`` for the benchmarks in ``experiments``.
 
@@ -119,7 +117,7 @@ def run_commit(
             aihc_store=aihc_store,
             aihc_setup_errors=aihc_setup_errors,
         )
-        compiled = compile_cells(cells, root, compile_timeout, jobs)
+        compiled = compile_cells(cells, root, compile_timeout)
         results = measure_cells(compiled, root, measurement_config)
         envelopes = []
         for benchmark, experiment_id in experiments.items():
@@ -136,6 +134,81 @@ def run_commit(
         return unavailable("build_failed", f"compiler build timed out: {error}")
     finally:
         remove_worktree(aihc_repository, worktree)
+
+
+#: Where AIHC keeps the package versions it derives from the Hackage index.
+#: ``Aihc.Hackage.Cache`` puts it under the XDG cache directory, and
+#: ``IndexCache`` appends ``-index`` to that.
+def hackage_index_cache() -> Path:
+    base = os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")
+    return Path(base) / "aihc" / "hackage-index" / "preferred-versions.txt"
+
+
+#: Refresh the derived file once it is older than this. Comfortably inside
+#: AIHC's own 24h staleness window, so a measured commit always finds a fresh
+#: file and never refreshes it itself.
+INDEX_WARM_AGE_SECONDS = 12 * 60 * 60
+
+
+def warm_hackage_index(
+    config: Dict[str, Any], platform_id: str, aihc_repository: Path, root: Path, timeout_seconds: float
+) -> Optional[str]:
+    """Refresh AIHC's Hackage index with a current compiler, before measuring.
+
+    A measured commit that finds the derived file stale refreshes it itself,
+    and that refresh is the compiler's own code -- so whether a historical
+    commit builds depends on whether it inherited a bug that has since been
+    fixed. Commits before ai-haskell-compiler/aihc#2057 retain the whole
+    tarball and die with a heap overflow, which would record them as failed
+    for no reason but the age of the cache when they happened to be scheduled,
+    and a failure is terminal until someone runs ``forget``.
+
+    Refreshing here with ``aihc_ref`` -- the branch under measurement, so the
+    newest compiler there is -- means no measured commit ever performs the
+    refresh, and every commit in a run resolves against the same index.
+
+    Returns a description when warming fails. That is not fatal: a stale index
+    still resolves, and the run should say so rather than stop.
+    """
+    derived = hackage_index_cache()
+    if derived.is_file() and time.time() - derived.stat().st_mtime < INDEX_WARM_AGE_SECONDS:
+        return None
+    worktree = root / ".cache" / "aihc-index-worktree"
+    store = root / ".cache" / "aihc-index-store"
+    package = config.get("aihc_index_probe_package", "bytestring")
+    target = str(config["platforms"][platform_id]["aihc_native_target"])
+    try:
+        head = rev_parse(aihc_repository, config["aihc_ref"])
+    except (GitError, KeyError) as error:
+        return f"could not resolve {config.get('aihc_ref')}: {error}"
+    try:
+        create_worktree(aihc_repository, worktree, head)
+        build_error = build_compiler(worktree, root, timeout_seconds)
+        if build_error is not None:
+            return f"the compiler at {head[:12]} does not build:\n{build_error[-2000:]}"
+        store.mkdir(parents=True, exist_ok=True)
+        command = [
+            "nix",
+            "run",
+            f"{worktree}#aihc",
+            "--",
+            "install",
+            package,
+            "--store",
+            str(store),
+            "--target",
+            target,
+            "-O2",
+            *AIHC_RTS_OPTIONS,
+        ]
+        process = run_command(command, worktree, timeout_seconds)
+        if process.returncode != 0:
+            return (process.stdout + process.stderr)[-2000:]
+    except subprocess.TimeoutExpired as error:
+        return f"warming the Hackage index timed out: {error}"
+    finally:
+        remove_worktree(aihc_repository, worktree)
+    return None
 
 
 def build_compiler(worktree: Path, root: Path, timeout_seconds: float) -> Optional[str]:
@@ -246,7 +319,16 @@ def build_cells(
 AIHC_RTS_OPTIONS = ["+RTS", "-N", "-RTS"]
 
 
-def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float, jobs: int) -> List[Tuple[Cell, Dict[str, Any]]]:
+def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> List[Tuple[Cell, Dict[str, Any]]]:
+    """Compile every cell, one at a time.
+
+    Compile time is a published metric, so compilation is as timing-sensitive
+    as execution and gets the machine to itself. Compiling configurations
+    concurrently made compile time a measure of how many other compilers
+    happened to be running -- with ``-N`` giving each of them every core, a
+    32-core machine defaulted to 32 compilers claiming 32 cores each. The
+    compiler still uses the whole machine; only one does at a time.
+    """
     cell_list = list(cells)
     outcomes: List[Tuple[Cell, Dict[str, Any]]] = []
     available = [cell for cell in cell_list if cell.compile_command and not cell.setup_error]
@@ -297,10 +379,8 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float, job
             "stripped": True,
         }
 
-    with ThreadPoolExecutor(max_workers=max(1, jobs)) as executor:
-        futures = [executor.submit(compile_one, cell) for cell in available]
-        for future in as_completed(futures):
-            outcomes.append(future.result())
+    for cell in available:
+        outcomes.append(compile_one(cell))
     return outcomes
 
 

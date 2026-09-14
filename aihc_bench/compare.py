@@ -100,7 +100,6 @@ def prepare_side(
     platform_id: str,
     root: Path,
     aihc_repository: Path,
-    jobs: int,
     log: Callable[[str], None],
 ) -> List[Tuple[Cell, Dict[str, Any]]]:
     """Build the compiler for one side and compile every selected cell."""
@@ -126,7 +125,7 @@ def prepare_side(
         aihc_setup_errors=setup_errors,
     )
     log(f"[{side.label}] compiling {len(cells)} cells")
-    compiled = compile_cells(cells, root, timeout, jobs)
+    compiled = compile_cells(cells, root, timeout)
     for cell, outcome in compiled:
         if outcome["status"] != "compiled":
             log(f"[{side.label}] {cell.benchmark['id']} / {cell.configuration['id']}: {outcome['status']} {outcome.get('reason', '')}".rstrip())
@@ -253,14 +252,13 @@ def run_compare(
     aihc_repository: Path,
     sides: Tuple[Side, Side],
     rounds: int,
-    jobs: int,
     invoke: Callable[..., ProcessMeasurement] = run_measured,
     log: Callable[[str], None] = print,
 ) -> Dict[str, Any]:
     compiled: List[List[Tuple[Cell, Dict[str, Any]]]] = []
     try:
         for side in sides:
-            compiled.append(prepare_side(side, config, platform_id, root, aihc_repository, jobs, log))
+            compiled.append(prepare_side(side, config, platform_id, root, aihc_repository, log))
         results = measure_interleaved((compiled[0], compiled[1]), config, root, rounds, invoke=invoke, log=log)
     finally:
         for side in sides:
