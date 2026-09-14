@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aihc_bench.config import load_config
+from aihc_bench.git_history import GitError
 from aihc_bench.runner import (
     INDEX_WARM_AGE_SECONDS,
     _boot_equivalent_dependencies,
@@ -399,6 +400,47 @@ class HackageIndexWarmingTests(unittest.TestCase):
                 self.assertIsNone(warm_hackage_index(self.config, "test-platform", Path("/repo"), Path("/root"), 30))
             run.assert_not_called()
 
+    def test_warming_fetches_before_resolving_the_ref(self):
+        """aihc_ref resolves against the local clone.
+
+        A clone last fetched before the fix landed resolves to a compiler that
+        still retains the tarball, so warming would build the very compiler it
+        exists to keep away from the refresh -- which is exactly what happened
+        on worker-desktop.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory) / "absent.txt"
+            order = []
+            with (
+                patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
+                patch("aihc_bench.runner.fetch", side_effect=lambda r: order.append("fetch")),
+                patch("aihc_bench.runner.rev_parse", side_effect=lambda r, ref: order.append("resolve") or "f" * 40),
+                patch("aihc_bench.runner.create_worktree"),
+                patch("aihc_bench.runner.remove_worktree"),
+                patch("aihc_bench.runner.build_compiler", return_value=None),
+                patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], 0, "", "")),
+            ):
+                warm_hackage_index(self.config, "test-platform", Path("/repo"), Path(directory) / "root", 30)
+            self.assertEqual(order, ["fetch", "resolve"])
+
+    def test_warming_survives_a_fetch_failure(self):
+        """The ref already in the clone is still the best available."""
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory) / "absent.txt"
+            with (
+                patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
+                patch("aihc_bench.runner.fetch", side_effect=GitError("no network")),
+                patch("aihc_bench.runner.rev_parse", return_value="f" * 40),
+                patch("aihc_bench.runner.create_worktree"),
+                patch("aihc_bench.runner.remove_worktree"),
+                patch("aihc_bench.runner.build_compiler", return_value=None),
+                patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], 0, "", "")) as run,
+            ):
+                self.assertIsNone(
+                    warm_hackage_index(self.config, "test-platform", Path("/repo"), Path(directory) / "root", 30)
+                )
+            run.assert_called_once()
+
     def test_a_stale_index_is_refreshed_with_the_current_compiler(self):
         with tempfile.TemporaryDirectory() as directory:
             derived = Path(directory) / "preferred-versions.txt"
@@ -408,6 +450,7 @@ class HackageIndexWarmingTests(unittest.TestCase):
             root = Path(directory) / "root"
             with (
                 patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
+                patch("aihc_bench.runner.fetch"),
                 patch("aihc_bench.runner.rev_parse", return_value="f" * 40),
                 patch("aihc_bench.runner.create_worktree"),
                 patch("aihc_bench.runner.remove_worktree") as remove,
@@ -430,6 +473,7 @@ class HackageIndexWarmingTests(unittest.TestCase):
             derived = Path(directory) / "absent.txt"
             with (
                 patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
+                patch("aihc_bench.runner.fetch"),
                 patch("aihc_bench.runner.rev_parse", return_value="f" * 40),
                 patch("aihc_bench.runner.create_worktree"),
                 patch("aihc_bench.runner.remove_worktree"),
@@ -446,6 +490,7 @@ class HackageIndexWarmingTests(unittest.TestCase):
             derived = Path(directory) / "absent.txt"
             with (
                 patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
+                patch("aihc_bench.runner.fetch"),
                 patch("aihc_bench.runner.rev_parse", return_value="f" * 40),
                 patch("aihc_bench.runner.create_worktree"),
                 patch("aihc_bench.runner.remove_worktree") as remove,

@@ -13,7 +13,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from .config import expand_command
 from .database import Database
 from .freeze import AIHC_IMPLICIT_PACKAGES, parse_build_depends
-from .git_history import GitError, create_worktree, path_exists, remove_worktree, rev_parse
+from .git_history import GitError, create_worktree, fetch, path_exists, remove_worktree, rev_parse
 from .measurement import compile_metrics, measure_adaptively
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
@@ -177,6 +177,15 @@ def warm_hackage_index(
     store = root / ".cache" / "aihc-index-store"
     package = config.get("aihc_index_probe_package", "bytestring")
     target = str(config["platforms"][platform_id]["aihc_native_target"])
+    # Fetch first: aihc_ref resolves against the local clone, and a clone that
+    # has not been fetched since the fix landed resolves to a compiler that
+    # still has the bug -- warming would then build the very compiler it
+    # exists to keep away from the refresh. A fetch that fails is not fatal;
+    # the ref it already has is still the best available.
+    try:
+        fetch(aihc_repository)
+    except GitError:
+        pass
     try:
         head = rev_parse(aihc_repository, config["aihc_ref"])
     except (GitError, KeyError) as error:
