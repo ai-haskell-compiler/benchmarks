@@ -11,9 +11,12 @@ and metric, a page per commit, and the coverage of the commit history.
 
 ## Running locally
 
-Requirements are Nix and Git.
+Requirements are Nix and Git. The GHC side resolves its dependencies against a
+local Hackage package list, which `doctor` checks for and `cabal update`
+populates once per machine.
 
 ```console
+nix develop --command cabal update
 nix run . -- doctor
 nix run . -- plan --fetch
 nix run . -- run --jobs 8
@@ -53,8 +56,9 @@ Wasm. GHC targets `wasm32-wasi` while AIHC targets `wasm32-wasip3`; both run
 under Wasmtime, so the Wasm ratio includes the difference between the two host
 interfaces' startup costs. Every GHC configuration, Wasm included, builds the
 benchmark's Cabal package with `cabal build` against the flake's toolchain
-(`ghc-<version>` plus its `ghc-pkg`/`hsc2hs` siblings), so Hackage
-dependencies are resolved and compiled inside the timed step; a benchmark's
+(`ghc-<version>` plus its `ghc-pkg`/`hsc2hs` siblings) and a private store per
+configuration, so Hackage dependencies are resolved and compiled inside the
+timed step for every configuration rather than only the first; a benchmark's
 `cabal.project.freeze` pins those dependencies while boot libraries come from
 whichever GHC is under test.
 
@@ -101,8 +105,13 @@ Wasmtime startup. It records wall time, CPU time and peak RSS for run buckets
 of 1, 2, 4, 8, 16, 32, and 64 processes, stopping when adjacent bucket means
 are within 1%. Peak heap, bytes allocated, GC count and GC time come from GHC's
 `+RTS -t` output and from the `AIHC_RTS_STATS` hook once the AIHC runtime has
-it. Compile time and artifact size are recorded per compilation. All raw
-samples and the stopping reason are retained.
+it. Compile time and artifact size are recorded per compilation. Every
+configuration is compiled from scratch -- the build directory and any previous
+artifact are removed first -- so compile time always describes a full compile
+rather than an incremental no-op. Both compilers run with `+RTS -N -RTS` and so
+use every core, which makes compile time a multithreaded measurement: run with
+`--jobs 1` to measure it without configurations competing for the machine. All
+raw samples and the stopping reason are retained.
 
 ## Uploading
 

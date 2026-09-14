@@ -70,7 +70,10 @@
         "semispace",
         "-O2",
         "-o",
-        "{artifact_dir}"
+        "{artifact_dir}",
+        "+RTS",
+        "-N",
+        "-RTS"
       ],
       "run": [
         "{artifact}"
@@ -101,7 +104,10 @@
         "semispace",
         "-O2",
         "-o",
-        "{artifact_dir}"
+        "{artifact_dir}",
+        "+RTS",
+        "-N",
+        "-RTS"
       ],
       "run": [
         "wasmtime",
@@ -141,7 +147,10 @@
         "semispace",
         "-O2",
         "-o",
-        "{artifact_dir}"
+        "{artifact_dir}",
+        "+RTS",
+        "-N",
+        "-RTS"
       ],
       "run": [
         "{artifact}"
@@ -171,7 +180,10 @@
         "semispace",
         "-O0",
         "-o",
-        "{artifact_dir}"
+        "{artifact_dir}",
+        "+RTS",
+        "-N",
+        "-RTS"
       ],
       "run": [
         "{artifact}"
@@ -202,7 +214,10 @@
         "semispace",
         "-O0",
         "-o",
-        "{artifact_dir}"
+        "{artifact_dir}",
+        "+RTS",
+        "-N",
+        "-RTS"
       ],
       "run": [
         "wasmtime",
@@ -242,7 +257,10 @@
         "semispace",
         "-O0",
         "-o",
-        "{artifact_dir}"
+        "{artifact_dir}",
+        "+RTS",
+        "-N",
+        "-RTS"
       ],
       "run": [
         "{artifact}"
@@ -652,7 +670,10 @@
         "semispace",
         "-O1",
         "-o",
-        "{artifact_dir}"
+        "{artifact_dir}",
+        "+RTS",
+        "-N",
+        "-RTS"
       ],
       "run": [
         "{artifact}"
@@ -683,7 +704,10 @@
         "semispace",
         "-O1",
         "-o",
-        "{artifact_dir}"
+        "{artifact_dir}",
+        "+RTS",
+        "-N",
+        "-RTS"
       ],
       "run": [
         "wasmtime",
@@ -723,7 +747,10 @@
         "semispace",
         "-O1",
         "-o",
-        "{artifact_dir}"
+        "{artifact_dir}",
+        "+RTS",
+        "-N",
+        "-RTS"
       ],
       "run": [
         "{artifact}"
@@ -943,7 +970,10 @@
         "semispace",
         "-Os",
         "-o",
-        "{artifact_dir}"
+        "{artifact_dir}",
+        "+RTS",
+        "-N",
+        "-RTS"
       ],
       "run": [
         "{artifact}"
@@ -974,7 +1004,10 @@
         "semispace",
         "-Os",
         "-o",
-        "{artifact_dir}"
+        "{artifact_dir}",
+        "+RTS",
+        "-N",
+        "-RTS"
       ],
       "run": [
         "wasmtime",
@@ -1014,7 +1047,10 @@
         "semispace",
         "-Os",
         "-o",
-        "{artifact_dir}"
+        "{artifact_dir}",
+        "+RTS",
+        "-N",
+        "-RTS"
       ],
       "run": [
         "{artifact}"

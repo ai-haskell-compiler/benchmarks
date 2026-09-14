@@ -178,10 +178,15 @@ class RunnerTests(unittest.TestCase):
         # aihc-base once per target and optimization level, since the level is
         # part of an installed package's identity.
         installs = [command for command in commands if "install" in command]
+        levels = [next(item for item in command if item.startswith("-O")) for command in installs]
         self.assertEqual(
-            [(command[command.index("--target") + 1], command[-1]) for command in installs],
+            list(zip([command[command.index("--target") + 1] for command in installs], levels)),
             [("test-native", "-O2"), ("wasm32-wasip3", "-O2"), ("llvm", "-O2"), ("test-native", "-O0"), ("test-native", "-O1"), ("test-native", "-Os")],
         )
+        # Preparing the runtime and installing the core libraries are
+        # compilations too, so aihc gets every core there as well.
+        for command in runtimes + installs:
+            self.assertEqual(command[-3:], ["+RTS", "-N", "-RTS"])
         # aihc-base is a local path, so only --immutable puts it in the store
         # where aihc build resolves it as a core standin; without it the
         # install lands under the worktree and the build compiles base again.
@@ -242,6 +247,36 @@ class RunnerTests(unittest.TestCase):
                 results = {result["configuration"]: result for result in measure_cells(compiled, root, {"process_timeout_seconds": 1, "relative_threshold": 0.01, "maximum_bucket_size": 2})}
             self.assertEqual(results["ghc-native-O2"]["optimization"], "O2")
             self.assertEqual([item["metric"] for item in results["ghc-native-O2"]["measurement"]["metrics"]], ["wall_time", "compile_time", "artifact_size"])
+
+    def test_every_compile_is_timed_from_scratch(self):
+        """A reused artifact has no compile time, and a warm build directory
+        would time an incremental no-op rather than a compile."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = [cell for cell in self.build(root) if cell.configuration["id"] == "ghc-native-O2"]
+            cell = cells[0]
+            cell.artifact.parent.mkdir(parents=True, exist_ok=True)
+            cell.artifact.write_bytes(b"stale artifact")
+            cell.build_dir.mkdir(parents=True, exist_ok=True)
+            (cell.build_dir / "dist").mkdir()
+            (cell.build_dir / "dist" / "warm").write_bytes(b"incremental state")
+
+            commands = []
+
+            def fake_compile(command, cwd, timeout, environment=None):
+                commands.append(command[0])
+                if command[0] == "llvm-strip":
+                    Path(command[-1]).write_bytes(b"bin")
+                else:
+                    self.assertFalse((cell.build_dir / "dist").exists(), "build directory was not cleared")
+                    Path(command[-1]).write_bytes(b"binary")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
+                (_, outcome), = compile_cells(cells, root, 30, 1)
+            self.assertEqual(commands, ["/toolchains/bin/ghc-9.14.1", "llvm-strip"])
+            self.assertNotIn("cached", outcome)
+            self.assertGreater(outcome["wall_time_ns"], 0)
 
     def test_strip_tool_follows_the_artifact_kind(self):
         native, temporary = strip_command(Path("/a/program"))
