@@ -14,6 +14,7 @@ import gzip
 import json
 import subprocess
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -136,7 +137,7 @@ def refresh_overview(
     try:
         url = overview_refresh_url(server_url)
         bucket = config["publishing"]["bucket"]
-        process = run(["wrangler", "r2", "object", "delete", f"{bucket}/{OVERVIEW_KEY}", "--remote"])
+        process = run_with_retry(run, ["wrangler", "r2", "object", "delete", f"{bucket}/{OVERVIEW_KEY}", "--remote"])
         if process.returncode != 0:
             raise UploadError(f"wrangler r2 object delete failed:\n{(process.stderr or process.stdout)[-2000:]}")
     except (OSError, ValueError, UploadError) as error:
@@ -289,6 +290,54 @@ def run_statements(envelope: Dict[str, Any], key: str) -> List[str]:
 # wrangler plumbing
 
 
+#: How long to wait before each retry of a wrangler call that failed in a way
+#: that later attempts recover from.
+RETRY_DELAYS_SECONDS = (2.0, 8.0, 32.0)
+
+#: What a recoverable wrangler failure looks like. Cloudflare answers an
+#: expired OAuth access token with ``Authentication error [code: 10000]``
+#: while ``wrangler whoami`` still reports a session, and the same upload
+#: succeeds minutes later; the rest are network faults. Anything else -- a
+#: revoked token, a malformed statement -- fails on the first attempt rather
+#: than burning the backoff and burying its own message.
+TRANSIENT_MARKERS = (
+    "code: 10000",
+    "Authentication error",
+    "fetch failed",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "EAI_AGAIN",
+    "Internal Server Error",
+    "Bad Gateway",
+    "Service Unavailable",
+    "Gateway Timeout",
+)
+
+
+def is_transient(output: str) -> bool:
+    """Whether a failed wrangler call is worth attempting again."""
+    return any(marker in output for marker in TRANSIENT_MARKERS)
+
+
+def run_with_retry(run: Run, command: List[str], sleep: Callable[[float], None] = time.sleep) -> subprocess.CompletedProcess:
+    """Run a wrangler command, retrying the failures that recover.
+
+    Uploads are idempotent -- rows insert with ``INSERT OR IGNORE`` and
+    ``uploaded_at`` is recorded only once both commands succeeded -- so a
+    retried call cannot double-write.
+    """
+    process = run(command)
+    for delay in RETRY_DELAYS_SECONDS:
+        if process.returncode == 0:
+            return process
+        if not is_transient((process.stderr or "") + (process.stdout or "")):
+            return process
+        sleep(delay)
+        process = run(command)
+    return process
+
+
+
 def _run(command: List[str]) -> subprocess.CompletedProcess:
     return subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
 
@@ -301,7 +350,7 @@ def _execute_sql(config: Dict[str, Any], root: Path, statements: List[str], run:
             handle.write("\n".join(chunk) + "\n")
             path = handle.name
         try:
-            process = run(wrangler_command(config, root, "d1", "execute", database, "--remote", "--file", path, "--json"))
+            process = run_with_retry(run, wrangler_command(config, root, "d1", "execute", database, "--remote", "--file", path, "--json"))
         finally:
             Path(path).unlink(missing_ok=True)
         if process.returncode != 0:
@@ -314,7 +363,8 @@ def _put_object(bucket: str, key: str, envelope: Dict[str, Any], run: Run) -> No
         handle.write(payload)
         path = handle.name
     try:
-        process = run(
+        process = run_with_retry(
+            run,
             [
                 "wrangler",
                 "r2",
