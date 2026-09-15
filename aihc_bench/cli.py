@@ -153,10 +153,7 @@ def _dispatch(
             if inherited:
                 print(f"propagated the result to {inherited} same-tree benchmark results")
             if arguments.upload:
-                summary = upload_pending(database, experiments, suite, platform_id, config, root, database.commits())
-                print(f"uploaded {summary['uploaded']} runs ({summary['pending']} still pending)")
-                if summary["uploaded"]:
-                    refresh_overview(config)
+                _upload_after_commit(database, experiments, suite, platform_id, config, root)
             completed += 1
             if not arguments.all or (arguments.limit and completed >= arguments.limit):
                 break
@@ -207,6 +204,32 @@ def _print_plan(database: Database, experiments: Dict[str, str], suite: str, pla
         for gap in plan["gaps"][:5]:
             span = f"{gap['start']['ordinal'] + 1}-{gap['end']['ordinal'] + 1}"
             print(f"            {span:12} {gap['width']:5}  {gap['signal']:.3f}  {gap['recency']:.3f}  {gap['score']:8.1f}")
+
+
+def _upload_after_commit(
+    database: Database,
+    experiments: Dict[str, str],
+    suite: str,
+    platform_id: str,
+    config: Dict[str, Any],
+    root: Path,
+) -> None:
+    """Upload what is pending, reporting a failure rather than ending the run.
+
+    The measurements are already recorded and stay pending, so the next
+    commit's upload retries them and ``upload`` catches up afterwards. A
+    transient Cloudflare API error otherwise threw away every commit still to
+    be measured: three long runs died this way, each on a "wrangler d1 execute
+    failed: Authentication error [code: 10000]" that succeeded again minutes
+    later.
+    """
+    try:
+        summary = upload_pending(database, experiments, suite, platform_id, config, root, database.commits())
+        print(f"uploaded {summary['uploaded']} runs ({summary['pending']} still pending)")
+        if summary["uploaded"]:
+            refresh_overview(config)
+    except UploadError as error:
+        print(f"warning: upload failed, results stay pending and will be retried: {str(error).splitlines()[0]}")
 
 
 def _doctor(
