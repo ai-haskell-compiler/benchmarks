@@ -3,6 +3,7 @@ import subprocess
 import time
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,7 +18,9 @@ from aihc_bench.runner import (
     build_compiler,
     compile_cells,
     hackage_index_cache,
+    MissingBaseline,
     measure_cells,
+    require_baseline,
     strip_command,
     warm_hackage_index,
 )
@@ -59,6 +62,7 @@ class RunnerTests(unittest.TestCase):
                     "id": "ghc-native-O2",
                     "compiler_family": "ghc",
                     "compiler_version": "9.14.1",
+                    "baseline": True,
                     "backend": "native",
                     "gc": "ghc-rts",
                     "optimization": "O2",
@@ -510,3 +514,74 @@ class HackageIndexWarmingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BaselineTests(unittest.TestCase):
+    """Every AIHC number is a ratio against GHC.
+
+    A commit measured without a baseline is not a partial result but a useless
+    one, and recording it as available hides a broken machine behind a
+    benchmark that merely looks empty -- one M1 published seventeen commits of
+    AIHC-only results that way.
+    """
+
+    def _pair(self, benchmark, configuration, status, **extra):
+        cell = SimpleNamespace(benchmark={"id": benchmark}, configuration=configuration)
+        return (cell, {"status": status, **extra})
+
+    BASELINE = {"id": "ghc-9.14.1-native-O2", "baseline": True}
+    OTHER_BASELINE = {"id": "ghc-9.14.1-llvm-O2", "baseline": True}
+    NOT_BASELINE = {"id": "ghc-9.12.4-native-O2"}
+    AIHC = {"id": "aihc-native-semispace-O2"}
+
+    def test_a_compiled_baseline_is_enough(self):
+        compiled = [self._pair("example", self.BASELINE, "compiled")]
+        require_baseline(compiled, ["example"])
+
+    def test_one_baseline_surviving_is_enough(self):
+        """A single broken backend is a partial result, not a useless one."""
+        compiled = [
+            self._pair("example", self.BASELINE, "compiled"),
+            self._pair("example", self.OTHER_BASELINE, "compile_failed", stderr="llvm missing"),
+        ]
+        require_baseline(compiled, ["example"])
+
+    def test_every_baseline_failing_stops_the_run(self):
+        compiled = [
+            self._pair("example", self.BASELINE, "compile_failed", stderr="ghc-pkg ... not found\nsecond line"),
+            self._pair("example", self.AIHC, "compiled"),
+        ]
+        with self.assertRaises(MissingBaseline) as raised:
+            require_baseline(compiled, ["example"])
+        message = str(raised.exception)
+        self.assertIn("example", message)
+        self.assertIn("ghc-9.14.1-native-O2", message)
+        self.assertIn("ghc-pkg", message)
+        self.assertNotIn("second line", message)
+
+    def test_a_non_baseline_ghc_does_not_substitute(self):
+        """Ratios are computed against the baseline, not any GHC at all."""
+        compiled = [
+            self._pair("example", self.BASELINE, "compile_failed", stderr="boom"),
+            self._pair("example", self.NOT_BASELINE, "compiled"),
+        ]
+        with self.assertRaises(MissingBaseline):
+            require_baseline(compiled, ["example"])
+
+    def test_a_benchmark_with_no_baseline_cells_stops_the_run(self):
+        compiled = [self._pair("example", self.AIHC, "compiled")]
+        with self.assertRaises(MissingBaseline) as raised:
+            require_baseline(compiled, ["example"])
+        self.assertIn("no baseline configuration ran", str(raised.exception))
+
+    def test_each_benchmark_is_checked(self):
+        """snappy-roundtrip served no GHC series for two days while the other
+        benchmarks on the same machine were fine."""
+        compiled = [
+            self._pair("fine", self.BASELINE, "compiled"),
+            self._pair("broken", self.BASELINE, "compile_failed", stderr="unknown package: snappy-hs"),
+        ]
+        require_baseline(compiled, ["fine"])
+        with self.assertRaises(MissingBaseline) as raised:
+            require_baseline(compiled, ["fine", "broken"])
+        self.assertIn("broken", str(raised.exception))

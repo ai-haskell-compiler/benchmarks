@@ -17,7 +17,7 @@ from .git_history import DEFAULT_REMOTE, GitError, clone, clone_directory, commi
 from .machine import load_machine
 from .planner import build_plan, merge_terminal_attempts
 from .process import run_command, utf8_locale
-from .runner import hackage_index_cache, run_commit, warm_hackage_index
+from .runner import MissingBaseline, hackage_index_cache, run_commit, warm_hackage_index
 from .uploader import UploadError, check_login, refresh_overview, upload_pending
 
 
@@ -42,6 +42,12 @@ def main(argv: Optional[list] = None) -> None:
             _dispatch(arguments, root, config, platform_id, experiments, suite, database, machine)
         finally:
             database.close()
+    except MissingBaseline as error:
+        # A machine fault, not a result: say so and stop rather than filling the
+        # history with commits that have nothing to compare against.
+        print(f"error: {error}", file=sys.stderr)
+        print("the compiler toolchain on this machine needs fixing; run `doctor`", file=sys.stderr)
+        raise SystemExit(2) from error
     except (CompareError, ConfigError, GitError, UploadError, ValueError) as error:
         parser.exit(2, f"error: {error}\n")
 

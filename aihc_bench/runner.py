@@ -118,6 +118,7 @@ def run_commit(
             aihc_setup_errors=aihc_setup_errors,
         )
         compiled = compile_cells(cells, root, compile_timeout)
+        require_baseline(compiled, experiments)
         results = measure_cells(compiled, root, measurement_config)
         envelopes = []
         for benchmark, experiment_id in experiments.items():
@@ -232,6 +233,44 @@ def build_compiler(worktree: Path, root: Path, timeout_seconds: float) -> Option
     if probe.returncode != 0:
         return (probe.stderr or probe.stdout)[-8192:]
     return None
+
+
+class MissingBaseline(RuntimeError):
+    """A benchmark produced no baseline binary, so it cannot be compared."""
+
+
+def require_baseline(compiled: Iterable[Tuple[Cell, Dict[str, Any]]], experiments: Iterable[str]) -> None:
+    """Stop the run when a benchmark has no working baseline compiler.
+
+    Every AIHC number is published as a ratio against GHC, so a commit
+    measured without a baseline is not a partial result but a useless one --
+    and recording it as ``available`` hides a broken machine behind a
+    benchmark that merely looks empty. One machine published seventeen
+    commits of AIHC-only results this way, and another served a benchmark
+    with no GHC series for two days, because a toolchain fault upstream of
+    the compile was reported per configuration and never at the run level.
+
+    Treated as non-recoverable: the attempt stays unfinished rather than
+    terminal, so the commit is measured again once the machine is fixed
+    instead of needing ``forget``.
+    """
+    baselines: Dict[str, List[Tuple[Cell, Dict[str, Any]]]] = {}
+    for cell, outcome in compiled:
+        if cell.configuration.get("baseline"):
+            baselines.setdefault(cell.benchmark["id"], []).append((cell, outcome))
+    for benchmark in experiments:
+        outcomes = baselines.get(benchmark, [])
+        if any(outcome.get("status") == "compiled" for _, outcome in outcomes):
+            continue
+        detail = ""
+        for cell, outcome in outcomes:
+            reported = outcome.get("stderr") or outcome.get("reason") or outcome.get("status", "")
+            if reported:
+                detail = f"{cell.configuration['id']}: {str(reported).strip().splitlines()[0]}"
+                break
+        configured = "no baseline configuration ran" if not outcomes else detail
+        raise MissingBaseline(f"{benchmark} has no baseline result on this machine ({configured})")
+
 
 
 def build_cells(

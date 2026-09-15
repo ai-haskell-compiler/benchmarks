@@ -86,6 +86,12 @@ failure is terminal. Warming it first means every commit in a run resolves
 against the same index and none of them performs the refresh. A warming
 failure is reported and the run continues against whatever is cached.
 
+Every AIHC number is published as a ratio against GHC, so a benchmark whose
+baseline compiler produced nothing is not a partial result but a useless one.
+A commit measured that way stops the run with a non-zero exit rather than
+recording an AIHC-only result: the attempt stays unfinished, so the commit is
+measured again once the machine is fixed and no `forget` is needed.
+
 Results and resumable state are stored in `.state/benchmarks.sqlite3`. A failed
 historical compiler is terminal until its record is deliberately removed:
 
