@@ -137,7 +137,11 @@ nix run . -- run --all --upload
 
 The uploader writes envelopes to the R2 bucket and index rows to the D1
 database through `wrangler`, so whoever can log in to the Cloudflare account
-can upload, and the Worker itself is read-only. `upload` pushes the commit
+can upload, and the Worker itself is read-only. A wrangler call that fails
+with an expired OAuth token (`Authentication error [code: 10000]`, which
+`wrangler whoami` does not see) or a network fault is retried with a growing
+backoff; anything else fails at once. Uploads are idempotent, so a retry
+cannot double-write. `upload` pushes the commit
 list and every run not yet acknowledged; `run --upload` does the same after
 each commit. Uploads are idempotent. Machines appear on the site under their
 derived id, such as `apple-m4-pro-542f1e`.

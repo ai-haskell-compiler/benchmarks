@@ -7,9 +7,12 @@ from unittest.mock import patch
 
 from aihc_bench.database import Database
 from aihc_bench.uploader import (
+    RETRY_DELAYS_SECONDS,
     UploadError,
     check_login,
     commit_statement,
+    is_transient,
+    run_with_retry,
     envelope_key,
     refresh_overview,
     USER_AGENT,
@@ -231,3 +234,80 @@ class UploaderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RetryTests(unittest.TestCase):
+    """Wrangler calls that fail this way succeed on a later attempt.
+
+    Cloudflare answered five uploads across three machines in nine hours with
+    ``Authentication error [code: 10000]`` while ``wrangler whoami`` still
+    reported a session, and the same upload succeeded minutes later. Uploads
+    are idempotent, so retrying cannot double-write.
+    """
+
+    #: The failure exactly as wrangler reported it.
+    REAL_FAILURE = (
+        "error: wrangler d1 execute failed:\n"
+        '  "text": "A request to the Cloudflare API ... failed.",\n'
+        '  "notes": [{"text": "Authentication error [code: 10000]"}],\n'
+        '  "code": 10000\n'
+    )
+
+    def _process(self, code, output=""):
+        return subprocess.CompletedProcess([], code, output, "")
+
+    def test_the_observed_failure_is_recognised(self):
+        self.assertTrue(is_transient(self.REAL_FAILURE))
+
+    def test_an_unrelated_failure_is_not_retried(self):
+        self.assertFalse(is_transient("Error: near \"SELCT\": syntax error"))
+        calls = []
+
+        def run(command):
+            calls.append(command)
+            return self._process(1, "near \"SELCT\": syntax error")
+
+        slept = []
+        result = run_with_retry(run, ["wrangler"], sleep=slept.append)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(len(calls), 1, "a permanent failure must not burn the backoff")
+        self.assertEqual(slept, [])
+
+    def test_a_transient_failure_is_retried_until_it_succeeds(self):
+        outcomes = [self._process(1, self.REAL_FAILURE), self._process(1, self.REAL_FAILURE), self._process(0)]
+        calls = []
+
+        def run(command):
+            calls.append(command)
+            return outcomes[len(calls) - 1]
+
+        slept = []
+        result = run_with_retry(run, ["wrangler"], sleep=slept.append)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(slept, list(RETRY_DELAYS_SECONDS[:2]), "backoff should grow")
+
+    def test_a_success_is_not_retried(self):
+        calls = []
+
+        def run(command):
+            calls.append(command)
+            return self._process(0)
+
+        slept = []
+        self.assertEqual(run_with_retry(run, ["wrangler"], sleep=slept.append).returncode, 0)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(slept, [])
+
+    def test_retries_are_bounded(self):
+        calls = []
+
+        def run(command):
+            calls.append(command)
+            return self._process(1, self.REAL_FAILURE)
+
+        slept = []
+        result = run_with_retry(run, ["wrangler"], sleep=slept.append)
+        self.assertEqual(result.returncode, 1, "the caller still sees the failure")
+        self.assertEqual(len(calls), 1 + len(RETRY_DELAYS_SECONDS))
+        self.assertEqual(slept, list(RETRY_DELAYS_SECONDS))
