@@ -60,13 +60,40 @@ Every configuration carries an `optimization` profile: `O0`, `O1`, `O2` or
 because GHC has no size level. AIHC receives the matching flag too; at `-O2`
 and `-Os` `aihc build` also compiles the whole program at once.
 
-The GHC level is carried by a `package *` stanza in the generated project
-file rather than by cabal's command-line `-O` flag, which configures local
-packages only: dependencies were handed `--enable-optimization` (`-O1`) in
-every profile, so a benchmark whose work lives in a Hackage dependency
-(`snappy-hs`, `aihc-cpp`) measured that dependency at `-O1` even at `O0`.
-The stanza is part of a dependency's unit id, so each profile builds its own
-store entry.
+The GHC level and backend flag are carried by a `package *` stanza in the
+generated project file rather than by cabal's command-line `-O` and
+`--ghc-options`, which configure local packages only: dependencies were
+handed `--enable-optimization` (`-O1`) and never saw `-fllvm`, so a benchmark
+whose work lives in a Hackage dependency (`snappy-hs`, `aihc-cpp`) measured
+that dependency at `-O1` through the native backend in every profile and
+configuration. The stanza is part of a dependency's unit id, so each profile
+and backend builds its own store entry.
+
+The boot libraries GHC ships -- `text`, `bytestring`, `containers` and the
+rest -- are compiled once, when the GHC release is built, at that release's
+optimization level. Left alone they would give the `O0` profile an optimized
+`text` where AIHC compiled its own equivalents at `-O0`
+(`_prepare_aihc_store`). `compile_with_cabal.py` therefore constrains each of
+them to `source` at the version the compiler ships, so cabal rebuilds them
+under the stanza. `base`, `ghc-prim`, `ghc-internal`, `ghc-bignum`,
+`integer-gmp`, `rts`, `system-cxx-std-lib` and `template-haskell` are wired
+into the compiler and cannot be rebuilt against it, and neither can anything
+they depend on (`template-haskell` reaches `ghc-boot-th`, `pretty` and
+`deepseq`), since a package cannot have an installed and a source instance in
+the same plan. A benchmark that only uses `base` is therefore unchanged.
+
+That rebuild is prepared by `compile_with_cabal.py --prepare` before the
+clock starts, from a synthetic package that depends on the benchmark's boot
+libraries and nothing else: the benchmark's own Hackage dependencies stay
+inside the timed compile, for GHC as for AIHC. A cabal store records its own
+absolute path, so the prepared store cannot be copied elsewhere; it is
+archived beside the build directory and restored to the same path before
+every compile, which both keeps the preparation cost off `compile_time` and
+leaves each compile starting from the same store rather than from what the
+previous one left behind. The archive is keyed by the build directory, which
+depends on the experiment, the platform, the GHC version and the
+configuration but not on the AIHC commit, so the libraries are built once and
+restored for every commit after that.
 
 After a successful compile the runner strips the artifact in place before
 recording `artifact_size`: `llvm-strip` for native binaries, `wasm-tools strip

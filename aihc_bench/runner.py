@@ -17,6 +17,14 @@ from .git_history import GitError, create_worktree, fetch, path_exists, remove_w
 from .measurement import compile_metrics, measure_adaptively
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
+from .scripts.compile_with_cabal import boot_archive, restore_boot_store
+
+
+#: The boot library preparation gets more than a compile's timeout: it builds
+#: a dozen libraries rather than one benchmark, it happens once per
+#: configuration rather than once per commit, and it is not timed, so a
+#: generous limit costs nothing while a tight one would fail a cell outright.
+BOOT_PREPARE_TIMEOUT_FACTOR = 4
 
 
 @dataclass(frozen=True)
@@ -35,6 +43,9 @@ class Cell:
     stats_file: Optional[str] = None
     stats_format: Optional[str] = None
     run_environment: Dict[str, str] = field(default_factory=dict)
+    #: Builds this cell's boot libraries into its own store before the timed
+    #: compile, for GHC cells; see ``_prepare_boot_store``.
+    boot_prepare_command: Optional[List[str]] = None
 
 
 def run_commit(
@@ -337,6 +348,12 @@ def build_cells(
                 # Each cell compiles in its own build root; the default
                 # .aihc-target inside the worktree races between parallel cells.
                 compile_command.extend(["--build-root", str(build_dir)])
+            # GHC ships its boot libraries already compiled, at the level its
+            # own release was built with. They are rebuilt from source at the
+            # profile's level instead -- see ``boot_library_packages`` -- and
+            # that rebuild is prepared outside the timed compile, exactly as
+            # AIHC's boot equivalents are.
+            boot_prepare_command = compile_command + ["--prepare"] if compile_command and family == "ghc" else None
             stats_format = configuration.get("runtime_stats")
             setup_error = None
             if family == "aihc" and available:
@@ -364,6 +381,7 @@ def build_cells(
                     stats_file=str(stats_file) if available and stats_format else None,
                     stats_format=stats_format if available else None,
                     run_environment=run_environment,
+                    boot_prepare_command=boot_prepare_command,
                 )
             )
     return cells
@@ -471,6 +489,9 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
         cell.artifact.parent.mkdir(parents=True, exist_ok=True)
         if cell.stats_file:
             Path(cell.stats_file).parent.mkdir(parents=True, exist_ok=True)
+        boot_error = _prepare_boot_store(cell, timeout_seconds)
+        if boot_error:
+            return cell, {"status": "compile_failed", "stderr": boot_error[-8192:]}
         start = time.perf_counter_ns()
         try:
             process = run_command(
@@ -504,6 +525,45 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
     for cell in available:
         outcomes.append(compile_one(cell))
     return outcomes
+
+
+def _prepare_boot_store(cell: Cell, timeout_seconds: float) -> Optional[str]:
+    """Put the boot libraries in this cell's store, before the clock starts.
+
+    GHC hands ``text``, ``bytestring`` and the rest over ready-made; the suite
+    rebuilds them only to give them the profile's optimization level and
+    backend, so paying for that rebuild would inflate ``compile_time`` against
+    a compiler that was never asked to build them. AIHC's equivalents are
+    prepared outside the timed compile for the same reason
+    (``_prepare_aihc_store``), and the benchmark's own Hackage dependencies
+    stay inside it for both.
+
+    The first commit measured for a configuration builds the libraries and
+    archives the store; every later one restores that archive, which is why
+    this is affordable at all. The archive survives the build directory being
+    wiped, and restoring it is what keeps each compile starting from the same
+    store rather than from whatever the previous compile left behind.
+    """
+    if not cell.boot_prepare_command:
+        return None
+    if not boot_archive(cell.build_dir).is_file():
+        try:
+            process = run_command(
+                cell.boot_prepare_command,
+                cell.compile_cwd,
+                timeout_seconds * BOOT_PREPARE_TIMEOUT_FACTOR,
+                cell.compile_environment,
+            )
+        except subprocess.TimeoutExpired as error:
+            return f"boot library preparation timed out: {error}"
+        if process.returncode != 0:
+            detail = (process.stderr or process.stdout)[-8192:]
+            return f"boot library preparation failed with exit code {process.returncode}:\n{detail}"
+        # The store is already what the archive holds; restoring it now would
+        # only unpack what is there.
+        return None
+    restore_boot_store(cell.build_dir)
+    return None
 
 
 def strip_command(artifact: Path) -> Tuple[List[str], Optional[Path]]:

@@ -11,6 +11,8 @@ from aihc_bench.config import load_config
 from aihc_bench.git_history import GitError
 from aihc_bench.runner import (
     INDEX_WARM_AGE_SECONDS,
+    _prepare_boot_store,
+    boot_archive,
     _boot_equivalent_dependencies,
     _configured_aihc_builds,
     _prepare_aihc_store,
@@ -28,6 +30,9 @@ from aihc_bench.runner import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+#: A valid, empty tar archive: 1024 zero bytes.
+EMPTY_TAR = bytes(1024)
 
 
 def aihc_configuration(backend, profile="O2", **extra):
@@ -311,6 +316,8 @@ class RunnerTests(unittest.TestCase):
 
             def fake_compile(command, cwd, timeout, environment=None):
                 commands.append(command)
+                if command[-1] == "--prepare":
+                    return subprocess.CompletedProcess(command, 0, "", "")
                 if command[0] == "llvm-strip":
                     Path(command[-1]).write_bytes(b"bin")
                 else:
@@ -320,7 +327,10 @@ class RunnerTests(unittest.TestCase):
             with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
                 compiled = compile_cells(cells, root, 30)
             by_id = {cell.configuration["id"]: outcome for cell, outcome in compiled}
-            self.assertEqual([command[0] for command in commands], ["/toolchains/bin/ghc-9.14.1", "llvm-strip"])
+            # The boot libraries are prepared first, then the timed compile.
+            self.assertEqual([command[0] for command in commands], ["/toolchains/bin/ghc-9.14.1", "/toolchains/bin/ghc-9.14.1", "llvm-strip"])
+            self.assertEqual(commands[0][-1], "--prepare")
+            self.assertNotIn("--prepare", commands[1])
             # Artifact size is recorded after stripping.
             self.assertEqual(by_id["ghc-native-O2"]["artifact_bytes"], 3)
             self.assertTrue(by_id["ghc-native-O2"]["stripped"])
@@ -351,6 +361,8 @@ class RunnerTests(unittest.TestCase):
 
             def fake_compile(command, cwd, timeout, environment=None):
                 commands.append(command[0])
+                if command[-1] == "--prepare":
+                    return subprocess.CompletedProcess(command, 0, "", "")
                 if command[0] == "llvm-strip":
                     Path(command[-1]).write_bytes(b"bin")
                 else:
@@ -360,9 +372,54 @@ class RunnerTests(unittest.TestCase):
 
             with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
                 (_, outcome), = compile_cells(cells, root, 30)
-            self.assertEqual(commands, ["/toolchains/bin/ghc-9.14.1", "llvm-strip"])
+            self.assertEqual(commands, ["/toolchains/bin/ghc-9.14.1", "/toolchains/bin/ghc-9.14.1", "llvm-strip"])
             self.assertNotIn("cached", outcome)
             self.assertGreater(outcome["wall_time_ns"], 0)
+
+    def test_only_ghc_cells_prepare_a_boot_store(self):
+        """AIHC installs its own boot equivalents in ``_prepare_aihc_store``;
+        this is the GHC side of the same line."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            by_id = {cell.configuration["id"]: cell for cell in self.build(root)}
+            self.assertEqual(by_id["ghc-native-O2"].boot_prepare_command[-1], "--prepare")
+            self.assertEqual(by_id["ghc-native-O2"].boot_prepare_command[:-1], by_id["ghc-native-O2"].compile_command)
+            self.assertIsNone(by_id["aihc-native-O2"].boot_prepare_command)
+
+    def test_a_prepared_boot_store_is_restored_rather_than_rebuilt(self):
+        """Rebuilding text and containers for every commit would cost more
+        than the measurements; the archive is what makes the step affordable."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cell = [cell for cell in self.build(root) if cell.configuration["id"] == "ghc-native-O2"][0]
+            cell.build_dir.mkdir(parents=True, exist_ok=True)
+
+            calls = []
+            with patch("aihc_bench.runner.run_command", side_effect=lambda *arguments, **keywords: calls.append(arguments[0]) or subprocess.CompletedProcess(arguments[0], 0, "", "")):
+                self.assertIsNone(_prepare_boot_store(cell, 30))
+                self.assertEqual(len(calls), 1)
+                # The archive the preparation writes is what later commits restore.
+                boot_archive(cell.build_dir).write_bytes(EMPTY_TAR)
+                with patch("aihc_bench.runner.restore_boot_store") as restore:
+                    self.assertIsNone(_prepare_boot_store(cell, 30))
+                self.assertEqual(len(calls), 1)
+                restore.assert_called_once_with(cell.build_dir)
+
+    def test_a_failed_boot_preparation_fails_the_cell(self):
+        """Its libraries would otherwise be rebuilt inside the timed compile,
+        which is the one thing this step exists to prevent."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cell = [cell for cell in self.build(root) if cell.configuration["id"] == "ghc-native-O2"][0]
+            cell.build_dir.mkdir(parents=True, exist_ok=True)
+            failure = subprocess.CompletedProcess([], 1, "", "no such package: text-2.1.4")
+            with patch("aihc_bench.runner.run_command", return_value=failure):
+                error = _prepare_boot_store(cell, 30)
+            self.assertIn("no such package", error)
+
+    def test_the_boot_archive_outlives_the_build_directory(self):
+        """Every timed compile deletes the build directory first."""
+        self.assertNotIn(Path("/b/build"), boot_archive(Path("/b/build")).parents)
 
     def test_compiles_run_one_at_a_time(self):
         """Compile time is published, so a compile owns the machine.
@@ -379,6 +436,8 @@ class RunnerTests(unittest.TestCase):
 
             def fake_compile(command, cwd, timeout, environment=None):
                 nonlocal concurrent, peak
+                if command[-1] == "--prepare":
+                    return subprocess.CompletedProcess(command, 0, "", "")
                 concurrent += 1
                 peak = max(peak, concurrent)
                 try:
@@ -435,6 +494,8 @@ class RunnerTests(unittest.TestCase):
             def fake_compile(command, cwd, timeout, environment=None):
                 if command[0] == "llvm-strip":
                     return subprocess.CompletedProcess(command, 1, "", "not an object file")
+                if command[-1] == "--prepare":
+                    return subprocess.CompletedProcess(command, 0, "", "")
                 Path(command[-1]).write_bytes(b"binary")
                 return subprocess.CompletedProcess(command, 0, "", "")
 
