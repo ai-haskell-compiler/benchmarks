@@ -3,6 +3,7 @@ import subprocess
 import time
 import tempfile
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
@@ -11,7 +12,8 @@ from aihc_bench.config import load_config
 from aihc_bench.git_history import GitError
 from aihc_bench.runner import (
     INDEX_WARM_AGE_SECONDS,
-    _boot_equivalent_dependencies,
+    _archive_store,
+    _restore_store,
     _configured_aihc_builds,
     _prepare_aihc_store,
     build_cells,
@@ -28,6 +30,7 @@ from aihc_bench.runner import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 
 def aihc_configuration(backend, profile="O2", **extra):
@@ -75,7 +78,7 @@ class RunnerTests(unittest.TestCase):
             ],
         }
 
-    def build(self, root, store=None):
+    def build(self, root, store=None, archive=None):
         (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
         with patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": "/toolchains"}):
             return build_cells(
@@ -86,6 +89,7 @@ class RunnerTests(unittest.TestCase):
                 root,
                 {"example": "example-experiment"},
                 aihc_store=store,
+                store_archive=archive,
             )
 
     def test_build_compiler_reports_only_a_failed_build(self):
@@ -364,6 +368,38 @@ class RunnerTests(unittest.TestCase):
             self.assertNotIn("cached", outcome)
             self.assertGreater(outcome["wall_time_ns"], 0)
 
+    def test_the_aihc_store_is_reset_between_cells(self):
+        """``aihc build`` installs a benchmark's dependencies into a store
+        every cell of a commit shares. Left alone, the second benchmark to use
+        bytestring in a configuration would find it installed and its compile
+        time would not include installing it, while GHC's would."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = root / "store"
+            (store / "aihc-base").mkdir(parents=True)
+            (store / "aihc-base" / "lib").write_bytes(b"prepared")
+            archive = _archive_store(store)
+
+            # What a timed compile leaves behind is gone at the next restore.
+            (store / "bytestring").mkdir()
+            (store / "bytestring" / "lib").write_bytes(b"installed by the last cell")
+            cell = [cell for cell in self.build(root) if cell.configuration["id"] == "aihc-native-O2"][0]
+            _restore_store(replace(cell, store_archive=archive))
+
+            self.assertEqual((store / "aihc-base" / "lib").read_bytes(), b"prepared")
+            self.assertFalse((store / "bytestring").exists())
+
+    def test_only_aihc_cells_carry_the_store_archive(self):
+        """GHC gets the same property from cabal's per-configuration store and
+        the build directory wipe: it simply starts empty."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = root / "store"
+            store.mkdir()
+            by_id = {cell.configuration["id"]: cell for cell in self.build(root, archive=_archive_store(store))}
+            self.assertIsNotNone(by_id["aihc-native-O2"].store_archive)
+            self.assertIsNone(by_id["ghc-native-O2"].store_archive)
+
     def test_compiles_run_one_at_a_time(self):
         """Compile time is published, so a compile owns the machine.
 
@@ -444,15 +480,25 @@ class RunnerTests(unittest.TestCase):
             self.assertIn("llvm-strip", outcome["stderr"])
             self.assertIn("not an object file", outcome["stderr"])
 
-    def test_boot_equivalent_dependencies_from_real_benchmarks(self):
+    def test_only_aihc_base_is_installed_ahead_of_the_timed_compile(self):
+        """Installing a dependency is part of what a compiler is timed doing.
+
+        The real suite has benchmarks depending on bytestring and text, which
+        GHC ships and AIHC does not; both compilers install them inside the
+        timed compile. aihc-base is the exception on the AIHC side, as base
+        and the other wired-in packages are on the GHC side: it is the
+        compiler's own core library, which no benchmark builds either.
+        """
+        completed = subprocess.CompletedProcess([], 0, "", "")
         config = load_config(REPO_ROOT / "benchmark.json")
-        dependencies = _boot_equivalent_dependencies(config, REPO_ROOT)
-        self.assertIsInstance(dependencies, list)
-        # snappy-roundtrip depends on bytestring (a GHC boot library AIHC
-        # doesn't stand in for) and snappy-hs (not a boot library at all).
-        self.assertIn("bytestring", dependencies)
-        self.assertNotIn("snappy-hs", dependencies)
-        self.assertNotIn("base", dependencies)  # implicit for AIHC, never installed explicitly
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worktree = root / "worktree"
+            worktree.mkdir()
+            with patch("aihc_bench.runner.run_command", return_value=completed) as run:
+                _prepare_aihc_store(config, "aarch64-darwin", worktree, REPO_ROOT, root / "store", 30)
+        installed = {command[5] for command in (call.args[0] for call in run.call_args_list) if "install" in command}
+        self.assertEqual(installed, {str(worktree / "core-libs" / "aihc-base")})
 
 
 

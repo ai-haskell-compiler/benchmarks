@@ -50,7 +50,23 @@ Building the compiler itself is not timed and may use the whole machine.
 Every configuration is measured in four profiles: `O0`, `O1`, `O2` and `Os`.
 AIHC passes the matching `-O` flag to `aihc build`, where `-O2` and `-Os` also
 compile the whole program at once. GHC has no size level, so its `Os` profile
-builds with `-O1`. Every artifact is stripped before its size is recorded: `llvm-strip` for native binaries and
+builds with `-O1`. Both compilers apply the level to the whole build: on the
+GHC side that takes a `package *` stanza in the generated project file, since
+cabal's command-line `-O` and `--ghc-options` reach local packages only and
+would leave the Hackage dependencies at `-O1` through the native backend.
+
+GHC ships `text`, `bytestring`, `containers` and the rest of its boot
+libraries already compiled, at the level its own release was built with, so an
+`O0` profile would otherwise link optimized libraries where AIHC compiled its
+equivalents at `-O0`. The GHC side rebuilds them from source instead, at the
+version the compiler ships and the profile's level. `base`, `ghc-prim`,
+`ghc-internal`, `ghc-bignum`, `rts`, `template-haskell` and what they depend
+on are wired into the compiler and stay as shipped, so a benchmark that only
+uses `base` is unaffected.
+
+Both compilers are timed installing every dependency a benchmark has,
+`text` included. The only libraries prepared beforehand are the compiler's
+own: the packages GHC wires in, and `aihc-base` on the AIHC side. Every artifact is stripped before its size is recorded: `llvm-strip` for native binaries and
 `wasm-tools strip --all` for Wasm, which also handles the component AIHC
 emits. Stripping happens after the timed compile. GHC is measured with its
 native and LLVM backends, and with the `ghc-wasm-meta` cross-compiler for

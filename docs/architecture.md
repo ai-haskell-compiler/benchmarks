@@ -60,6 +60,51 @@ Every configuration carries an `optimization` profile: `O0`, `O1`, `O2` or
 because GHC has no size level. AIHC receives the matching flag too; at `-O2`
 and `-Os` `aihc build` also compiles the whole program at once.
 
+The GHC level and backend flag are carried by a `package *` stanza in the
+generated project file rather than by cabal's command-line `-O` and
+`--ghc-options`, which configure local packages only: dependencies were
+handed `--enable-optimization` (`-O1`) and never saw `-fllvm`, so a benchmark
+whose work lives in a Hackage dependency (`snappy-hs`, `aihc-cpp`) measured
+that dependency at `-O1` through the native backend in every profile and
+configuration. The stanza is part of a dependency's unit id, so each profile
+and backend builds its own store entry.
+
+The boot libraries GHC ships -- `text`, `bytestring`, `containers` and the
+rest -- are compiled once, when the GHC release is built, at that release's
+optimization level. Left alone they would give the `O0` profile an optimized
+`text` where AIHC compiled its own equivalents at `-O0`
+(`_prepare_aihc_store`). `compile_with_cabal.py` therefore constrains each of
+them to `source` at the version the compiler ships, so cabal rebuilds them
+under the stanza. `base`, `ghc-prim`, `ghc-internal`, `ghc-bignum`,
+`integer-gmp`, `rts`, `system-cxx-std-lib` and `template-haskell` are wired
+into the compiler and cannot be rebuilt against it, and neither can anything
+they depend on (`template-haskell` reaches `ghc-boot-th`, `pretty` and
+`deepseq`), since a package cannot have an installed and a source instance in
+the same plan. A benchmark that only uses `base` is therefore unchanged.
+
+That rebuild happens inside the timed compile. Installing a dependency is
+part of what a compiler is being timed doing, and `text` is a dependency like
+any other: both compilers pay for every library a benchmark needs. The only
+thing prepared beforehand is each compiler's own core: the packages GHC wires
+in, which are not rebuilt at all, and `aihc-base` on the AIHC side
+(`_prepare_aihc_store`), which no benchmark builds either.
+
+A timed compile is correspondingly longer -- it now builds a dozen libraries
+before it reaches the benchmark -- so `compile_timeout_seconds` is 1800 rather
+than 900, enough headroom for the boot set at `-O2` on a slow machine while
+still catching a compile that has hung.
+
+That makes each compile's starting state part of the measurement. GHC has it
+already: cabal gets a private store per configuration under the build
+directory, and `compile_one` deletes that directory before every compile, so
+each one starts empty. AIHC's store is shared by every cell of a commit, so
+`_archive_store` snapshots it as preparation left it and `_restore_store`
+puts it back before each compile; otherwise the second benchmark to use
+`bytestring` in a configuration would find it already installed and its
+compile time would not include installing it, while GHC's would. A store
+records absolute paths, so it is restored to the path it was built at rather
+than copied per cell.
+
 After a successful compile the runner strips the artifact in place before
 recording `artifact_size`: `llvm-strip` for native binaries, `wasm-tools strip
 --all` for Wasm. The Wasm tool is the only one of the three in the flake that
