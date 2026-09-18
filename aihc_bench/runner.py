@@ -287,6 +287,7 @@ def build_cells(
     aihc_setup_errors = aihc_setup_errors or {}
     platform_values = config["platforms"][platform_id]
     toolchains = os.environ.get("AIHC_BENCH_TOOLCHAINS", "")
+    runtime_packaged = runtime_is_package(worktree)
     cells: List[Cell] = []
     for benchmark in config["benchmarks"]:
         if benchmark["id"] not in experiments:
@@ -308,10 +309,12 @@ def build_cells(
             build_dir = artifact.parent / "build"
             stats_dir = root / ".cache" / "stats" / experiment_id / platform_id / commit["sha"]
             stats_file = stats_dir / f"{identity}.stats"
+            corpus = _corpus_directory(benchmark)
             values = {
                 "root": str(root),
                 "worktree": str(worktree),
                 "source": str(source),
+                "corpus": corpus,
                 "main_file": str(source / "Main.hs"),
                 "package": benchmark.get("package", ""),
                 "artifact": str(artifact),
@@ -327,6 +330,8 @@ def build_cells(
             reason: Optional[str] = None if available else configuration.get("unavailable_reason", "unsupported_configuration")
             compile_command = expand_command(configuration["compile"], values) if available else None
             if compile_command and family == "aihc":
+                if runtime_packaged:
+                    compile_command = _without_gc_option(compile_command)
                 if aihc_store is not None:
                     compile_command.extend(["--store", str(aihc_store)])
                 # Each cell compiles in its own build root; the default
@@ -340,6 +345,9 @@ def build_cells(
             run_environment: Dict[str, str] = {}
             if available and family == "aihc" and stats_format == "aihc":
                 run_environment["AIHC_RTS_STATS"] = str(stats_file)
+            run_command = expand_command(configuration["run"], values) if available else None
+            if run_command is not None and corpus:
+                run_command = _with_corpus(run_command, configuration, values)
             cells.append(
                 Cell(
                     benchmark=benchmark,
@@ -350,7 +358,7 @@ def build_cells(
                     compile_cwd=worktree if family == "aihc" else root,
                     compile_environment=_compile_environment(configuration),
                     compile_command=compile_command,
-                    run_command=expand_command(configuration["run"], values) if available else None,
+                    run_command=run_command,
                     unavailable_reason=reason,
                     setup_error=setup_error,
                     stats_file=str(stats_file) if available and stats_format else None,
@@ -359,6 +367,72 @@ def build_cells(
                 )
             )
     return cells
+
+
+def runtime_is_package(worktree: Path) -> bool:
+    """Whether this commit ships its runtime as the ``aihc-rts`` core library.
+
+    Since ai-haskell-compiler/aihc#2142 the runtime is a package that
+    ``aihc-prim`` depends on, installed with everything else: there is no
+    ``prepare-runtime`` command and ``build`` takes no ``--gc``. Older commits
+    have both, and the history is measured across the change, so the runner
+    reads the tree rather than assuming either shape.
+    """
+    return (worktree / "core-libs" / "aihc-rts").is_dir()
+
+
+def _without_gc_option(command: List[str]) -> List[str]:
+    """Drop ``--gc <collector>`` from a compile command."""
+    trimmed: List[str] = []
+    skip = False
+    for part in command:
+        if skip:
+            skip = False
+            continue
+        if part == "--gc":
+            skip = True
+            continue
+        trimmed.append(part)
+    return trimmed
+
+
+class MissingCorpus(RuntimeError):
+    """A benchmark reads a corpus that this environment does not provide."""
+
+
+def _corpus_directory(benchmark: Dict[str, Any]) -> str:
+    """The directory a corpus benchmark reads, named by an environment variable.
+
+    The flake builds each corpus and exports its store path (for example
+    ``AIHC_BENCH_CPP_CORPUS``), the same way it exports the toolchains. A
+    benchmark without ``corpus_env`` has no corpus and gets an empty string.
+    """
+    variable = benchmark.get("corpus_env")
+    if not variable:
+        return ""
+    directory = os.environ.get(variable, "")
+    if not directory or not Path(directory).is_dir():
+        raise MissingCorpus(
+            f"benchmark {benchmark['id']} reads the corpus named by {variable}, which is "
+            f"{'unset' if not directory else 'not a directory: ' + directory}; run through the flake so it is built and exported"
+        )
+    return directory
+
+
+def _with_corpus(run_command: List[str], configuration: Dict[str, Any], values: Dict[str, str]) -> List[str]:
+    """Hand the corpus to the benchmark process.
+
+    The directory becomes the program's last argument. A configuration whose
+    program runs under a sandbox names the options that expose a directory in
+    ``corpus_options`` (``--dir {corpus}`` for Wasmtime); they go in front of
+    the artifact, among the host's own options.
+    """
+    options = expand_command(configuration.get("corpus_options", []), values)
+    try:
+        position = run_command.index(values["artifact"])
+    except ValueError:
+        position = len(run_command)
+    return run_command[:position] + options + run_command[position:] + [values["corpus"]]
 
 
 #: Preparing the runtime and installing the core libraries are compilations
@@ -505,7 +579,7 @@ def measure_cells(
             cell.run_command or [],
             root,
             cell.benchmark["expected_stdout"].encode("utf-8"),
-            float(measurement_config["process_timeout_seconds"]),
+            float(cell.benchmark.get("process_timeout_seconds", measurement_config["process_timeout_seconds"])),
             float(measurement_config["relative_threshold"]),
             int(measurement_config["maximum_bucket_size"]),
             invoke=invoke,
@@ -588,7 +662,7 @@ def _prepare_aihc_store(
         if (target, garbage_collector) not in [(name, gc) for name, gc, _ in runtimes]:
             runtimes.append((target, garbage_collector, environment))
     for target, garbage_collector, environment in runtimes:
-        if target in errors:
+        if target in errors or runtime_is_package(worktree):
             continue
         command = base_command + [
             "prepare-runtime",

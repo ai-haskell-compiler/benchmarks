@@ -17,7 +17,7 @@ from .git_history import DEFAULT_REMOTE, GitError, clone, clone_directory, commi
 from .machine import load_machine
 from .planner import build_plan, merge_terminal_attempts
 from .process import run_command, utf8_locale
-from .runner import MissingBaseline, hackage_index_cache, run_commit, warm_hackage_index
+from .runner import MissingBaseline, MissingCorpus, hackage_index_cache, run_commit, warm_hackage_index
 from .uploader import UploadError, check_login, refresh_overview, upload_pending
 
 
@@ -42,7 +42,7 @@ def main(argv: Optional[list] = None) -> None:
             _dispatch(arguments, root, config, platform_id, experiments, suite, database, machine)
         finally:
             database.close()
-    except MissingBaseline as error:
+    except (MissingBaseline, MissingCorpus) as error:
         # A machine fault, not a result: say so and stop rather than filling the
         # history with commits that have nothing to compare against.
         print(f"error: {error}", file=sys.stderr)
@@ -267,6 +267,11 @@ def _doctor(
     print(f"toolchains: {toolchains or 'missing (run through the flake so AIHC_BENCH_TOOLCHAINS is set)'}")
     if not toolchains or not (Path(toolchains) / "bin").is_dir():
         failures.append("toolchains")
+    for variable in sorted({benchmark["corpus_env"] for benchmark in config["benchmarks"] if benchmark.get("corpus_env")}):
+        corpus = os.environ.get(variable)
+        print(f"corpus:     {variable}={corpus or 'missing (run through the flake so it is built and exported)'}")
+        if not corpus or not Path(corpus).is_dir():
+            failures.append(variable)
     locale_name = utf8_locale()
     print(f"locale:     {locale_name or 'missing (no UTF-8 locale is supported; aihc cannot write its core files)'}")
     if not locale_name:
