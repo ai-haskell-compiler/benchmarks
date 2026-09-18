@@ -113,6 +113,49 @@ class ConfigTests(unittest.TestCase):
             config_path.write_text(json.dumps({**config, "aihc_since": "2026-09-01"}), encoding="utf-8")
             self.assertEqual(load_config(config_path)["aihc_since"], "2026-09-01")
 
+    def test_corpus_benchmarks_carry_the_corpus_in_their_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = write_config(root, BASE)
+            document = json.loads(config_path.read_text(encoding="utf-8"))
+            document["benchmarks"].append({"id": "sweep", "package": "sample", "source": "sample", "corpus_env": "SWEEP_CORPUS", "expected_stdout": "ok\n"})
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            (root / "corpus").mkdir()
+            (root / "corpus" / "list.txt").write_text("one\n", encoding="utf-8")
+            before = experiment_ids(load_config(config_path))
+            (root / "corpus" / "list.txt").write_text("two\n", encoding="utf-8")
+            after = experiment_ids(load_config(config_path))
+            # The corpus is the sweep's input, so changing it restarts the sweep
+            # and nothing else.
+            self.assertNotEqual(before["sweep"], after["sweep"])
+            self.assertEqual(before["sample"], after["sample"])
+
+    def test_corpus_fields_are_validated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = write_config(root, BASE)
+            document = json.loads(config_path.read_text(encoding="utf-8"))
+            document["benchmarks"][0]["corpus_env"] = ""
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(ConfigError):
+                load_config(config_path)
+            with self.assertRaises(ConfigError):
+                load_config(write_config(root, {**BASE, "corpus_options": "--dir {corpus}"}))
+            self.assertTrue(load_config(write_config(root, {**BASE, "corpus_options": ["--dir", "{corpus}"]})))
+
+    def test_process_timeout_override_is_validated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = write_config(root, BASE)
+            document = json.loads(config_path.read_text(encoding="utf-8"))
+            document["benchmarks"][0]["process_timeout_seconds"] = 0
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(ConfigError):
+                load_config(config_path)
+            document["benchmarks"][0]["process_timeout_seconds"] = 120
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            self.assertEqual(load_config(config_path)["benchmarks"][0]["process_timeout_seconds"], 120)
+
     def test_repository_configuration_loads(self):
         config = load_config(Path(__file__).resolve().parents[1] / "benchmark.json")
         profiles = {(item["compiler_family"], item["optimization"]) for item in config["configurations"]}

@@ -43,6 +43,14 @@
       "package": "snappy-roundtrip",
       "source": "benchmarks/snappy-roundtrip",
       "expected_stdout": "ok\n"
+    },
+    {
+      "id": "aihc-cpp-stackage-v1",
+      "package": "aihc-cpp-stackage",
+      "source": "benchmarks/aihc-cpp-stackage",
+      "corpus_env": "AIHC_BENCH_CPP_CORPUS",
+      "expected_stdout": "modules=41 ok=40 errored=1 bytes=420421\n",
+      "process_timeout_seconds": 120
     }
   ],
   "configurations": [
@@ -121,6 +129,10 @@
         "--env",
         "AIHC_RTS_STATS={stats_file}",
         "{artifact}"
+      ],
+      "corpus_options": [
+        "--dir",
+        "{corpus}"
       ]
     },
     {
@@ -231,6 +243,10 @@
         "--env",
         "AIHC_RTS_STATS={stats_file}",
         "{artifact}"
+      ],
+      "corpus_options": [
+        "--dir",
+        "{corpus}"
       ]
     },
     {
@@ -600,6 +616,10 @@
         "-t{stats_file}",
         "--machine-readable",
         "-RTS"
+      ],
+      "corpus_options": [
+        "--dir",
+        "{corpus}"
       ]
     },
     {
@@ -644,6 +664,10 @@
         "-t{stats_file}",
         "--machine-readable",
         "-RTS"
+      ],
+      "corpus_options": [
+        "--dir",
+        "{corpus}"
       ]
     },
     {
@@ -721,6 +745,10 @@
         "--env",
         "AIHC_RTS_STATS={stats_file}",
         "{artifact}"
+      ],
+      "corpus_options": [
+        "--dir",
+        "{corpus}"
       ]
     },
     {
@@ -944,6 +972,10 @@
         "-t{stats_file}",
         "--machine-readable",
         "-RTS"
+      ],
+      "corpus_options": [
+        "--dir",
+        "{corpus}"
       ]
     },
     {
@@ -1021,6 +1053,10 @@
         "--env",
         "AIHC_RTS_STATS={stats_file}",
         "{artifact}"
+      ],
+      "corpus_options": [
+        "--dir",
+        "{corpus}"
       ]
     },
     {
@@ -1244,6 +1280,10 @@
         "-t{stats_file}",
         "--machine-readable",
         "-RTS"
+      ],
+      "corpus_options": [
+        "--dir",
+        "{corpus}"
       ]
     }
   ],

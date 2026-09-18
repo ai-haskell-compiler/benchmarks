@@ -46,6 +46,14 @@ def load_config(path: Path) -> Dict[str, Any]:
         if not list(source.glob("*.cabal")):
             raise ConfigError(f"benchmark source has no .cabal file: {source}")
         benchmark["source_sha256"] = _hash_directory(source)
+        timeout = benchmark.get("process_timeout_seconds")
+        if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
+            raise ConfigError(f"benchmark {benchmark['id']}: process_timeout_seconds must be a positive number")
+        corpus_env = benchmark.get("corpus_env")
+        if corpus_env is not None and (not isinstance(corpus_env, str) or not corpus_env):
+            raise ConfigError(f"benchmark {benchmark['id']}: corpus_env must name an environment variable")
+    corpus_root = path.parent / "corpus"
+    config["_corpus_sha256"] = _hash_directory(corpus_root) if corpus_root.is_dir() else None
     toolchain_hasher = hashlib.sha256()
     for toolchain_file in (path.parent / "flake.nix", path.parent / "flake.lock"):
         if toolchain_file.is_file():
@@ -81,12 +89,13 @@ def load_config(path: Path) -> Dict[str, Any]:
 
 
 def _hash_directory(source: Path) -> str:
-    """Hash every file in a benchmark package directory, deterministically.
+    """Hash every file in a directory, deterministically.
 
-    Benchmarks are now self-contained Cabal packages rather than a single
-    ``Main.hs``, so the experiment identity (see ``benchmark_experiment_id``) needs to
-    change whenever any file in the package changes, including its
-    ``cabal.project.freeze`` pins.
+    Benchmarks are self-contained Cabal packages rather than a single
+    ``Main.hs``, so the experiment identity (see ``benchmark_experiment_id``)
+    needs to change whenever any file in the package changes, including its
+    ``cabal.project.freeze`` pins. The corpus sources under ``corpus/`` are
+    hashed the same way for the benchmarks that read a corpus.
     """
     hasher = hashlib.sha256()
     for file_path in sorted(p for p in source.rglob("*") if p.is_file()):
@@ -105,6 +114,9 @@ def _validate_configuration(configuration: Dict[str, Any]) -> None:
     stats_format = configuration.get("runtime_stats")
     if stats_format is not None and stats_format not in STATS_FORMATS:
         raise ConfigError(f"configuration {identifier} has an unknown runtime_stats format")
+    corpus_options = configuration.get("corpus_options", [])
+    if not isinstance(corpus_options, list) or not all(isinstance(part, str) for part in corpus_options):
+        raise ConfigError(f"configuration {identifier}: corpus_options must be a list of command template parts")
 
 
 def _validate_unique(items: Iterable[Dict[str, Any]], kind: str) -> None:
@@ -131,6 +143,10 @@ def benchmark_experiment_id(config: Dict[str, Any], benchmark: Dict[str, Any]) -
         "measurement": config["measurement"],
         "tree_paths": config.get("aihc_tree_paths"),
         "benchmark": benchmark,
+        # A benchmark that reads a corpus measures that corpus, so the files
+        # it is built from are part of its identity; other benchmarks are not
+        # restarted by a corpus change.
+        "corpus_sha256": config.get("_corpus_sha256") if benchmark.get("corpus_env") else None,
         "configurations": config["configurations"],
         "toolchain_sha256": config.get("_toolchain_sha256"),
         "runner_version": config.get("_runner_version"),

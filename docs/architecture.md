@@ -109,7 +109,11 @@ GMP for `wasm32`, so Wasm ratios compare against a native-bignum GHC while the
 other backends compare against GMP.
 
 Before the parallel compilation phase the runner creates a store scoped to the
-suite key, platform, and commit. It prepares each selected target/GC runtime,
+suite key, platform, and commit. It prepares each selected target/GC runtime
+(for commits before ai-haskell-compiler/aihc#2142; from that commit on the
+runtime is the `aihc-rts` core library that installing `aihc-base` builds,
+`prepare-runtime` no longer exists and `build` takes no `--gc`, which the
+runner recognises by `core-libs/aihc-rts` in the tree and drops the option),
 then installs `aihc-base` and the benchmarks' boot-library dependencies once
 per target and optimization level -- a level is part of an installed package's
 identity, so a store entry is only reused by builds at the same level.
@@ -125,6 +129,21 @@ and library installation run per target, so a failure for one target (for
 example a missing WASI sysroot) is recorded on that target's AIHC cells only.
 The flake exports `AIHC_WASM_SYSROOT`, built from the nixpkgs `wasilibc` the
 same way AIHC's own flake does.
+
+## Corpus benchmarks
+
+A benchmark with `corpus_env` reads a directory that the flake builds and
+exports under that variable (`AIHC_BENCH_CPP_CORPUS` for
+`corpus/cpp/corpus.nix`). The runner refuses to build cells without it and
+`doctor` reports it. The directory is the program's last argument; a
+configuration whose program runs under a sandbox lists in `corpus_options`
+the host options that expose it (`--dir {corpus}` for Wasmtime), inserted in
+front of the artifact. The experiment ID of a corpus benchmark also hashes
+every file under `corpus/`, so a change to the snapshot pin, the assembly
+script or a stand-in header restarts that benchmark's history and no other.
+A benchmark may also carry its own `process_timeout_seconds`, overriding the
+suite-wide one for a sweep that legitimately runs for seconds; being part of
+the benchmark definition, it too affects only that benchmark's identity.
 
 ## Result envelope
 

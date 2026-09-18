@@ -147,7 +147,7 @@ def measure_interleaved(
     log: Callable[[str], None] = print,
 ) -> List[Dict[str, Any]]:
     """Run every cell of both sides ``rounds`` times, alternating sides per cell."""
-    timeout = float(config["measurement"]["process_timeout_seconds"])
+    default_timeout = float(config["measurement"]["process_timeout_seconds"])
     keyed: List[Dict[Tuple[str, str], Tuple[Cell, Dict[str, Any]]]] = [
         {(cell.benchmark["id"], cell.configuration["id"]): (cell, outcome) for cell, outcome in compiled} for compiled in sides
     ]
@@ -182,7 +182,7 @@ def measure_interleaved(
                 sample = invoke(
                     cell.run_command or [],
                     root,
-                    timeout,
+                    float(cell.benchmark.get("process_timeout_seconds", default_timeout)),
                     environment_overrides=cell.run_environment,
                     stats_file=cell.stats_file,
                     stats_format=cell.stats_format,

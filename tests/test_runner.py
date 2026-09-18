@@ -16,6 +16,8 @@ from aihc_bench.runner import (
     _prepare_aihc_store,
     build_cells,
     build_compiler,
+    MissingCorpus,
+    runtime_is_package,
     compile_cells,
     hackage_index_cache,
     MissingBaseline,
@@ -125,6 +127,64 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(native.compile_command[-2:], ["--build-root", str(native.build_dir)])
             self.assertNotIn("--build-root", cells["ghc-native-O2"].compile_command)
 
+    def test_corpus_benchmarks_get_the_directory_as_their_last_argument(self):
+        self.config["benchmarks"].append(
+            {"id": "sweep", "package": "sweep", "source": "example.hs", "corpus_env": "SWEEP_CORPUS", "expected_stdout": "ok\n"}
+        )
+        self.config["configurations"][1]["corpus_options"] = ["--dir", "{corpus}"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            corpus = root / "corpus"
+            corpus.mkdir()
+            (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
+            with patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": "/toolchains", "SWEEP_CORPUS": str(corpus)}):
+                cells = build_cells(
+                    self.config, "test-platform", {"sha": "abc123"}, root / "worktree", root,
+                    {"example": "example-experiment", "sweep": "sweep-experiment"},
+                )
+        by_cell = {(cell.benchmark["id"], cell.configuration["id"]): cell for cell in cells}
+        native = by_cell[("sweep", "aihc-native-O2")]
+        self.assertEqual(native.run_command, [str(native.artifact), str(corpus)])
+        wasm = by_cell[("sweep", "aihc-wasm-O2")]
+        # The sandbox's own option to expose the directory goes before the
+        # artifact; the program's argument goes last.
+        self.assertEqual(
+            wasm.run_command,
+            ["wasmtime", "--env", f"AIHC_RTS_STATS={wasm.stats_file}", "--dir", str(corpus), str(wasm.artifact), str(corpus)],
+        )
+        ghc = by_cell[("sweep", "ghc-native-O2")]
+        self.assertEqual(ghc.run_command[-1], str(corpus))
+        # A benchmark without a corpus is untouched, corpus_options included.
+        plain = by_cell[("example", "aihc-wasm-O2")]
+        self.assertNotIn("--dir", plain.run_command)
+        self.assertEqual(plain.run_command[-1], str(plain.artifact))
+
+    def test_a_missing_corpus_stops_the_run_before_measuring(self):
+        self.config["benchmarks"][0]["corpus_env"] = "SWEEP_CORPUS"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": "/toolchains"}, clear=False):
+                os.environ.pop("SWEEP_CORPUS", None)
+                with self.assertRaises(MissingCorpus):
+                    self.build(root)
+            with patch.dict(os.environ, {"SWEEP_CORPUS": str(root / "absent")}):
+                with self.assertRaises(MissingCorpus):
+                    self.build(root)
+
+    def test_a_packaged_runtime_drops_the_gc_option(self):
+        self.config["configurations"][0]["compile"] = ["aihc", "build", "{source}", "--gc", "semispace", "-O2", "-o", "{artifact_dir}"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = {cell.configuration["id"]: cell for cell in self.build(root)}
+            self.assertIn("--gc", cells["aihc-native-O2"].compile_command)
+            (root / "worktree" / "core-libs" / "aihc-rts").mkdir(parents=True)
+            self.assertTrue(runtime_is_package(root / "worktree"))
+            cells = {cell.configuration["id"]: cell for cell in self.build(root)}
+            command = cells["aihc-native-O2"].compile_command
+            self.assertNotIn("--gc", command)
+            self.assertNotIn("semispace", command)
+            self.assertEqual(command[:2] + command[3:], ["aihc", "build", "-O2", "-o", str(cells["aihc-native-O2"].artifact.parent), "--build-root", str(cells["aihc-native-O2"].build_dir)])
+
     def test_stats_plumbing_per_family(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -202,6 +262,23 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(all(command[5].endswith("core-libs/aihc-base") for command in installs))
         self.assertTrue(all("--immutable" in command for command in installs))
         self.assertEqual(run.call_args_list[1].args[3]["AIHC_WASM_CLANG"], "/toolchain/bin/clang")
+
+    def test_a_packaged_runtime_is_installed_not_prepared(self):
+        completed = subprocess.CompletedProcess([], 0, "", "")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worktree = root / "worktree"
+            (worktree / "core-libs" / "aihc-rts").mkdir(parents=True)
+            with (
+                patch.dict(os.environ, {"AIHC_BENCH_WASM_CLANG": "/toolchain/bin"}),
+                patch("aihc_bench.runner.run_command", return_value=completed) as run,
+            ):
+                self.assertEqual(_prepare_aihc_store(self.config, "test-platform", worktree, root, root / "store", 30), {})
+        commands = [call.args[0] for call in run.call_args_list]
+        # aihc-prim depends on aihc-rts, so installing aihc-base builds the
+        # runtime; there is no prepare-runtime command to call any more.
+        self.assertEqual([command for command in commands if "prepare-runtime" in command], [])
+        self.assertEqual(len([command for command in commands if "install" in command]), 6)
 
     def test_failed_wasm_preparation_only_affects_wasm_cells(self):
         def fake_run(command, cwd, timeout, environment=None):

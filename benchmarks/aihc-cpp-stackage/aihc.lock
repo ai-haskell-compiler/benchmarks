@@ -1,0 +1,29 @@
+{
+  "format": 1,
+  "compiler": "ghc-9.12.4",
+  "index-state": "2026-09-18T04:34:18Z",
+  "platforms": {
+    "osx-aarch64": [
+      {"name": "aihc-base", "version": "4.21.2.0", "source": "core"},
+      {"name": "aihc-cpp", "version": "2.0.0.0", "source": "hackage", "revision": 0},
+      {"name": "aihc-cpp-stackage", "version": "0.1.0.0", "source": "local"},
+      {"name": "aihc-internal", "version": "9.1204.0", "source": "core"},
+      {"name": "aihc-prim", "version": "0.13.0", "source": "core"},
+      {"name": "aihc-rts", "version": "1.0.2", "source": "core"},
+      {"name": "aihc-template-haskell", "version": "2.23.0.0", "source": "core"},
+      {"name": "array", "version": "0.5.8.0", "source": "hackage", "revision": 2},
+      {"name": "binary", "version": "0.8.9.3", "source": "hackage", "revision": 0},
+      {"name": "bytestring", "version": "0.12.2.0", "source": "hackage", "revision": 1},
+      {"name": "containers", "version": "0.8", "source": "hackage", "revision": 0},
+      {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
+      {"name": "exceptions", "version": "0.10.12", "source": "hackage", "revision": 1},
+      {"name": "filepath", "version": "1.5.5.0", "source": "hackage", "revision": 0},
+      {"name": "mtl", "version": "2.3.2", "source": "hackage", "revision": 1},
+      {"name": "os-string", "version": "2.0.11", "source": "hackage", "revision": 0},
+      {"name": "stm", "version": "2.5.3.1", "source": "hackage", "revision": 1},
+      {"name": "system-cxx-std-lib", "version": "1.0", "source": "core"},
+      {"name": "text", "version": "2.1.4", "source": "hackage", "revision": 0},
+      {"name": "transformers", "version": "0.6.3.0", "source": "hackage", "revision": 2}
+    ]
+  }
+}

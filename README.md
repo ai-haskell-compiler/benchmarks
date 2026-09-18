@@ -73,6 +73,59 @@ unbounded: GHC ships its own and the versions differ per release, so pinning
 them in the `.cabal` would break every toolchain but the one the freeze file
 was written under.
 
+## The CPP corpus
+
+`aihc-cpp-stackage` measures [`aihc-cpp`](https://github.com/ai-haskell-compiler/aihc-cpp),
+the pure Haskell C preprocessor the compiler uses, on every CPP-using module of
+a pinned Stackage snapshot. The program is an ordinary benchmark package that
+both toolchains compile; its input is a corpus the flake builds:
+
+```console
+nix build .#cpp-corpus
+cat result/report.txt
+```
+
+The corpus is a plain directory: one subdirectory per package holding the
+modules that contain preprocessor directives, the `.cabal` file and every file
+they `#include`, plus what a real build would add and a bare source tree
+lacks. `generated/<package>/cabal_macros.h` carries `MIN_VERSION_` and
+`VERSION_` for the package's dependencies at the snapshot's versions, the way
+Cabal writes it; `generated/ghcversion.h` and `macros.tsv` carry the
+`__GLASGOW_HASKELL__` family for the snapshot's compiler and a fixed
+`x86_64`/`linux` platform, so every machine preprocesses the same branches;
+`include/` holds stand-ins for headers GHC ships, such as `MachDeps.h`.
+`modules.tsv` lists each module with the headers to pre-include and the
+directories to search, and `packages.tsv`, `report.txt` and
+`unresolved-includes.txt` say what went in and which includes nothing
+satisfies (a package-local header only its `configure` script generates, or
+one behind a platform conditional the corpus never takes). Because every
+decision is written out, a wrong macro or a missing header can be found by
+reading the corpus rather than the program.
+
+The timed run sweeps `benchmark.tsv`, an even stride through the corpus up
+to 512 KiB of module source (`sampleBytes` in `corpus/cpp/corpus.nix`; zero
+selects everything). A GHC build does the whole 75 MB in about two seconds,
+but an AIHC build preprocesses around 40 KB/s today, so the sample is what
+keeps an AIHC run inside the benchmark's own `process_timeout_seconds`.
+`<program> <corpus> --report` sweeps every module and prints each
+diagnostic, which is how the stand-in headers and macros were chosen: what
+remains is Windows-only branches, headers only a package's `configure`
+script writes, and includes of test files that live outside the package.
+
+The snapshot is pinned in `corpus/stackage/lts-24.58.json` with the SHA-256
+of every package tarball, so each is a fixed-output fetch and a failure names
+the package. The pin also records the versions of the packages the snapshot's compiler
+ships, which Stackage lists as `core`, so nothing is compiled or installed to
+build the corpus. Bump it with `corpus/stackage/update.py`, which needs only
+the `all-cabal-hashes` tarball from nixpkgs; the docstring has the commands. The runner receives the
+built corpus through `AIHC_BENCH_CPP_CORPUS`, exported by the flake like the
+toolchains, and passes it to the program as its argument (preopened with
+`--dir` under Wasmtime). The printed tally -- module count, modules without an
+error diagnostic, total output bytes -- is the benchmark's expected output,
+so a miscompiled preprocessor fails the run rather than producing a number.
+The corpus sources under `corpus/` are part of that benchmark's experiment
+identity and of no other.
+
 Before the timed compile the runner installs `aihc-base` and the dependencies
 GHC ships as boot libraries into a per-commit store, once per target and
 optimization level, so both toolchains pay for the same work inside the timed
