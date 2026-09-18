@@ -13,7 +13,13 @@ measure only the benchmark.
 A generated, out-of-tree project file (rather than editing the benchmark's
 own ``cabal.project``) keeps the checked-in benchmark directory untouched and
 lets multiple configurations build the same benchmark in parallel without
-racing on a shared file.
+racing on a shared file.  It also carries the profile's optimization level:
+cabal's command-line ``-O`` flag reaches local packages only, so the Hackage
+dependencies -- where most of a benchmark's work lives -- were configured
+``--enable-optimization`` (``-O1``) in every profile while only the benchmark
+itself followed the profile.  A ``package *`` stanza is what applies a level
+to the whole build plan, matching AIHC, which passes its ``-O`` to everything
+it compiles.
 
 The freeze file is written by ``cabal freeze`` under one particular GHC, so
 it also pins that GHC's boot libraries (``base``, ``bytestring``, ...). Every
@@ -100,6 +106,21 @@ def project_constraints(freeze_file: Path, provided: set[str]) -> list[str]:
     return [f"any.{name} =={version}" for name, version in sorted(pinned.items()) if name not in provided]
 
 
+def optimization_stanza(ghc_level: str) -> str:
+    """The profile's ``-O`` level, applied to every package in the plan.
+
+    ``cabal build -O0`` configures the local package with
+    ``--disable-optimization`` but still hands each dependency
+    ``--enable-optimization``, so a benchmark whose work sits in a Hackage
+    dependency (``snappy-hs``, ``aihc-cpp``) measured that dependency at
+    ``-O1`` in all four profiles. A ``package *`` stanza is per-package
+    configuration and does reach dependencies; it is part of their unit id,
+    so each profile gets its own store entry rather than reusing another
+    profile's.
+    """
+    return f"package *\n  optimization: {ghc_level[1:]}\n"
+
+
 def generate_project_file(args: argparse.Namespace) -> Path:
     args.build_dir.mkdir(parents=True, exist_ok=True)
     project_file = args.build_dir / "cabal.project"
@@ -112,6 +133,9 @@ def generate_project_file(args: argparse.Namespace) -> Path:
         index_state = _INDEX_STATE.search(freeze_file.read_text(encoding="utf-8"))
         if index_state:
             contents.append(f"index-state: {index_state.group(1)}\n")
+    # Last: a ``package`` stanza is indentation-delimited, so anything written
+    # after it would have to stay unindented to remain a top-level field.
+    contents.append(optimization_stanza(args.ghc_level))
     project_file.write_text("".join(contents), encoding="utf-8")
     return project_file
 

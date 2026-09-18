@@ -60,6 +60,14 @@ Every configuration carries an `optimization` profile: `O0`, `O1`, `O2` or
 because GHC has no size level. AIHC receives the matching flag too; at `-O2`
 and `-Os` `aihc build` also compiles the whole program at once.
 
+The GHC level is carried by a `package *` stanza in the generated project
+file rather than by cabal's command-line `-O` flag, which configures local
+packages only: dependencies were handed `--enable-optimization` (`-O1`) in
+every profile, so a benchmark whose work lives in a Hackage dependency
+(`snappy-hs`, `aihc-cpp`) measured that dependency at `-O1` even at `O0`.
+The stanza is part of a dependency's unit id, so each profile builds its own
+store entry.
+
 After a successful compile the runner strips the artifact in place before
 recording `artifact_size`: `llvm-strip` for native binaries, `wasm-tools strip
 --all` for Wasm. The Wasm tool is the only one of the three in the flake that
