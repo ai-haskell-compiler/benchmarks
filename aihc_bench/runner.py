@@ -4,6 +4,8 @@ import hashlib
 import os
 import shutil
 import subprocess
+import sys
+import tarfile
 import time
 from dataclasses import dataclass, field
 from functools import partial
@@ -12,19 +14,10 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .config import expand_command
 from .database import Database
-from .freeze import AIHC_IMPLICIT_PACKAGES, parse_build_depends
 from .git_history import GitError, create_worktree, fetch, path_exists, remove_worktree, rev_parse
 from .measurement import compile_metrics, measure_adaptively
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
-from .scripts.compile_with_cabal import boot_archive, restore_boot_store
-
-
-#: The boot library preparation gets more than a compile's timeout: it builds
-#: a dozen libraries rather than one benchmark, it happens once per
-#: configuration rather than once per commit, and it is not timed, so a
-#: generous limit costs nothing while a tight one would fail a cell outright.
-BOOT_PREPARE_TIMEOUT_FACTOR = 4
 
 
 @dataclass(frozen=True)
@@ -43,9 +36,10 @@ class Cell:
     stats_file: Optional[str] = None
     stats_format: Optional[str] = None
     run_environment: Dict[str, str] = field(default_factory=dict)
-    #: Builds this cell's boot libraries into its own store before the timed
-    #: compile, for GHC cells; see ``_prepare_boot_store``.
-    boot_prepare_command: Optional[List[str]] = None
+    #: The prepared AIHC store, restored before this cell's timed compile so
+    #: that what an earlier cell installed is not already there; see
+    #: ``_archive_store``.
+    store_archive: Optional[Path] = None
 
 
 def run_commit(
@@ -117,6 +111,7 @@ def run_commit(
 
         aihc_store = root / ".cache" / "aihc-stores" / suite / platform_id / commit["sha"]
         aihc_setup_errors = _prepare_aihc_store(config, platform_id, worktree, root, aihc_store, compile_timeout)
+        store_archive = _archive_store(aihc_store)
 
         cells = build_cells(
             config,
@@ -127,6 +122,7 @@ def run_commit(
             experiments,
             aihc_store=aihc_store,
             aihc_setup_errors=aihc_setup_errors,
+            store_archive=store_archive,
         )
         compiled = compile_cells(cells, root, compile_timeout)
         require_baseline(compiled, experiments)
@@ -294,6 +290,7 @@ def build_cells(
     *,
     aihc_store: Optional[Path] = None,
     aihc_setup_errors: Optional[Dict[str, str]] = None,
+    store_archive: Optional[Path] = None,
 ) -> List[Cell]:
     aihc_setup_errors = aihc_setup_errors or {}
     platform_values = config["platforms"][platform_id]
@@ -348,12 +345,6 @@ def build_cells(
                 # Each cell compiles in its own build root; the default
                 # .aihc-target inside the worktree races between parallel cells.
                 compile_command.extend(["--build-root", str(build_dir)])
-            # GHC ships its boot libraries already compiled, at the level its
-            # own release was built with. They are rebuilt from source at the
-            # profile's level instead -- see ``boot_library_packages`` -- and
-            # that rebuild is prepared outside the timed compile, exactly as
-            # AIHC's boot equivalents are.
-            boot_prepare_command = compile_command + ["--prepare"] if compile_command and family == "ghc" else None
             stats_format = configuration.get("runtime_stats")
             setup_error = None
             if family == "aihc" and available:
@@ -381,7 +372,7 @@ def build_cells(
                     stats_file=str(stats_file) if available and stats_format else None,
                     stats_format=stats_format if available else None,
                     run_environment=run_environment,
-                    boot_prepare_command=boot_prepare_command,
+                    store_archive=store_archive if family == "aihc" and available else None,
                 )
             )
     return cells
@@ -484,14 +475,12 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
         # cabal ``dist`` or aihc build directory would time an incremental
         # no-op rather than the compile the metric claims to describe.
         shutil.rmtree(cell.build_dir, ignore_errors=True)
+        _restore_store(cell)
         cell.artifact.unlink(missing_ok=True)
         cell.build_dir.mkdir(parents=True, exist_ok=True)
         cell.artifact.parent.mkdir(parents=True, exist_ok=True)
         if cell.stats_file:
             Path(cell.stats_file).parent.mkdir(parents=True, exist_ok=True)
-        boot_error = _prepare_boot_store(cell, timeout_seconds)
-        if boot_error:
-            return cell, {"status": "compile_failed", "stderr": boot_error[-8192:]}
         start = time.perf_counter_ns()
         try:
             process = run_command(
@@ -527,43 +516,44 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
     return outcomes
 
 
-def _prepare_boot_store(cell: Cell, timeout_seconds: float) -> Optional[str]:
-    """Put the boot libraries in this cell's store, before the clock starts.
+def _archive_store(store: Path) -> Optional[Path]:
+    """Snapshot the AIHC store as preparation left it, for ``_restore_store``.
 
-    GHC hands ``text``, ``bytestring`` and the rest over ready-made; the suite
-    rebuilds them only to give them the profile's optimization level and
-    backend, so paying for that rebuild would inflate ``compile_time`` against
-    a compiler that was never asked to build them. AIHC's equivalents are
-    prepared outside the timed compile for the same reason
-    (``_prepare_aihc_store``), and the benchmark's own Hackage dependencies
-    stay inside it for both.
-
-    The first commit measured for a configuration builds the libraries and
-    archives the store; every later one restores that archive, which is why
-    this is affordable at all. The archive survives the build directory being
-    wiped, and restoring it is what keeps each compile starting from the same
-    store rather than from whatever the previous compile left behind.
+    ``aihc build`` installs a benchmark's dependencies into the store it is
+    given, and that store is shared by every cell of a commit: without a
+    snapshot the second benchmark to use ``bytestring`` in a configuration
+    would find it already installed and its compile time would not include
+    installing it, while GHC's compile time would. Cabal's per-configuration
+    store and the wipe in ``compile_one`` give the GHC side the same property
+    by simply starting empty.
     """
-    if not cell.boot_prepare_command:
+    if not store.is_dir():
         return None
-    if not boot_archive(cell.build_dir).is_file():
-        try:
-            process = run_command(
-                cell.boot_prepare_command,
-                cell.compile_cwd,
-                timeout_seconds * BOOT_PREPARE_TIMEOUT_FACTOR,
-                cell.compile_environment,
-            )
-        except subprocess.TimeoutExpired as error:
-            return f"boot library preparation timed out: {error}"
-        if process.returncode != 0:
-            detail = (process.stderr or process.stdout)[-8192:]
-            return f"boot library preparation failed with exit code {process.returncode}:\n{detail}"
-        # The store is already what the archive holds; restoring it now would
-        # only unpack what is there.
-        return None
-    restore_boot_store(cell.build_dir)
-    return None
+    archive = store.with_name(f"{store.name}-prepared.tar")
+    with tarfile.open(archive, "w") as tar:
+        tar.add(store, arcname=".")
+    return archive
+
+
+def _restore_store(cell: Cell) -> None:
+    """Put the AIHC store back to what preparation left in it.
+
+    A store records absolute paths, so it is restored to the very path it was
+    built at rather than copied per cell.
+    """
+    if not cell.store_archive or not cell.store_archive.is_file():
+        return
+    store = cell.store_archive.with_name(cell.store_archive.name[: -len("-prepared.tar")])
+    shutil.rmtree(store, ignore_errors=True)
+    store.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(cell.store_archive, "r") as tar:
+        # This suite wrote the archive from a store it had just prepared; the
+        # extraction filters exist for archives from elsewhere, and the
+        # default becomes a restrictive one in Python 3.14.
+        if sys.version_info >= (3, 12):
+            tar.extractall(store, filter="fully_trusted")
+        else:
+            tar.extractall(store)
 
 
 def strip_command(artifact: Path) -> Tuple[List[str], Optional[Path]]:
@@ -696,15 +686,14 @@ def _prepare_aihc_store(
     store: Path,
     timeout_seconds: float,
 ) -> Dict[str, str]:
-    """Prepare runtimes and install ``aihc-base`` and boot-equivalents per target.
+    """Prepare runtimes and install ``aihc-base`` per target.
 
     ``aihc build`` resolves and installs the dependencies of a benchmark's
-    Cabal package itself, inside the timed compile. GHC gets its boot
-    libraries for free, so the ones AIHC does not stand in for are installed
-    here instead, once per target and optimization level, together with
-    ``aihc-base`` -- AIHC's ``base``. What remains inside the timed compile is
-    what ``cabal build`` also compiles there: the benchmark and its non-boot
-    Hackage dependencies.
+    Cabal package itself, inside the timed compile, and that is where they
+    belong: installing a dependency is part of what a compiler is being timed
+    doing, for ``text`` as much as for ``snappy-hs``. Only ``aihc-base`` is
+    installed here -- AIHC's ``base``, the counterpart of the packages GHC
+    wires into the compiler, which no benchmark builds either.
 
     Returns setup errors keyed by target. A target whose runtime or library
     preparation fails does not affect the others, so a missing Wasm sysroot
@@ -744,51 +733,27 @@ def _prepare_aihc_store(
     # it in the store, so ``--immutable`` is what puts it where the build
     # reads it -- with the identical store key, since that hashes the package
     # and the build, not how it was named.
-    #
-    # Only the boot libraries benchmarks actually depend on are installed
-    # (not GHC's full set), so a package a future benchmark adds keeps
-    # getting picked up automatically without touching this code.
     core_base = str(worktree / "core-libs" / "aihc-base")
-    packages = [core_base, *_boot_equivalent_dependencies(config, root)]
     for target, _, optimization, environment in builds:
         if target in errors:
             continue
-        for package in packages:
-            command = base_command + ["install", package]
-            if package == core_base:
-                command.append("--immutable")
-            command.extend(["--store", str(store), "--target", target, f"-{optimization}", *AIHC_RTS_OPTIONS])
-            error = _run_setup_command(
-                command, worktree, timeout_seconds, environment, f"installation of {package} for {target} at -{optimization}"
-            )
-            if error:
-                errors[target] = error
-                break
+        command = base_command + [
+            "install",
+            core_base,
+            "--immutable",
+            "--store",
+            str(store),
+            "--target",
+            target,
+            f"-{optimization}",
+            *AIHC_RTS_OPTIONS,
+        ]
+        error = _run_setup_command(
+            command, worktree, timeout_seconds, environment, f"installation of {core_base} for {target} at -{optimization}"
+        )
+        if error:
+            errors[target] = error
     return errors
-
-
-def _boot_equivalent_dependencies(config: Dict[str, Any], root: Path) -> List[str]:
-    """Direct dependencies of any benchmark that GHC ships as a boot library.
-
-    AIHC only stands in for base/ghc-internal/ghc-prim/system-cxx-std-lib/
-    template-haskell (see ``aihc_bench.freeze.AIHC_IMPLICIT_PACKAGES``);
-    everything else GHC ships for free needs installing into the AIHC store
-    ahead of time so it is equally free there, matching GHC's boot set
-    (see benchmark.json's ``ghc_boot_libraries``). No version is pinned: the
-    resolver picks the same one it would pick during the build.
-    """
-    ghc_boot_libraries = set(config.get("ghc_boot_libraries", []))
-    dependencies: List[str] = []
-    for benchmark in config["benchmarks"]:
-        source = (root / benchmark["source"]).resolve()
-        cabal_files = list(source.glob("*.cabal")) if source.is_dir() else []
-        if not cabal_files:
-            continue
-        for name in parse_build_depends(cabal_files[0]):
-            if name in AIHC_IMPLICIT_PACKAGES or name not in ghc_boot_libraries or name in dependencies:
-                continue
-            dependencies.append(name)
-    return dependencies
 
 
 def _run_setup_command(

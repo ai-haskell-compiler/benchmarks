@@ -62,10 +62,11 @@ equivalents at `-O0`. The GHC side rebuilds them from source instead, at the
 version the compiler ships and the profile's level. `base`, `ghc-prim`,
 `ghc-internal`, `ghc-bignum`, `rts`, `template-haskell` and what they depend
 on are wired into the compiler and stay as shipped, so a benchmark that only
-uses `base` is unaffected. The rebuild runs before the timed compile and is
-cached between commits, matching the AIHC side, where `aihc-base` and the
-boot equivalents are installed outside the timed compile too; each compiler
-still pays for the benchmark's own Hackage dependencies inside it. Every artifact is stripped before its size is recorded: `llvm-strip` for native binaries and
+uses `base` is unaffected.
+
+Both compilers are timed installing every dependency a benchmark has,
+`text` included. The only libraries prepared beforehand are the compiler's
+own: the packages GHC wires in, and `aihc-base` on the AIHC side. Every artifact is stripped before its size is recorded: `llvm-strip` for native binaries and
 `wasm-tools strip --all` for Wasm, which also handles the component AIHC
 emits. Stripping happens after the timed compile. GHC is measured with its
 native and LLVM backends, and with the `ghc-wasm-meta` cross-compiler for

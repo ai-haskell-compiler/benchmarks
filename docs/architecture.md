@@ -82,18 +82,28 @@ they depend on (`template-haskell` reaches `ghc-boot-th`, `pretty` and
 `deepseq`), since a package cannot have an installed and a source instance in
 the same plan. A benchmark that only uses `base` is therefore unchanged.
 
-That rebuild is prepared by `compile_with_cabal.py --prepare` before the
-clock starts, from a synthetic package that depends on the benchmark's boot
-libraries and nothing else: the benchmark's own Hackage dependencies stay
-inside the timed compile, for GHC as for AIHC. A cabal store records its own
-absolute path, so the prepared store cannot be copied elsewhere; it is
-archived beside the build directory and restored to the same path before
-every compile, which both keeps the preparation cost off `compile_time` and
-leaves each compile starting from the same store rather than from what the
-previous one left behind. The archive is keyed by the build directory, which
-depends on the experiment, the platform, the GHC version and the
-configuration but not on the AIHC commit, so the libraries are built once and
-restored for every commit after that.
+That rebuild happens inside the timed compile. Installing a dependency is
+part of what a compiler is being timed doing, and `text` is a dependency like
+any other: both compilers pay for every library a benchmark needs. The only
+thing prepared beforehand is each compiler's own core: the packages GHC wires
+in, which are not rebuilt at all, and `aihc-base` on the AIHC side
+(`_prepare_aihc_store`), which no benchmark builds either.
+
+A timed compile is correspondingly longer -- it now builds a dozen libraries
+before it reaches the benchmark -- so `compile_timeout_seconds` is 1800 rather
+than 900, enough headroom for the boot set at `-O2` on a slow machine while
+still catching a compile that has hung.
+
+That makes each compile's starting state part of the measurement. GHC has it
+already: cabal gets a private store per configuration under the build
+directory, and `compile_one` deletes that directory before every compile, so
+each one starts empty. AIHC's store is shared by every cell of a commit, so
+`_archive_store` snapshots it as preparation left it and `_restore_store`
+puts it back before each compile; otherwise the second benchmark to use
+`bytestring` in a configuration would find it already installed and its
+compile time would not include installing it, while GHC's would. A store
+records absolute paths, so it is restored to the path it was built at rather
+than copied per cell.
 
 After a successful compile the runner strips the artifact in place before
 recording `artifact_size`: `llvm-strip` for native binaries, `wasm-tools strip

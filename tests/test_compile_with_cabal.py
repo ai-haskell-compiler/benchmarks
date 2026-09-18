@@ -6,7 +6,6 @@ from pathlib import Path
 
 from aihc_bench.scripts.compile_with_cabal import (
     RTS_OPTIONS,
-    boot_archive,
     boot_allow_newer,
     boot_constraints,
     cabal_command,

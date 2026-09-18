@@ -35,8 +35,9 @@ optimization level (``boot_library_packages``). GHC's are compiled once, at
 the level its own release was built with, so an ``O0`` profile otherwise
 linked an optimized ``text`` and ``containers`` while AIHC compiled its
 equivalents at ``-O0``. ``base`` and the rest of ``WIRED_IN_PACKAGES`` cannot
-move. The rebuild happens in ``--prepare``, outside the timed compile, for
-the same reason AIHC's boot equivalents are installed outside it.
+move. The rebuild happens inside the timed compile, where every other
+dependency is built: ``text`` is a dependency like any other, and both
+compilers are timed installing it.
 
 The toolchain's ``ghc-pkg`` and ``hsc2hs`` are always passed explicitly, and
 the same tools are also put on ``PATH`` under their bare names. Cabal
@@ -59,12 +60,11 @@ import re
 import shutil
 import subprocess
 import sys
-import tarfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from aihc_bench.freeze import parse_build_depends, parse_freeze  # noqa: E402
+from aihc_bench.freeze import parse_freeze  # noqa: E402
 
 #: Run GHC itself with every core available.  ``-N`` alone needs the threaded
 #: RTS, which every GHC the suite measures is built with.
@@ -92,11 +92,6 @@ COMPILER_PRIVATE_PACKAGES = frozenset(
     {"ghc", "ghc-boot", "ghc-boot-th", "ghc-compact", "ghc-experimental", "ghc-heap", "ghc-platform", "ghc-toolchain", "ghci"}
 )
 
-#: The synthetic package whose only content is a dependency on the boot
-#: libraries a benchmark uses; building it fills the store ahead of the
-#: timed compile.
-BOOT_PACKAGE = "aihc-bench-boot"
-
 _INDEX_STATE = re.compile(r"(?m)^index-state:\s*(.+?)\s*$")
 
 
@@ -112,11 +107,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--cabal", default="cabal", help="cabal-install binary (default: cabal on PATH)")
     parser.add_argument("--optimization", required=True, choices=["O0", "O1", "O2", "Os"], help="benchmark profile; GHC has no size level, so Os builds with -O1")
     parser.add_argument("--ghc-option", action="append", default=[], help="extra -f.../-rtsopts flag, repeatable")
-    parser.add_argument(
-        "--prepare",
-        action="store_true",
-        help="build the benchmark's boot libraries into the store and archive it, instead of compiling the benchmark",
-    )
     args = parser.parse_args(argv)
     args.source = args.source.resolve()
     args.build_dir = args.build_dir.resolve()
@@ -202,11 +192,11 @@ def boot_library_packages(ghc_pkg: Path) -> dict[str, str]:
 
     GHC ships these compiled at the level its own release was built with, so
     an ``O0`` profile linked an optimized ``text`` and ``containers`` while
-    AIHC compiled its equivalents at the profile's level (see
-    ``_prepare_aihc_store``). Rebuilding them from source puts both compilers
-    on the same footing. ``base``, ``ghc-prim`` and the rest of
-    ``WIRED_IN_PACKAGES`` cannot move, so a benchmark that only uses ``base``
-    is unaffected.
+    AIHC compiled its equivalents at the profile's level. Rebuilding them from
+    source puts both compilers on the same footing, and both are timed doing
+    it. ``base``, ``ghc-prim`` and the rest of ``WIRED_IN_PACKAGES`` cannot
+    move -- they are the compiler, not a dependency of the benchmark -- so a
+    benchmark that only uses ``base`` is unaffected.
     """
     packages = global_packages(ghc_pkg)
     bound = compiler_bound_packages(packages)
@@ -272,15 +262,8 @@ def package_stanza(ghc_level: str, ghc_options: list[str]) -> str:
 
 
 def project_body(args: argparse.Namespace) -> str:
-    """Everything below ``packages:``, identical for the benchmark and the
-    boot package.
-
-    The two builds have to agree exactly: a store entry is reused only when
-    its unit id matches, and the constraints and the ``package *`` stanza are
-    part of that hash. A boot library prepared under a different body would
-    be rebuilt inside the timed compile, which is the cost this whole step
-    exists to avoid.
-    """
+    """Everything below ``packages:``: the constraints, the bound relaxation
+    they need, the index state and the ``package *`` stanza."""
     freeze_file = args.source / "cabal.project.freeze"
     contents = []
     boot_libraries = boot_library_packages(args.ghc_pkg)
@@ -308,47 +291,7 @@ def generate_project_file(args: argparse.Namespace) -> Path:
     return project_file
 
 
-def generate_boot_project(args: argparse.Namespace) -> Path:
-    """A package that depends on the benchmark's boot libraries and nothing else.
-
-    ``cabal build --only-dependencies`` would also build the benchmark's
-    Hackage dependencies, and those belong inside the timed compile: GHC
-    should pay for ``snappy-hs`` exactly as AIHC does. Only the libraries GHC
-    would otherwise have shipped ready-made are prepared here, which is the
-    same line ``_prepare_aihc_store`` draws on the AIHC side.
-    """
-    boot_directory = args.build_dir / "boot"
-    boot_directory.mkdir(parents=True, exist_ok=True)
-    depends = boot_dependencies(args)
-    (boot_directory / f"{BOOT_PACKAGE}.cabal").write_text(
-        "cabal-version: 2.4\n"
-        f"name: {BOOT_PACKAGE}\n"
-        "version: 0\n"
-        "\nlibrary\n"
-        f"  build-depends: {', '.join(depends)}\n"
-        "  default-language: Haskell2010\n",
-        encoding="utf-8",
-    )
-    project_file = args.build_dir / "boot.project"
-    project_file.write_text(f"packages: {boot_directory}\n" + project_body(args), encoding="utf-8")
-    return project_file
-
-
-def boot_dependencies(args: argparse.Namespace) -> list[str]:
-    """The benchmark's direct dependencies that GHC ships as boot libraries.
-
-    Their own boot dependencies come along with them, since cabal builds the
-    whole plan. A benchmark that only uses ``base`` has none: ``base`` is
-    wired into the compiler and stays as GHC shipped it.
-    """
-    cabal_files = sorted(args.source.glob("*.cabal"))
-    if not cabal_files:
-        return []
-    boot_libraries = boot_library_packages(args.ghc_pkg)
-    return [name for name in parse_build_depends(cabal_files[0]) if name in boot_libraries]
-
-
-def cabal_command(args: argparse.Namespace, project_file: Path, verb: str, target: str | None = None) -> list[str]:
+def cabal_command(args: argparse.Namespace, project_file: Path, verb: str) -> list[str]:
     """``cabal <verb>`` with the full configuration; identical for build and list-bin.
 
     The GHC flags live in the project file's ``package *`` stanza rather than
@@ -364,92 +307,16 @@ def cabal_command(args: argparse.Namespace, project_file: Path, verb: str, targe
         # others; concurrent configurations also raced to create the shared
         # store's package db ("cannot create: ... package.db already exists").
         # This is a global flag, so it precedes the verb.
-        f"--store-dir={store_directory(args.build_dir)}",
+        f"--store-dir={args.build_dir / 'store'}",
         verb,
         f"--project-file={project_file}",
-        f"--builddir={args.build_dir / ('boot-dist' if target else 'dist')}",
+        f"--builddir={args.build_dir / 'dist'}",
         f"--with-compiler={args.ghc}",
         f"--with-hc-pkg={args.ghc_pkg}",
         f"--with-hsc2hs={args.hsc2hs}",
         f"-{args.ghc_level}",
-        target or f"exe:{args.exe}",
+        f"exe:{args.exe}",
     ]
-
-
-def store_directory(build_dir: Path) -> Path:
-    """Where the store sits; a cabal store records absolute paths and cannot move."""
-    return build_dir / "store"
-
-
-def prepare_boot_store(args: argparse.Namespace, environment: dict) -> int:
-    """Build the benchmark's boot libraries into the store, then archive it.
-
-    Runs outside the timed compile, mirroring the AIHC store preparation, so
-    that rebuilding ``text`` from source does not land on ``compile_time``:
-    GHC hands these libraries over ready-made, and the suite only rebuilds
-    them to give them the profile's optimization level.
-
-    The archive is what makes that affordable. A cabal store bakes its own
-    absolute path into the package database, so a prepared store cannot be
-    copied to another directory -- it is restored, over and over, to the very
-    path it was built at, once per timed compile.
-    """
-    depends = boot_dependencies(args)
-    archive = boot_archive(args.build_dir)
-    if not depends:
-        # Nothing to prepare: an empty archive still tells the runner the
-        # preparation ran, and restoring it leaves an empty store.
-        archive.parent.mkdir(parents=True, exist_ok=True)
-        tarfile.open(archive, "w").close()
-        return 0
-    project_file = generate_boot_project(args)
-    build = subprocess.run(
-        cabal_command(args, project_file, "build", target=f"lib:{BOOT_PACKAGE}"),
-        capture_output=True,
-        text=True,
-        env=environment,
-    )
-    if build.returncode != 0:
-        sys.stderr.write(build.stdout)
-        sys.stderr.write(build.stderr)
-        return build.returncode
-    store = store_directory(args.build_dir)
-    archive.parent.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive, "w") as tar:
-        tar.add(store, arcname=".")
-    return 0
-
-
-def boot_archive(build_dir: Path) -> Path:
-    """The prepared store's archive, kept beside the build directory.
-
-    Every timed compile starts by deleting the build directory, so the
-    archive cannot live inside it.
-    """
-    return build_dir.parent / "boot-store.tar"
-
-
-def restore_boot_store(build_dir: Path) -> None:
-    """Put the prepared boot libraries back, at the path they were built at.
-
-    Called before each timed compile. What the previous compile added to the
-    store -- the benchmark's own Hackage dependencies -- is gone with the
-    build directory, so every compile sees the same store: the boot libraries
-    GHC would have shipped, and nothing else.
-    """
-    archive = boot_archive(build_dir)
-    if not archive.is_file():
-        return
-    store = store_directory(build_dir)
-    store.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive, "r") as tar:
-        # This suite wrote the archive from a store it had just built; the
-        # extraction filters exist for archives from elsewhere, and the
-        # default becomes a restrictive one in Python 3.14.
-        if sys.version_info >= (3, 12):
-            tar.extractall(store, filter="fully_trusted")
-        else:
-            tar.extractall(store)
 
 
 def toolchain_path(args: argparse.Namespace) -> Path:
@@ -485,8 +352,6 @@ def main(argv: list[str]) -> int:
             sys.stderr.write(f"{name} for {args.ghc} not found at {tool}; pass --{name}\n")
             return 1
     environment = cabal_environment(args)
-    if args.prepare:
-        return prepare_boot_store(args, environment)
     project_file = generate_project_file(args)
     build = subprocess.run(
         cabal_command(args, project_file, "build"), capture_output=True, text=True, env=environment
