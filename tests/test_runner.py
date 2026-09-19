@@ -27,6 +27,7 @@ from aihc_bench.runner import (
     MissingBaseline,
     measure_cells,
     Phases,
+    core_library_paths,
     require_baseline,
     reusable_baselines,
     reused_result,
@@ -54,6 +55,15 @@ def aihc_configuration(backend, profile="O2", **extra):
     }
     entry.update(extra)
     return entry
+
+
+def _core_libs(worktree: Path, names) -> Path:
+    """A worktree whose core-libs holds these packages, cabal file and all."""
+    for name in names:
+        package = worktree / "core-libs" / name
+        package.mkdir(parents=True, exist_ok=True)
+        (package / f"{name}.cabal").write_text(f"name: {name}\n", encoding="utf-8")
+    return worktree
 
 
 class RunnerTests(unittest.TestCase):
@@ -238,7 +248,7 @@ class RunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             worktree = root / "worktree"
-            worktree.mkdir()
+            _core_libs(worktree, ["aihc-base"])
             store = root / "store"
             with (
                 patch.dict(os.environ, {"AIHC_BENCH_WASM_CLANG": "/toolchain/bin"}),
@@ -257,18 +267,20 @@ class RunnerTests(unittest.TestCase):
         # part of an installed package's identity.
         installs = [command for command in commands if "install" in command]
         levels = [next(item for item in command if item.startswith("-O")) for command in installs]
+        # Every core library, once per target and optimization level, since the
+        # level is part of an installed package's identity.
         self.assertEqual(
-            list(zip([command[command.index("--target") + 1] for command in installs], levels)),
-            [("test-native", "-O2"), ("wasm32-wasip3", "-O2"), ("llvm", "-O2"), ("test-native", "-O0"), ("test-native", "-O1"), ("test-native", "-Os")],
+            sorted(set(zip([command[command.index("--target") + 1] for command in installs], levels))),
+            sorted({("test-native", "-O2"), ("wasm32-wasip3", "-O2"), ("llvm", "-O2"), ("test-native", "-O0"), ("test-native", "-O1"), ("test-native", "-Os")}),
         )
         # Preparing the runtime and installing the core libraries are
         # compilations too, so aihc gets every core there as well.
         for command in runtimes + installs:
             self.assertEqual(command[-3:], ["+RTS", "-N", "-RTS"])
-        # aihc-base is a local path, so only --immutable puts it in the store
-        # where aihc build resolves it as a core standin; without it the
-        # install lands under the worktree and the build compiles base again.
-        self.assertTrue(all(command[5].endswith("core-libs/aihc-base") for command in installs))
+        # A core library is a local path, so only --immutable puts it in the
+        # store where aihc build resolves it as a core standin; without it the
+        # install lands under the worktree and the build compiles it again.
+        self.assertTrue(all("/core-libs/" in command[5] for command in installs))
         self.assertTrue(all("--immutable" in command for command in installs))
         self.assertEqual(run.call_args_list[1].args[3]["AIHC_WASM_CLANG"], "/toolchain/bin/clang")
 
@@ -277,7 +289,7 @@ class RunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             worktree = root / "worktree"
-            (worktree / "core-libs" / "aihc-rts").mkdir(parents=True)
+            _core_libs(worktree, ["aihc-base", "aihc-rts"])
             with (
                 patch.dict(os.environ, {"AIHC_BENCH_WASM_CLANG": "/toolchain/bin"}),
                 patch("aihc_bench.runner.run_command", return_value=completed) as run,
@@ -287,7 +299,8 @@ class RunnerTests(unittest.TestCase):
         # aihc-prim depends on aihc-rts, so installing aihc-base builds the
         # runtime; there is no prepare-runtime command to call any more.
         self.assertEqual([command for command in commands if "prepare-runtime" in command], [])
-        self.assertEqual(len([command for command in commands if "install" in command]), 6)
+        # Two core libraries across the six target/level combinations.
+        self.assertEqual(len([command for command in commands if "install" in command]), 12)
 
     def test_failed_wasm_preparation_only_affects_wasm_cells(self):
         def fake_run(command, cwd, timeout, environment=None):
@@ -485,25 +498,31 @@ class RunnerTests(unittest.TestCase):
             self.assertIn("llvm-strip", outcome["stderr"])
             self.assertIn("not an object file", outcome["stderr"])
 
-    def test_only_aihc_base_is_installed_ahead_of_the_timed_compile(self):
+    def test_every_core_library_is_installed_ahead_of_the_timed_compile(self):
         """Installing a dependency is part of what a compiler is timed doing.
 
         The real suite has benchmarks depending on bytestring and text, which
         GHC ships and AIHC does not; both compilers install them inside the
-        timed compile. aihc-base is the exception on the AIHC side, as base
-        and the other wired-in packages are on the GHC side: it is the
-        compiler's own core library, which no benchmark builds either.
+        timed compile. The core libraries are the exception on the AIHC side,
+        as base and the other wired-in packages are on the GHC side: they are
+        the compiler's own, and no benchmark builds them either.
+
+        Preparing aihc-base alone left the rest of that set inside the timed
+        compile, so a benchmark reaching bytestring rebuilt aihc-internal and
+        aihc-template-haskell -- about 11 MB of core library -- in every cell,
+        while GHC never rebuilds its wired-in closure at all.
         """
         completed = subprocess.CompletedProcess([], 0, "", "")
         config = load_config(REPO_ROOT / "benchmark.json")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             worktree = root / "worktree"
-            worktree.mkdir()
+            names = ["aihc-base", "aihc-internal", "aihc-prim", "aihc-rts", "aihc-template-haskell"]
+            _core_libs(worktree, names)
             with patch("aihc_bench.runner.run_command", return_value=completed) as run:
                 _prepare_aihc_store(config, "aarch64-darwin", worktree, REPO_ROOT, root / "store", 30)
         installed = {command[5] for command in (call.args[0] for call in run.call_args_list) if "install" in command}
-        self.assertEqual(installed, {str(worktree / "core-libs" / "aihc-base")})
+        self.assertEqual(installed, {str(worktree / "core-libs" / name) for name in names})
 
 
 
@@ -903,3 +922,51 @@ class PhaseTimingTests(unittest.TestCase):
             with phases.timing("compiler_build"):
                 raise ValueError("boom")
         self.assertIn("compiler_build", phases.elapsed_ns)
+
+
+class CoreLibraryPreparationTests(unittest.TestCase):
+    """GHC never rebuilds its wired-in closure for a benchmark, and AIHC's own
+    lock marks the same set "source": "core". Preparing only aihc-base left
+    the rest inside the timed compile: a benchmark reaching bytestring pulled
+    in aihc-internal and aihc-template-haskell, about 11 MB of core library,
+    rebuilt for every cell."""
+
+    def _worktree(self, root, names):
+        core = Path(root) / "core-libs"
+        core.mkdir(parents=True)
+        for name in names:
+            package = core / name
+            package.mkdir()
+            (package / f"{name}.cabal").write_text("name: " + name, encoding="utf-8")
+        return Path(root)
+
+    def test_every_core_library_is_prepared(self):
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = self._worktree(
+                directory, ["aihc-base", "aihc-internal", "aihc-prim", "aihc-rts", "aihc-template-haskell"]
+            )
+            names = [path.name for path in core_library_paths(worktree)]
+            self.assertEqual(sorted(names[1:]), ["aihc-internal", "aihc-prim", "aihc-rts", "aihc-template-haskell"])
+
+    def test_aihc_base_is_prepared_first(self):
+        """Nothing on a target builds without it, so its failure is the one
+        that makes the target unavailable."""
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = self._worktree(directory, ["aihc-template-haskell", "aihc-base", "aihc-internal"])
+            self.assertEqual(core_library_paths(worktree)[0].name, "aihc-base")
+
+    def test_the_set_is_read_from_the_tree(self):
+        """It moves with the compiler: aihc-rts became one of them in #2142."""
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = self._worktree(directory, ["aihc-base", "aihc-future-library"])
+            self.assertIn("aihc-future-library", [path.name for path in core_library_paths(worktree)])
+
+    def test_a_directory_without_a_cabal_file_is_not_a_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = self._worktree(directory, ["aihc-base"])
+            (worktree / "core-libs" / "scratch").mkdir()
+            self.assertEqual([path.name for path in core_library_paths(worktree)], ["aihc-base"])
+
+    def test_no_core_libs_directory_prepares_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(core_library_paths(Path(directory)), [])

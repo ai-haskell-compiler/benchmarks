@@ -871,6 +871,7 @@ def _prepare_aihc_store(
     """
     builds = _configured_aihc_builds(config, platform_id)
     errors: Dict[str, str] = {}
+    setup_notes: Dict[str, List[str]] = {}
     if not builds:
         return errors
 
@@ -903,27 +904,65 @@ def _prepare_aihc_store(
     # it in the store, so ``--immutable`` is what puts it where the build
     # reads it -- with the identical store key, since that hashes the package
     # and the build, not how it was named.
-    core_base = str(worktree / "core-libs" / "aihc-base")
     for target, _, optimization, environment in builds:
         if target in errors:
             continue
-        command = base_command + [
-            "install",
-            core_base,
-            "--immutable",
-            "--store",
-            str(store),
-            "--target",
-            target,
-            f"-{optimization}",
-            *AIHC_RTS_OPTIONS,
-        ]
-        error = _run_setup_command(
-            command, worktree, timeout_seconds, environment, f"installation of {core_base} for {target} at -{optimization}"
-        )
-        if error:
-            errors[target] = error
+        for package in core_library_paths(worktree):
+            command = base_command + [
+                "install",
+                str(package),
+                "--immutable",
+                "--store",
+                str(store),
+                "--target",
+                target,
+                f"-{optimization}",
+                *AIHC_RTS_OPTIONS,
+            ]
+            error = _run_setup_command(
+                command,
+                worktree,
+                timeout_seconds,
+                environment,
+                f"installation of {package} for {target} at -{optimization}",
+            )
+            if error and package.name == CORE_BASE_PACKAGE:
+                # Without aihc-base nothing on this target builds at all.
+                errors[target] = error
+                break
+            if error:
+                # The timed compile builds it instead, as it did before this
+                # was prepared: slower and not comparable, but measurable.
+                setup_notes.setdefault(target, []).append(error.splitlines()[0])
     return errors
+
+
+#: AIHC's counterpart of the packages GHC wires into the compiler. GHC never
+#: rebuilds ``base``, ``ghc-internal``, ``ghc-prim``, ``rts`` or
+#: ``template-haskell`` for a benchmark -- ``WIRED_IN_PACKAGES`` in
+#: ``compile_with_cabal`` keeps them installed -- and AIHC's own lock marks
+#: the same set ``"source": "core"``.
+#:
+#: Only ``aihc-base`` used to be prepared, which put the rest inside the timed
+#: compile: a benchmark reaching ``bytestring`` pulled in ``aihc-internal``
+#: and ``aihc-template-haskell``, about 11 MB of core library, and rebuilt
+#: them for every cell. AIHC was charged for work GHC gets free, and charged
+#: for it twelve times a commit.
+CORE_BASE_PACKAGE = "aihc-base"
+
+
+def core_library_paths(worktree: Path) -> List[Path]:
+    """The core libraries to prepare, ``aihc-base`` first.
+
+    Read from the tree rather than listed here, since the set moves with the
+    compiler: ``aihc-rts`` became one of them in ai-haskell-compiler/aihc#2142.
+    """
+    directory = worktree / "core-libs"
+    if not directory.is_dir():
+        return []
+    packages = sorted(path for path in directory.iterdir() if (path / f"{path.name}.cabal").is_file())
+    packages.sort(key=lambda path: path.name != CORE_BASE_PACKAGE)
+    return packages
 
 
 def _run_setup_command(
