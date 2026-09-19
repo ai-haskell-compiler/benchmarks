@@ -133,9 +133,7 @@ class CompileWithCabalTests(unittest.TestCase):
                 project.read_text(encoding="utf-8"),
                 f"packages: {source.resolve()}\n"
                 "constraints: any.bytestring source,\n"
-                "             any.bytestring ==0.12.2.0,\n"
                 "             any.text source,\n"
-                "             any.text ==2.1.4,\n"
                 "             any.snappy-hs ==0.1.2.0\n"
                 "allow-newer: bytestring:*, text:*\n"
                 "index-state: hackage.haskell.org 2026-09-10T11:00:24Z\n"
@@ -158,13 +156,15 @@ class CompileWithCabalTests(unittest.TestCase):
                 ["base", "deepseq", "ghc", "ghc-boot-th", "ghc-internal", "ghc-prim", "pretty", "template-haskell"],
             )
 
-    def test_boot_libraries_are_rebuilt_at_the_version_ghc_ships(self):
-        """Without the version pin the solver picks whatever the index-state
-        offers -- it chose containers-0.8 over the 0.7 GHC 9.12.4 ships -- and
-        the profiles would be comparing library releases as well as -O levels."""
+    def test_boot_libraries_are_rebuilt_without_a_version_pin(self):
+        """A benchmark pins what it means to pin -- snappy-roundtrip pins
+        snappy-hs and nothing else. Pinning each boot library to the version
+        the compiler ships imposed a version nobody chose: GHC 9.14.1 ships
+        time-1.15, snappy-hs declares time <1.15, and every baseline
+        configuration then failed to resolve."""
         self.assertEqual(
             boot_constraints({"text": "2.1.4", "bytestring": "0.12.2.0"}),
-            ["any.bytestring source", "any.bytestring ==0.12.2.0", "any.text source", "any.text ==2.1.4"],
+            ["any.bytestring source", "any.text source"],
         )
 
     def test_the_generated_project_rebuilds_the_boot_libraries(self):
@@ -176,8 +176,10 @@ class CompileWithCabalTests(unittest.TestCase):
             args = parse_args(["--source", str(source), "--build-dir", str(root / "build"), "--artifact", str(root / "out"), "--exe", "pkg", "--ghc", str(root / "ghc-9.14.1"), "--optimization", "O0"])
             project = generate_project_file(args).read_text(encoding="utf-8")
             self.assertIn("any.text source", project)
-            self.assertIn("any.text ==2.1.4", project)
             self.assertIn("any.bytestring source", project)
+            # The rebuild says source, not which version; the benchmark's own
+            # bounds and the frozen index-state decide that.
+            self.assertNotIn("any.text ==", project)
             # base is wired into the compiler; a source constraint on it is
             # unsatisfiable, so a base-only benchmark is left as GHC shipped it.
             self.assertNotIn("any.base source", project)
@@ -187,10 +189,10 @@ class CompileWithCabalTests(unittest.TestCase):
     def test_a_boot_library_may_predate_the_base_it_is_rebuilt_against(self):
         """GHC 9.14.1 ships base-4.22.1.0 and array-0.5.8.0, but the
         array-0.5.8.0 release on Hackage caps base < 4.22: the compiler ships
-        that source with its bounds bumped. Every boot library is pinned to
-        the shipped version, so relaxing the bounds cannot change which
-        version is used -- and the relaxation stops at the boot libraries, so
-        the benchmark's own Hackage dependencies keep theirs."""
+        that source with its bounds bumped. Only the bounds a boot library
+        itself imposes are relaxed, so a bound placed on one still counts --
+        snappy-hs holding time below 1.15 -- and the benchmark's own Hackage
+        dependencies keep theirs."""
         self.assertEqual(boot_allow_newer({"text": "2.1.4", "array": "0.5.8.0"}), "array:*, text:*")
 
     def test_the_profile_level_reaches_every_package(self):
