@@ -711,7 +711,9 @@ class BaselineTests(unittest.TestCase):
 
     BASELINE = {"id": "ghc-9.14.1-native-O2", "baseline": True}
     OTHER_BASELINE = {"id": "ghc-9.14.1-llvm-O2", "baseline": True}
-    NOT_BASELINE = {"id": "ghc-9.12.4-native-O2"}
+    # Every configured GHC configuration is a baseline, so this one is
+    # hypothetical: it guards the branch, not a configuration that exists.
+    NOT_BASELINE = {"id": "ghc-9.14.1-native-O2-unblessed"}
     AIHC = {"id": "aihc-native-semispace-O2"}
 
     def test_a_compiled_baseline_is_enough(self):
@@ -740,7 +742,11 @@ class BaselineTests(unittest.TestCase):
         self.assertNotIn("second line", message)
 
     def test_a_non_baseline_ghc_does_not_substitute(self):
-        """Ratios are computed against the baseline, not any GHC at all."""
+        """Ratios are computed against the baseline, not any GHC at all.
+
+        No unblessed GHC configuration is configured today, so this guards
+        the branch against one being added without `baseline: true`.
+        """
         compiled = [
             self._pair("example", self.BASELINE, "compile_failed", stderr="boom"),
             self._pair("example", self.NOT_BASELINE, "compiled"),

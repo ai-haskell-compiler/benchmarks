@@ -32,8 +32,7 @@
       toolchains = pkgs.symlinkJoin {
         name = "aihc-bench-toolchains";
         paths =
-          ghcToolchain "9.12.4" pkgs.haskell.compiler.ghc9124 "" [llvm.llvm]
-          ++ ghcToolchain "9.14.1" pkgs.haskell.compiler.ghc9141 "" [llvm.llvm]
+          ghcToolchain "9.14.1" pkgs.haskell.compiler.ghc9141 "" [llvm.llvm]
           ++ ghcToolchain "9.14.1-wasm" wasmGhc "wasm32-wasi-" [];
       };
       wasmClang = pkgs.writeShellApplication {
