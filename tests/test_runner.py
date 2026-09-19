@@ -335,7 +335,7 @@ class RunnerTests(unittest.TestCase):
             self.assertTrue(by_id["ghc-native-O2"]["stripped"])
             self.assertGreater(by_id["ghc-native-O2"]["wall_time_ns"], 0)
 
-            def fake_measure(command, cwd, expected, timeout, threshold, maximum, invoke):
+            def fake_measure(command, cwd, expected, timeout, threshold, maximum, invoke, cell_budget_seconds=0.0):
                 return {"status": "converged", "metrics": [{"metric": "wall_time", "unit": "ns", "status": "ok", "estimate": 1, "samples": [1]}]}
 
             with patch("aihc_bench.runner.measure_adaptively", side_effect=fake_measure):
@@ -793,7 +793,7 @@ class BaselineReuseTests(unittest.TestCase):
 
         return Stub()
 
-    def _ghc(self, configuration="ghc-9.14.1-native-O2", status="ok"):
+    def _ghc(self, configuration="ghc-9.14.1-native-O2", status="converged"):
         return {
             "benchmark": "example",
             "configuration": configuration,
@@ -815,9 +815,28 @@ class BaselineReuseTests(unittest.TestCase):
         self.assertEqual(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
 
     def test_a_failed_result_is_not_reused(self):
-        """A failure is a question about this machine now."""
-        database = self._database([self._ghc(status="unavailable")])
-        self.assertEqual(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
+        """A failure is a question about this machine now.
+
+        The statuses here are the ones the runner really produces: a
+        measurement ends converged, nonconverged or budget, and anything else
+        names a failure. A fixture that invents "ok" passes against a
+        predicate that never matches a real result.
+        """
+        for status in ("timed_out", "run_failed", "validation_failed", "unavailable"):
+            with self.subTest(status=status):
+                database = self._database([self._ghc(status=status)])
+                self.assertEqual(
+                    reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {}
+                )
+
+    def test_every_completed_status_is_reusable(self):
+        """A cell that exhausted its buckets or its budget still measured."""
+        for status in ("converged", "nonconverged", "budget"):
+            with self.subTest(status=status):
+                database = self._database([self._ghc(status=status)])
+                self.assertEqual(
+                    len(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT)), 1
+                )
 
     def test_another_environment_does_not_supply_a_baseline(self):
         database = self._database([self._ghc()], environment_id="other-environment")

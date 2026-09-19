@@ -201,7 +201,14 @@ never uploaded.
 The runner measures complete process invocations, including native startup and
 Wasmtime startup. It records wall time, CPU time and peak RSS for run buckets
 of 1, 2, 4, 8, 16, 32, and 64 processes, stopping when adjacent bucket means
-are within 1%. Peak heap, bytes allocated, GC count and GC time come from GHC's
+are within 1%, when the buckets run out, or when the cell has spent
+`cell_budget_seconds`. Doubling a bucket costs whatever an invocation costs,
+and that spans four orders of magnitude here: the integer benchmarks run in
+about ten milliseconds, so the full escalation costs a second and buys
+precision cheaply, while `aihc-cpp-stackage` takes about ten seconds an
+invocation, where the same escalation is twenty-one minutes for a single
+cell. The budget bounds the expensive cells without taking precision from
+the cheap ones, which a smaller bucket limit would. Peak heap, bytes allocated, GC count and GC time come from GHC's
 `+RTS -t` output and from the `AIHC_RTS_STATS` hook once the AIHC runtime has
 it. Compile time and artifact size are recorded per compilation. Every
 configuration is compiled from scratch -- the build directory and any previous
