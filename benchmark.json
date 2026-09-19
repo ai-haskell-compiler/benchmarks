@@ -16,6 +16,7 @@
   "measurement": {
     "relative_threshold": 0.01,
     "maximum_bucket_size": 64,
+    "cell_budget_seconds": 60,
     "process_timeout_seconds": 20,
     "compile_timeout_seconds": 1800
   },

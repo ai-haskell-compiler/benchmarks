@@ -1,4 +1,6 @@
+import itertools
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from aihc_bench.measurement import compile_metrics, measure_adaptively, relative_difference
@@ -108,3 +110,57 @@ class MeasurementTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CellBudgetTests(unittest.TestCase):
+    """An invocation costs ten milliseconds in the integer benchmarks and ten
+    seconds in aihc-cpp-stackage, so the same escalation is a second for one
+    and twenty-one minutes for the other."""
+
+    def _never_converges(self):
+        # Rising times, so each bucket's mean is well above the previous one.
+        # Alternating values do NOT work: [1, 2] repeated gives successive
+        # buckets the same mean, which converges on the first comparison.
+        return FakeRunner((n * 1_000_000 for n in itertools.count(1)))
+
+    def test_a_cheap_cell_still_escalates_to_the_limit(self):
+        """The budget must not take precision away from cells that are cheap;
+        that is what a smaller maximum_bucket_size would have done."""
+        result = measure_adaptively(
+            ["x"], Path("."), b"ok\n", 10, 0.01, 64, invoke=self._never_converges(), cell_budget_seconds=60
+        )
+        self.assertEqual(result["bucket_sizes"], [1, 2, 4, 8, 16, 32, 64])
+        self.assertEqual(result["status"], "nonconverged")
+
+    def test_an_expensive_cell_stops_when_its_budget_is_spent(self):
+        slow = FakeRunner((n * 1_000_000 for n in itertools.count(1)))
+        original = slow.__call__
+
+        def crawl(command, cwd, timeout):
+            crawl.spent += 20.0
+            return original(command, cwd, timeout)
+
+        crawl.spent = 0.0
+        clock = lambda: crawl.spent
+        import aihc_bench.measurement as measurement
+
+        with unittest.mock.patch.object(measurement.time, "perf_counter", clock):
+            result = measure_adaptively(
+                ["x"], Path("."), b"ok\n", 10, 0.01, 64, invoke=crawl, cell_budget_seconds=60
+            )
+        self.assertEqual(result["status"], "budget")
+        self.assertLess(sum(result["bucket_sizes"]), 127)
+
+    def test_zero_budget_keeps_the_old_behaviour(self):
+        result = measure_adaptively(
+            ["x"], Path("."), b"ok\n", 10, 0.01, 64, invoke=self._never_converges(), cell_budget_seconds=0
+        )
+        self.assertEqual(result["status"], "nonconverged")
+
+    def test_convergence_still_wins_over_the_budget(self):
+        steady = FakeRunner(itertools.repeat(1_000_000))
+        result = measure_adaptively(
+            ["x"], Path("."), b"ok\n", 10, 0.01, 64, invoke=steady, cell_budget_seconds=60
+        )
+        self.assertEqual(result["status"], "converged")
+        self.assertEqual(result["bucket_sizes"], [1, 2])

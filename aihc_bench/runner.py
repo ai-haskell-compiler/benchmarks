@@ -16,7 +16,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from .config import expand_command
 from .database import Database
 from .git_history import GitError, create_worktree, fetch, path_exists, remove_worktree, rev_parse
-from .measurement import compile_metrics, measure_adaptively
+from .measurement import MEASURED_STATUSES, compile_metrics, measure_adaptively
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
 
@@ -531,7 +531,7 @@ def reusable_baselines(
         for entry in database.results_measured_since(experiment_id, platform_id, environment.get("id", ""), since):
             if entry.get("compiler_family") != "ghc":
                 continue
-            if (entry.get("measurement") or {}).get("status") != "ok":
+            if (entry.get("measurement") or {}).get("status") not in MEASURED_STATUSES:
                 continue
             reusable[(benchmark, entry["configuration"])] = entry
     return reusable
@@ -802,6 +802,7 @@ def measure_cells(
             float(measurement_config["relative_threshold"]),
             int(measurement_config["maximum_bucket_size"]),
             invoke=invoke,
+            cell_budget_seconds=float(measurement_config.get("cell_budget_seconds", 0.0)),
         )
         if "metrics" in measurement:
             measurement["metrics"].extend(compile_metrics(compile_result))

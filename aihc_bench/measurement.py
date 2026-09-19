@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import statistics
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
@@ -23,6 +24,12 @@ INVOCATION_METRICS = (
 RUNTIME_STATS_METRICS = {"peak_heap", "allocated_bytes", "gc_count", "gc_time"}
 
 
+#: Statuses a measurement that ran to completion can carry. The escalation
+#: ends by converging, by exhausting its buckets, or by spending its time
+#: budget; anything else is a failure and names what went wrong.
+MEASURED_STATUSES = frozenset({"converged", "nonconverged", "budget"})
+
+
 def relative_difference(left: float, right: float) -> float:
     midpoint = (left + right) / 2.0
     if midpoint == 0:
@@ -38,9 +45,25 @@ def measure_adaptively(
     relative_threshold: float,
     maximum_bucket_size: int,
     invoke: Callable[[Iterable[str], Path, float], ProcessMeasurement] = run_measured,
+    cell_budget_seconds: float = 0.0,
 ) -> Dict[str, Any]:
+    """Measure until the mean settles, the buckets run out, or time does.
+
+    Doubling the bucket costs whatever an invocation costs, and that varies
+    by four orders of magnitude between benchmarks here: the integer
+    benchmarks run in about ten milliseconds, so the full escalation to 127
+    invocations costs a second and buys precision cheaply. ``aihc-cpp-stackage``
+    takes about ten seconds an invocation, where the same escalation is
+    twenty-one minutes for one cell, and a third of cells never converge.
+
+    ``cell_budget_seconds`` bounds that without taking the precision away
+    from the cheap cells the way a smaller ``maximum_bucket_size`` would: the
+    escalation stops once a cell has spent its budget, and the samples
+    already collected are the result.
+    """
     buckets: List[List[Dict[str, Any]]] = []
     bucket_size = 1
+    started = time.perf_counter()
     output_hash = sha256_bytes(expected_stdout)
     stats_error: Optional[str] = None
 
@@ -64,6 +87,11 @@ def measure_adaptively(
             difference = relative_difference(previous_mean, current_mean)
             if difference <= relative_threshold:
                 return _success("converged", buckets, output_hash, difference, stats_error)
+
+        # Checked after a whole bucket, so the budget bounds what the next one
+        # may cost rather than cutting one in half and skewing its mean.
+        if cell_budget_seconds and time.perf_counter() - started >= cell_budget_seconds:
+            return _success("budget", buckets, output_hash, None, stats_error)
 
         bucket_size *= 2
 
