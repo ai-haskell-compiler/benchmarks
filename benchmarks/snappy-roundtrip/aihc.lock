@@ -1,0 +1,40 @@
+{
+  "format": 1,
+  "compiler": "ghc-9.12.4",
+  "index-state": "2026-09-19T06:02:44Z",
+  "platforms": {
+    "linux-x86_64": [
+      {"name": "aihc-base", "version": "4.21.2.0", "source": "core"},
+      {"name": "aihc-internal", "version": "9.1204.0", "source": "core"},
+      {"name": "aihc-prim", "version": "0.13.0", "source": "core"},
+      {"name": "aihc-rts", "version": "1.0.2", "source": "core"},
+      {"name": "aihc-template-haskell", "version": "2.23.0.0", "source": "core"},
+      {"name": "bytestring", "version": "0.12.2.0", "source": "hackage", "revision": 1},
+      {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
+      {"name": "snappy-hs", "version": "0.1.2.0", "source": "hackage", "revision": 0},
+      {"name": "snappy-roundtrip", "version": "0.1.0.0", "source": "local"}
+    ],
+    "osx-aarch64": [
+      {"name": "aihc-base", "version": "4.21.2.0", "source": "core"},
+      {"name": "aihc-internal", "version": "9.1204.0", "source": "core"},
+      {"name": "aihc-prim", "version": "0.13.0", "source": "core"},
+      {"name": "aihc-rts", "version": "1.0.2", "source": "core"},
+      {"name": "aihc-template-haskell", "version": "2.23.0.0", "source": "core"},
+      {"name": "bytestring", "version": "0.12.2.0", "source": "hackage", "revision": 1},
+      {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
+      {"name": "snappy-hs", "version": "0.1.2.0", "source": "hackage", "revision": 0},
+      {"name": "snappy-roundtrip", "version": "0.1.0.0", "source": "local"}
+    ],
+    "wasi-wasm32": [
+      {"name": "aihc-base", "version": "4.21.2.0", "source": "core"},
+      {"name": "aihc-internal", "version": "9.1204.0", "source": "core"},
+      {"name": "aihc-prim", "version": "0.13.0", "source": "core"},
+      {"name": "aihc-rts", "version": "1.0.2", "source": "core"},
+      {"name": "aihc-template-haskell", "version": "2.23.0.0", "source": "core"},
+      {"name": "bytestring", "version": "0.12.2.0", "source": "hackage", "revision": 1},
+      {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
+      {"name": "snappy-hs", "version": "0.1.2.0", "source": "hackage", "revision": 0},
+      {"name": "snappy-roundtrip", "version": "0.1.0.0", "source": "local"}
+    ]
+  }
+}
