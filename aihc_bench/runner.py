@@ -143,8 +143,12 @@ def run_commit(
         # A reused baseline is a baseline: it compiled and ran here, inside
         # the window, on this environment.
         require_baseline(compiled, experiments, satisfied={benchmark for benchmark, _ in reused})
+        load_samples: List[float] = []
         with phases.timing("measure"):
-            results = measure_cells(compiled, root, measurement_config)
+            results = measure_cells(compiled, root, measurement_config, load_samples)
+        contended = contention_note(max(load_samples) if load_samples else None)
+        if contended:
+            print(f"warning: {contended}", file=sys.stderr)
         results.extend(reused_result(entry) for entry in reused.values())
         envelopes = []
         for benchmark, experiment_id in experiments.items():
@@ -153,7 +157,7 @@ def run_commit(
                 compiler_status="available",
                 unavailable_reason=None,
                 results=[result for result in results if result["benchmark"] == benchmark],
-                timing=phases.record(),
+                timing={**phases.record(), **({"contended": contended} if contended else {})},
             )
             database.finish_attempt(experiment_id, platform_id, commit["sha"], "complete", envelope)
             envelopes.append(envelope)
@@ -763,7 +767,13 @@ def measure_cells(
     compiled: Iterable[Tuple[Cell, Dict[str, Any]]],
     root: Path,
     measurement_config: Dict[str, Any],
+    load_samples: Optional[List[float]] = None,
 ) -> List[Dict[str, Any]]:
+    """Measure every compiled cell, appending the load seen before each one.
+
+    Measurement is sequential, so the load while it runs says whether
+    anything else had the machine at the same time.
+    """
     results: List[Dict[str, Any]] = []
     ordered = sorted(
         compiled,
@@ -772,6 +782,10 @@ def measure_cells(
         ).digest(),
     )
     for cell, compile_result in ordered:
+        if load_samples is not None:
+            load = machine_load()
+            if load is not None:
+                load_samples.append(load)
         base = {
             "benchmark": cell.benchmark["id"],
             "configuration": cell.configuration["id"],
@@ -809,6 +823,42 @@ def measure_cells(
         base["measurement"] = measurement
         results.append(base)
     return results
+
+
+#: Load average above which the machine is taken to be shared. Measurement is
+#: sequential by design -- one process at a time, nothing else the suite does
+#: runs beside it -- so the load while measuring should sit near one. Two
+#: leaves room for the runner itself and a idle desktop.
+CONTENDED_LOAD = 2.0
+
+
+def machine_load() -> Optional[float]:
+    """One-minute load average, or ``None`` where the platform has none."""
+    try:
+        return os.getloadavg()[0]
+    except (OSError, AttributeError):
+        return None
+
+
+def contention_note(peak_load: Optional[float]) -> Optional[str]:
+    """Say when a measurement shared the machine, or nothing when it did not.
+
+    Compile time and run time are both published, and both move under
+    contention in a way that is indistinguishable afterwards from a change in
+    the compiler. The suite runs its measurements sequentially precisely so
+    that nothing of its own competes -- but nothing stopped a second runner,
+    an editor's language server or another build from doing so, and both
+    happened on these machines: a second sweep started beside the continuous
+    service, and a laptop measured while other work compiled on it.
+
+    Detecting it does not make the numbers good. It makes them answerable.
+    """
+    if peak_load is None or peak_load <= CONTENDED_LOAD:
+        return None
+    return (
+        f"the machine was not idle while measuring (peak one-minute load {peak_load:.1f}, "
+        f"above {CONTENDED_LOAD:.1f}); timings on this commit share the machine with something else"
+    )
 
 
 def _compile_environment(configuration: Dict[str, Any]) -> Dict[str, str]:

@@ -28,6 +28,8 @@ from aihc_bench.runner import (
     measure_cells,
     Phases,
     core_library_paths,
+    CONTENDED_LOAD,
+    contention_note,
     require_baseline,
     reusable_baselines,
     reused_result,
@@ -970,3 +972,42 @@ class CoreLibraryPreparationTests(unittest.TestCase):
     def test_no_core_libs_directory_prepares_nothing(self):
         with tempfile.TemporaryDirectory() as directory:
             self.assertEqual(core_library_paths(Path(directory)), [])
+class ContentionTests(unittest.TestCase):
+    """Compile time and run time both move under contention, in a way that is
+    indistinguishable afterwards from a change in the compiler. Both happened
+    on these machines: a second sweep beside the continuous service, and a
+    laptop measuring while other work compiled on it."""
+
+    def test_an_idle_machine_says_nothing(self):
+        self.assertIsNone(contention_note(1.0))
+        self.assertIsNone(contention_note(CONTENDED_LOAD))
+
+    def test_a_shared_machine_is_named_with_its_load(self):
+        note = contention_note(6.0)
+        self.assertIsNotNone(note)
+        self.assertIn("6.0", note)
+        self.assertIn("not idle", note)
+
+    def test_a_platform_without_load_average_says_nothing(self):
+        """Absent evidence is not evidence of contention."""
+        self.assertIsNone(contention_note(None))
+
+    def test_measurement_records_the_load_it_saw(self):
+        cell = SimpleNamespace(
+            benchmark={"id": "example", "expected_stdout": "ok\n"},
+            configuration={
+                "id": "ghc-9.14.1-native-O2", "compiler_family": "ghc", "compiler_version": "9.14.1",
+                "backend": "native", "gc": "ghc-rts", "optimization": "O2",
+            },
+            commit_sha="f" * 40, run_command=["true"], run_environment={}, stats_file=None,
+            stats_format=None, build_dir=Path("/tmp"), artifact=Path("/tmp/x"), store_archive=None,
+        )
+        samples: list = []
+        with patch("aihc_bench.runner.machine_load", return_value=4.5), patch(
+            "aihc_bench.runner.measure_adaptively", return_value={"status": "converged", "metrics": []}
+        ):
+            measure_cells([(cell, {"status": "compiled"})], Path("/tmp"), {
+                "process_timeout_seconds": 1, "relative_threshold": 0.01, "maximum_bucket_size": 2
+            }, samples)
+        self.assertEqual(samples, [4.5])
+        self.assertIsNotNone(contention_note(max(samples)))
