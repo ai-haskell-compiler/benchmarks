@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from .config import expand_command
 from .database import Database
@@ -131,9 +131,14 @@ def run_commit(
             aihc_setup_errors=aihc_setup_errors,
             store_archive=store_archive,
         )
+        reused = reusable_baselines(database, config, experiments, platform_id, environment)
+        cells = [cell for cell in cells if (cell.benchmark["id"], cell.configuration["id"]) not in reused]
         compiled = compile_cells(cells, root, compile_timeout)
-        require_baseline(compiled, experiments)
+        # A reused baseline is a baseline: it compiled and ran here, inside
+        # the window, on this environment.
+        require_baseline(compiled, experiments, satisfied={benchmark for benchmark, _ in reused})
         results = measure_cells(compiled, root, measurement_config)
+        results.extend(reused_result(entry) for entry in reused.values())
         envelopes = []
         for benchmark, experiment_id in experiments.items():
             envelope = envelope_for(
@@ -312,7 +317,11 @@ class MissingBaseline(RuntimeError):
     """A benchmark produced no baseline binary, so it cannot be compared."""
 
 
-def require_baseline(compiled: Iterable[Tuple[Cell, Dict[str, Any]]], experiments: Iterable[str]) -> None:
+def require_baseline(
+    compiled: Iterable[Tuple[Cell, Dict[str, Any]]],
+    experiments: Iterable[str],
+    satisfied: Optional[Set[str]] = None,
+) -> None:
     """Stop the run when a benchmark has no working baseline compiler.
 
     Every AIHC number is published as a ratio against GHC, so a commit
@@ -331,7 +340,12 @@ def require_baseline(compiled: Iterable[Tuple[Cell, Dict[str, Any]]], experiment
     for cell, outcome in compiled:
         if cell.configuration.get("baseline"):
             baselines.setdefault(cell.benchmark["id"], []).append((cell, outcome))
+    satisfied = satisfied or set()
     for benchmark in experiments:
+        # A reused baseline already compiled and ran on this machine, so the
+        # guard has nothing to catch.
+        if benchmark in satisfied:
+            continue
         outcomes = baselines.get(benchmark, [])
         if any(outcome.get("status") == "compiled" for _, outcome in outcomes):
             continue
@@ -442,6 +456,61 @@ def build_cells(
                 )
             )
     return cells
+
+
+#: How long a GHC baseline may be reused before it is measured again.
+#: Overridden by ``baseline_reuse_hours`` in ``benchmark.json``; zero measures
+#: every configuration on every commit.
+DEFAULT_BASELINE_REUSE_HOURS = 24.0
+
+
+def reusable_baselines(
+    database: Database,
+    config: Dict[str, Any],
+    experiments: Dict[str, str],
+    platform_id: str,
+    environment: Dict[str, Any],
+) -> Dict[Tuple[str, str], Dict[str, Any]]:
+    """GHC results recent enough to stand in for this commit's, by cell.
+
+    A GHC configuration's inputs are the benchmark, the toolchain and the
+    machine. None of them is the AIHC commit under test, so measuring GHC
+    again for every AIHC commit re-derives a number that cannot have moved:
+    on one machine that was 190 seconds a commit across three benchmarks,
+    against an AIHC side that is the only thing being asked a question.
+
+    What does move is the machine. A reused baseline is a number from a
+    different moment, so the ratio published against it no longer has drift
+    cancelling on both sides; the window is what bounds that, and a changed
+    ``environment_id`` -- a new OS, CPU or runner -- discards the lot.
+
+    Only a measured, successful GHC result is reused. A failure is a question
+    about this machine now, and the AIHC side is never reused at all: its
+    compiler is the commit.
+    """
+    hours = float(config.get("baseline_reuse_hours", DEFAULT_BASELINE_REUSE_HOURS))
+    if hours <= 0:
+        return {}
+    since = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - hours * 3600))
+    reusable: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for benchmark, experiment_id in experiments.items():
+        for entry in database.results_measured_since(experiment_id, platform_id, environment.get("id", ""), since):
+            if entry.get("compiler_family") != "ghc":
+                continue
+            if (entry.get("measurement") or {}).get("status") != "ok":
+                continue
+            reusable[(benchmark, entry["configuration"])] = entry
+    return reusable
+
+
+def reused_result(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """A reused entry, saying so and saying where it came from."""
+    result = {key: value for key, value in entry.items() if not key.startswith("_")}
+    result["reused_from"] = {
+        "commit_sha": entry.get("_measured_for"),
+        "measured_at": entry.get("_measured_at"),
+    }
+    return result
 
 
 def runtime_is_package(worktree: Path) -> bool:

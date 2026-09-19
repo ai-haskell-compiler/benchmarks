@@ -279,6 +279,31 @@ class Database:
         ).fetchall()
         return [json.loads(row["result_json"]) for row in rows]
 
+    def results_measured_since(
+        self, experiment_id: str, platform_id: str, environment_id: str, since: str
+    ) -> List[Dict[str, Any]]:
+        """Result entries from the newest attempt measured in this environment.
+
+        Baselines are reused across commits, so what matters is the newest
+        attempt that actually ran here -- an inherited attempt carries another
+        commit's numbers and measured nothing, so it cannot supply one.
+        """
+        rows = self.connection.execute(
+            "SELECT result_json, environment_json, finished_at, commit_sha FROM attempts "
+            "WHERE experiment_id=? AND platform=? AND status='complete' AND inherited_from IS NULL "
+            "AND finished_at IS NOT NULL AND finished_at >= ? ORDER BY finished_at DESC",
+            (experiment_id, platform_id, since),
+        ).fetchall()
+        for row in rows:
+            if json.loads(row["environment_json"]).get("id") != environment_id:
+                continue
+            envelope = json.loads(row["result_json"])
+            for entry in envelope.get("results", []):
+                entry["_measured_at"] = row["finished_at"]
+                entry["_measured_for"] = row["commit_sha"]
+            return envelope.get("results", [])
+        return []
+
     def latest_attempt(self, experiment_id: str, platform_id: str) -> Optional[Dict[str, Any]]:
         row = self.connection.execute(
             "SELECT a.*, c.ordinal, c.committed_at, c.subject FROM attempts a JOIN commits c ON c.sha=a.commit_sha "
