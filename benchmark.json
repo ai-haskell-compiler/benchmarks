@@ -3,6 +3,7 @@
   "suite_id": "aihc-core-v2",
   "aihc_ref": "origin/main",
   "baseline_reuse_hours": 24,
+  "commit_budget_seconds": 3600,
   "aihc_since": "2026-09-12",
   "aihc_compiler_marker": "bin/aihc/aihc.cabal",
   "optimization_note": "GHC uses -O0, -O1 and -O2; its Os profile builds with -O1 because GHC has no size level. The level, and the backend flag, reach every package cabal builds through a 'package *' stanza: cabal's command-line -O and --ghc-options cover local packages only, so before that the Hackage dependencies were compiled at -O1 through the native backend in every profile and configuration. The boot libraries GHC ships compiled at its own release's level (text, bytestring, containers, ...) are rebuilt from source at the shipped version and the profile's level, so both compilers apply the profile to their libraries; base, ghc-prim, ghc-internal, ghc-bignum, rts, template-haskell and what they depend on are wired into the compiler and stay as shipped. Both compilers are timed installing every dependency a benchmark has, that rebuild included; only the compilers' own core libraries (GHC's wired-in packages, AIHC's aihc-base) are prepared beforehand. AIHC passes the matching -O flag to aihc build, where -O2 and -Os also compile the whole program at once. Every artifact is stripped after compilation (llvm-strip for native binaries, wasm-tools strip --all for Wasm) before its size is recorded.",

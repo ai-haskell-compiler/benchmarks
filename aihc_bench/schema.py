@@ -100,7 +100,14 @@ def result_envelope(
     results: Iterable[Dict[str, Any]],
     run_id: Optional[str] = None,
     benchmark: Optional[str] = None,
+    timing: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    """``timing`` is the commit's wall clock per phase.
+
+    A commit's cost was visible per cell only, so building the compiler and
+    preparing its stores -- the parts that happen once per commit and can
+    dominate it -- left no trace at all.
+    """
     return {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id or new_run_id(),
@@ -114,6 +121,7 @@ def result_envelope(
         "compiler_status": compiler_status,
         "unavailable_reason": unavailable_reason,
         "results": list(results),
+        **({"timing": timing} if timing else {}),
     }
 
 
