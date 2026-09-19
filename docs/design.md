@@ -221,18 +221,18 @@ Artifacts are stripped before `artifact_size` is recorded (`llvm-strip`, or
 `wasm-tools strip --all` for Wasm including AIHC's component output), outside
 the timed compile.
 
-GHC baselines are split into two roles:
+One GHC release is measured, and every GHC configuration is a baseline. The
+GHC 9.14.1 native, LLVM and Wasm configurations carry `baseline: true`, and
+the overview and the timeline's ratio view divide each AIHC configuration by
+the baseline with the same backend and profile, so the GHC side is exactly
+the twelve cells the twelve AIHC cells are divided by. The Wasm baseline is
+the `ghc-wasm-meta` cross-compiler (`wasm32-wasi`, native bignum); AIHC
+targets `wasm32-wasip3`, so the ratio includes the two WASI host interfaces'
+startup costs.
 
-- **Baseline:** the GHC 9.14.1 native, LLVM and Wasm configurations carry
-  `baseline: true` in both profiles. The overview and the timeline's ratio
-  view divide each AIHC configuration by the baseline with the same backend
-  and profile. The Wasm baseline is the `ghc-wasm-meta` cross-compiler
-  (`wasm32-wasi`, native bignum); AIHC targets `wasm32-wasip3`, so the ratio
-  includes the two WASI host interfaces' startup costs.
-- **Full matrix:** the remaining GHC configurations run when the machine has no
-  result for the current `environment_id`, or when the newest result is older
-  than 24 hours. They are stored against the same commit ordinal as the session
-  that triggered them.
+A second GHC release is not measured. Comparing two GHC releases against each
+other is not what this suite is for, and every configuration is paid for on
+every commit.
 
 ## CLI
 
