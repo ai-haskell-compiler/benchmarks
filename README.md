@@ -47,6 +47,14 @@ published metric, so compilation is as timing-sensitive as execution: both are
 sequential and neither shares the machine with anything else the suite does.
 Building the compiler itself is not timed and may use the whole machine.
 
+Nothing the suite does competes with a measurement, but something else on the
+machine can, and both compile time and run time move when it does -- in a way
+that afterwards is indistinguishable from a change in the compiler. Since
+measurement is sequential, the load average while it runs should sit near one;
+`run` samples it before each cell and, when it exceeds 2, warns and records
+`contended` on the commit. That does not make the numbers good, it makes them
+answerable.
+
 Every configuration is measured in four profiles: `O0`, `O1`, `O2` and `Os`.
 AIHC passes the matching `-O` flag to `aihc build`, where `-O2` and `-Os` also
 compile the whole program at once. GHC has no size level, so its `Os` profile
