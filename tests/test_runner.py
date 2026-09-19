@@ -27,6 +27,8 @@ from aihc_bench.runner import (
     MissingBaseline,
     measure_cells,
     require_baseline,
+    reusable_baselines,
+    reused_result,
     strip_command,
     warm_hackage_index,
 )
@@ -771,3 +773,80 @@ class BaselineTests(unittest.TestCase):
         with self.assertRaises(MissingBaseline) as raised:
             require_baseline(compiled, ["fine", "broken"])
         self.assertIn("broken", str(raised.exception))
+
+
+class BaselineReuseTests(unittest.TestCase):
+    """A GHC configuration's inputs are the benchmark, the toolchain and the
+    machine -- never the AIHC commit under test. Measuring it again for every
+    AIHC commit re-derives a number that cannot have moved."""
+
+    EXPERIMENTS = {"example": "example-v1-abc"}
+    ENVIRONMENT = {"id": "test-platform-aaaa"}
+
+    def _database(self, entries, environment_id="test-platform-aaaa", finished_at="2026-09-19T12:00:00"):
+        class Stub:
+            def results_measured_since(self, experiment_id, platform_id, wanted_id, since):
+                if wanted_id != environment_id or finished_at < since:
+                    return []
+                return [dict(entry, _measured_at=finished_at, _measured_for="cafe" * 10) for entry in entries]
+
+        return Stub()
+
+    def _ghc(self, configuration="ghc-9.14.1-native-O2", status="ok"):
+        return {
+            "benchmark": "example",
+            "configuration": configuration,
+            "compiler_family": "ghc",
+            "baseline": True,
+            "compile": {"status": "compiled", "wall_time_ns": 3_000_000_000},
+            "measurement": {"status": status, "metrics": []},
+        }
+
+    def test_a_recent_ghc_result_is_reused(self):
+        database = self._database([self._ghc()])
+        reusable = reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT)
+        self.assertEqual(list(reusable), [("example", "ghc-9.14.1-native-O2")])
+
+    def test_aihc_is_never_reused(self):
+        """Its compiler is the commit under test, which is the whole point."""
+        aihc = dict(self._ghc(configuration="aihc-native-semispace-O2"), compiler_family="aihc")
+        database = self._database([aihc])
+        self.assertEqual(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
+
+    def test_a_failed_result_is_not_reused(self):
+        """A failure is a question about this machine now."""
+        database = self._database([self._ghc(status="unavailable")])
+        self.assertEqual(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
+
+    def test_another_environment_does_not_supply_a_baseline(self):
+        database = self._database([self._ghc()], environment_id="other-environment")
+        self.assertEqual(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
+
+    def test_reuse_can_be_switched_off(self):
+        database = self._database([self._ghc()])
+        config = {"baseline_reuse_hours": 0}
+        self.assertEqual(reusable_baselines(database, config, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
+
+    def test_a_result_older_than_the_window_is_measured_again(self):
+        """The machine drifts even when the benchmark and toolchain do not."""
+        database = self._database([self._ghc()], finished_at="2020-01-01T00:00:00")
+        self.assertEqual(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
+
+    def test_a_reused_result_says_where_it_came_from(self):
+        """Its compile time is another moment's, so the entry has to say so."""
+        entry = dict(self._ghc(), _measured_at="2026-09-19T12:00:00", _measured_for="f" * 40)
+        result = reused_result(entry)
+        self.assertEqual(result["reused_from"], {"commit_sha": "f" * 40, "measured_at": "2026-09-19T12:00:00"})
+        self.assertNotIn("_measured_at", result)
+        self.assertEqual(result["compile"]["wall_time_ns"], 3_000_000_000)
+
+    def test_a_reused_baseline_satisfies_the_guard(self):
+        """It compiled and ran on this machine, inside the window."""
+        cell = SimpleNamespace(benchmark={"id": "example"}, configuration={"id": "aihc-native-semispace-O2"})
+        compiled = [(cell, {"status": "compiled"})]
+        require_baseline(compiled, ["example"], satisfied={"example"})
+
+    def test_without_a_reused_baseline_the_guard_still_stops_the_run(self):
+        cell = SimpleNamespace(benchmark={"id": "example"}, configuration={"id": "aihc-native-semispace-O2"})
+        with self.assertRaises(MissingBaseline):
+            require_baseline([(cell, {"status": "compiled"})], ["example"], satisfied=set())

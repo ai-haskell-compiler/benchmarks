@@ -208,7 +208,20 @@ configuration is compiled from scratch -- the build directory and any previous
 artifact are removed first -- so compile time always describes a full compile
 rather than an incremental no-op. Both compilers run with `+RTS -N -RTS` and so
 use every core, which makes compile time a multithreaded measurement of one
-compiler with the machine to itself. All raw samples and the stopping reason
+compiler with the machine to itself.
+
+A GHC configuration is not measured again for every AIHC commit. Its inputs
+are the benchmark, the toolchain and the machine, and none of them is the
+commit under test, so the number cannot have moved. A GHC result is reused
+for `baseline_reuse_hours` (24 by default; zero measures everything every
+time), after which it is measured again, and a changed `environment_id` -- a
+new OS, CPU or runner -- discards it at once. What this trades away is drift
+cancelling: an AIHC number measured now against a baseline measured earlier
+carries whatever the machine did in between, which the window bounds. Reused
+entries record `reused_from`, naming the commit and moment their baseline
+came from. The AIHC side is never reused: its compiler is the commit.
+
+All raw samples and the stopping reason
 are retained.
 
 ## Uploading
