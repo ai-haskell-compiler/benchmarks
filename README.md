@@ -59,10 +59,14 @@ GHC ships `text`, `bytestring`, `containers` and the rest of its boot
 libraries already compiled, at the level its own release was built with, so an
 `O0` profile would otherwise link optimized libraries where AIHC compiled its
 equivalents at `-O0`. The GHC side rebuilds them from source instead, at the
-version the compiler ships and the profile's level. `base`, `ghc-prim`,
-`ghc-internal`, `ghc-bignum`, `rts`, `template-haskell` and what they depend
-on are wired into the compiler and stay as shipped, so a benchmark that only
-uses `base` is unaffected.
+profile's level. Their versions are left to the solver rather than pinned to
+what the compiler ships, so the bounds a benchmark and its dependencies
+declare still decide: GHC 9.14.1 ships `time-1.15` while `snappy-hs` requires
+`time <1.15`, and pinning the shipped version made that benchmark unsolvable.
+The freeze file's `index-state` is what keeps the choice deterministic.
+`base`, `ghc-prim`, `ghc-internal`, `ghc-bignum`, `rts`, `template-haskell`
+and what they depend on are wired into the compiler and stay as shipped, so a
+benchmark that only uses `base` is unaffected.
 
 Both compilers are timed installing every dependency a benchmark has,
 `text` included. The only libraries prepared beforehand are the compiler's

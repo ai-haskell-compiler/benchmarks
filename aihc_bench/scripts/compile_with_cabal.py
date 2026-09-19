@@ -30,8 +30,8 @@ Hackage dependencies stay pinned to the same version for every toolchain
 while the boot library versions come from the compiler under test.
 
 Those boot libraries are then rebuilt from source rather than taken as GHC
-shipped them, at the version the compiler ships and at the profile's
-optimization level (``boot_library_packages``). GHC's are compiled once, at
+shipped them, at the profile's optimization level
+(``boot_library_packages``). GHC's are compiled once, at
 the level its own release was built with, so an ``O0`` profile otherwise
 linked an optimized ``text`` and ``containers`` while AIHC compiled its
 equivalents at ``-O0``. ``base`` and the rest of ``WIRED_IN_PACKAGES`` cannot
@@ -204,19 +204,24 @@ def boot_library_packages(ghc_pkg: Path) -> dict[str, str]:
 
 
 def boot_constraints(boot_libraries: dict[str, str]) -> list[str]:
-    """Force each boot library to be built from source, at the shipped version.
+    """Force each boot library to be built from source, at whatever version solves.
 
-    The version pin keeps the experiment to one variable: the solver otherwise
-    picks whatever the index-state offers -- it chose ``containers-0.8`` over
-    the ``0.7`` GHC 9.12.4 ships -- and the profile comparison would then also
-    be comparing library releases. A constraint on a package no benchmark
-    reaches never enters a plan and costs nothing.
+    Only ``source`` is constrained, not the version. What a benchmark pins is
+    its own business: ``snappy-roundtrip`` pins ``snappy-hs ==0.1.2.0`` in its
+    ``.cabal`` and leaves the boot libraries unbounded, exactly as a benchmark
+    is meant to. Pinning each boot library to the version the compiler ships
+    overrode that and imposed a version nobody had chosen, which made
+    ``snappy-roundtrip`` unsolvable under GHC 9.14.1: the compiler ships
+    ``time-1.15`` while ``snappy-hs`` declares ``time >=1.14 && <1.15``, so
+    every baseline configuration failed to resolve and the run aborted before
+    any commit was recorded.
+
+    Determinism comes from the freeze file's ``index-state`` instead, which
+    fixes the candidate set the solver chooses from; the bounds the benchmark
+    and its dependencies declare pick a version out of it. A constraint on a
+    package no benchmark reaches never enters a plan and costs nothing.
     """
-    constraints = []
-    for name in sorted(boot_libraries):
-        constraints.append(f"any.{name} source")
-        constraints.append(f"any.{name} =={boot_libraries[name]}")
-    return constraints
+    return [f"any.{name} source" for name in sorted(boot_libraries)]
 
 
 def boot_allow_newer(boot_libraries: dict[str, str]) -> str:
@@ -229,11 +234,10 @@ def boot_allow_newer(boot_libraries: dict[str, str]) -> str:
     from source means taking the bounds from the release, so a rebuild of
     ``array`` is rejected outright without this.
 
-    Relaxing bounds cannot change which versions are used, because every boot
-    library is pinned to the version the compiler ships; it only stops a stale
-    bound from rejecting a version that is already decided. The relaxation is
-    scoped to the boot libraries, so the benchmark's own Hackage dependencies
-    still have their bounds enforced.
+    The relaxation is scoped to the bounds the boot libraries themselves
+    impose, so the benchmark's own Hackage dependencies still have their
+    bounds enforced -- and so does any bound placed *on* a boot library, which
+    is what lets ``snappy-hs`` hold ``time`` below ``1.15``.
     """
     return ", ".join(f"{name}:*" for name in sorted(boot_libraries))
 
