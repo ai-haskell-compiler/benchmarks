@@ -22,6 +22,8 @@ from aihc_bench.runner import (
     runtime_is_package,
     compile_cells,
     hackage_index_cache,
+    hackage_index_identity,
+    hold_hackage_index,
     MissingBaseline,
     measure_cells,
     require_baseline,
@@ -515,6 +517,61 @@ class HackageIndexWarmingTests(unittest.TestCase):
         "aihc_ref": "origin/main",
         "platforms": {"test-platform": {"aihc_native_target": "test-native"}},
     }
+
+    def test_holding_the_index_keeps_a_long_run_on_one_hackage(self):
+        """AIHC refetches a day-old index. A sweep runs for days, so without
+        this the commits measured after the refresh resolve against a
+        different Hackage than the ones before it, inside one series."""
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            derived = cache / "preferred-versions.txt"
+            derived.write_text("a 1.0\n", encoding="utf-8")
+            table = cache / "index.txt"
+            table.write_text("a 1.0 entry\n", encoding="utf-8")
+            (cache / "01-index.tar").write_bytes(b"tar")
+            stale = time.time() - 40 * 60 * 60
+            os.utime(table, (stale, stale))
+            with patch("aihc_bench.runner.hackage_index_cache", return_value=derived):
+                hold_hackage_index()
+            self.assertLess(time.time() - table.stat().st_mtime, 60)
+
+    def test_holding_an_incomplete_index_does_nothing(self):
+        """Without the tarball AIHC treats the cache as incomplete and
+        refetches whatever the table's timestamp says, so touching the table
+        would only hide that the cache needs rebuilding."""
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            derived = cache / "preferred-versions.txt"
+            derived.write_text("a 1.0\n", encoding="utf-8")
+            table = cache / "index.txt"
+            table.write_text("a 1.0 entry\n", encoding="utf-8")
+            stale = time.time() - 40 * 60 * 60
+            os.utime(table, (stale, stale))
+            with patch("aihc_bench.runner.hackage_index_cache", return_value=derived):
+                hold_hackage_index()
+            self.assertGreater(time.time() - table.stat().st_mtime, 30 * 60 * 60)
+
+    def test_the_index_identity_changes_with_the_index(self):
+        """Two machines resolving against different indexes published numbers
+        that looked comparable, because a result said nothing about which
+        Hackage chose its versions."""
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            derived = cache / "preferred-versions.txt"
+            derived.write_text("a 1.0\n", encoding="utf-8")
+            (cache / "index.txt").write_text("a 1.0 entry\n", encoding="utf-8")
+            with patch("aihc_bench.runner.hackage_index_cache", return_value=derived):
+                first = hackage_index_identity()
+                derived.write_text("a 1.1\n", encoding="utf-8")
+                second = hackage_index_identity()
+            self.assertIsNotNone(first)
+            self.assertNotEqual(first["sha256"], second["sha256"])
+
+    def test_the_index_identity_is_absent_without_a_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory) / "preferred-versions.txt"
+            with patch("aihc_bench.runner.hackage_index_cache", return_value=derived):
+                self.assertIsNone(hackage_index_identity())
 
     def test_a_fresh_index_is_left_alone(self):
         with tempfile.TemporaryDirectory() as directory:

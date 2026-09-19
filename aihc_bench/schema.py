@@ -45,7 +45,18 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def environment_record(platform_id: str, cpu_brand: str = "") -> Dict[str, Any]:
+def environment_record(
+    platform_id: str, cpu_brand: str = "", hackage_index: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Describe the machine a result was measured on.
+
+    ``hackage_index`` says which Hackage index the AIHC side resolved
+    against. It describes the run rather than identifying the machine, so it
+    stays out of ``ENVIRONMENT_IDENTITY_FIELDS``: a machine that picks up a
+    newer index is the same machine, and folding the index into the id would
+    split one machine's series in two. It is recorded so that two results
+    that resolved differently can be told apart at all.
+    """
     record: Dict[str, Any] = {
         "platform": platform_id,
         "machine": platform.machine(),
@@ -67,6 +78,9 @@ def environment_record(platform_id: str, cpu_brand: str = "") -> Dict[str, Any]:
     elif sys.platform.startswith("linux"):
         record["hardware_model"] = _command_output(["sh", "-c", "cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null || true"])
         record["os_build"] = _command_output(["uname", "-v"])
+
+    if hackage_index:
+        record["hackage_index"] = hackage_index
 
     identity = {field: record[field] for field in ENVIRONMENT_IDENTITY_FIELDS if field in record}
     encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")

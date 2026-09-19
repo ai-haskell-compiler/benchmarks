@@ -64,7 +64,14 @@ def run_commit(
     shared AIHC store cache. Returns one envelope per experiment.
     """
     machine_id = machine["machine_id"]
-    environment = environment_record(platform_id, machine.get("derivation", {}).get("cpu_brand", ""))
+    # Before anything is measured, so the whole commit resolves against the
+    # index this call holds still.
+    hold_hackage_index()
+    environment = environment_record(
+        platform_id,
+        machine.get("derivation", {}).get("cpu_brand", ""),
+        hackage_index=hackage_index_identity(),
+    )
     run_ids = {benchmark: new_run_id() for benchmark in experiments}
     for benchmark, experiment_id in experiments.items():
         database.start_attempt(experiment_id, platform_id, commit["sha"], run_ids[benchmark], environment, machine_id)
@@ -156,6 +163,65 @@ def hackage_index_cache() -> Path:
 #: AIHC's own 24h staleness window, so a measured commit always finds a fresh
 #: file and never refreshes it itself.
 INDEX_WARM_AGE_SECONDS = 12 * 60 * 60
+
+
+#: The files AIHC derives the index from, beside ``preferred-versions.txt``.
+#: ``IndexCache.isStale`` reads the derived table's modification time, and
+#: treats a cache without the tarball as incomplete.
+INDEX_TABLE_NAME = "index.txt"
+INDEX_TARBALL_NAME = "01-index.tar"
+
+
+def hackage_index_files() -> List[Path]:
+    """The cached index files, newest-derived first."""
+    directory = hackage_index_cache().parent
+    return [directory / INDEX_TABLE_NAME, directory / "preferred-versions.txt"]
+
+
+def hackage_index_identity() -> Optional[Dict[str, str]]:
+    """What the AIHC side resolved against, as a digest of the derived files.
+
+    A result records the machine, the compiler and the benchmark, but nothing
+    about the Hackage index that chose its dependency versions -- so two
+    machines resolving differently published two numbers that looked
+    comparable and were not. The derived table is a few megabytes, so hashing
+    it once per commit costs nothing next to a compile.
+    """
+    digest = hashlib.sha256()
+    present = False
+    for path in hackage_index_files():
+        if not path.is_file():
+            continue
+        present = True
+        digest.update(path.name.encode("utf-8"))
+        digest.update(path.read_bytes())
+    if not present:
+        return None
+    # Only the digest. The cache's modification time would be the obvious
+    # thing to record beside it, but ``hold_hackage_index`` sets that time
+    # deliberately, so it would describe the last run rather than the index.
+    return {"sha256": digest.hexdigest()[:16]}
+
+
+def hold_hackage_index() -> None:
+    """Keep the cached index from going stale for the length of a run.
+
+    AIHC refetches once the derived table is older than a day. A sweep runs
+    for days, so the index would be refreshed partway through -- every commit
+    measured after that point resolving against a different Hackage than the
+    commits before it, inside one continuous series. Warming before the run
+    only moves the moment it happens.
+
+    Touching the table holds the answers still. The pin is deliberate: a run
+    measures one index, and picking up a newer one is a decision to make
+    between runs, not one to discover in the middle of a series.
+    """
+    table = hackage_index_cache().parent / INDEX_TABLE_NAME
+    tarball = hackage_index_cache().parent / INDEX_TARBALL_NAME
+    if not table.is_file() or not tarball.is_file():
+        return
+    now = time.time()
+    os.utime(table, (now, now))
 
 
 def warm_hackage_index(

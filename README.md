@@ -151,6 +151,15 @@ GHC ships as boot libraries into a per-commit store, once per target and
 optimization level, so both toolchains pay for the same work inside the timed
 step: the benchmark and its non-boot Hackage dependencies.
 
+Every commit in a run resolves against one Hackage index. AIHC refetches
+its index once the derived table is a day old, and a sweep runs for days, so
+the index would otherwise be replaced partway through -- the commits after
+the refresh resolving against a different Hackage than the ones before, in
+one continuous series. `run` holds the cached index still for the length of
+the run, and records its digest in each result's environment, so two results
+that resolved differently can be told apart. Picking up a newer index is a
+decision between runs rather than one discovered mid-series.
+
 Before measuring anything, `run` refreshes AIHC's Hackage index with the
 compiler at `aihc_ref`. A measured commit that found the index stale would
 refresh it with its own code, so whether a historical commit builds would
