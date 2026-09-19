@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .compare import CompareError, format_report, resolve_side, run_compare, select_configuration, worktree_side
 from .config import OPTIMIZATION_PROFILES, ConfigError, detect_platform, experiment_ids, load_config, suite_key
@@ -155,6 +155,7 @@ def _dispatch(
                 )
             for envelope in envelopes:
                 print(f"recorded {envelope['compiler_status']} result {envelope['run_id']} for {envelope['benchmark']}")
+            _report_commit_timing(config, envelopes)
             inherited = sum(database.propagate_inherited(experiment, platform_id) for experiment in missing.values())
             if inherited:
                 print(f"propagated the result to {inherited} same-tree benchmark results")
@@ -210,6 +211,39 @@ def _print_plan(database: Database, experiments: Dict[str, str], suite: str, pla
         for gap in plan["gaps"][:5]:
             span = f"{gap['start']['ordinal'] + 1}-{gap['end']['ordinal'] + 1}"
             print(f"            {span:12} {gap['width']:5}  {gap['signal']:.3f}  {gap['recency']:.3f}  {gap['score']:8.1f}")
+
+
+#: A commit that takes longer than this is reported. The suite exists to
+#: measure a compiler's history, and a history is only measurable at a rate
+#: that keeps up with it.
+DEFAULT_COMMIT_BUDGET_SECONDS = 3600.0
+
+
+def _report_commit_timing(config: Dict[str, Any], envelopes: List[Dict[str, Any]]) -> None:
+    """Say where a commit's wall clock went, and whether it fits the budget.
+
+    Every envelope of a commit carries the same timing record: the phases
+    happen once for the commit, not once per benchmark.
+    """
+    timing = next((envelope.get("timing") for envelope in envelopes if envelope.get("timing")), None)
+    if not timing:
+        return
+    phases = timing.get("phases_ns") or {}
+    total = timing.get("total_ns") or sum(phases.values())
+    if not total:
+        return
+    parts = ", ".join(
+        f"{name} {phases[name] / 1e9:.0f}s"
+        for name in sorted(phases, key=lambda name: phases[name], reverse=True)
+        if phases[name]
+    )
+    print(f"commit took {total / 1e9 / 60:.0f} min: {parts}")
+    budget = float(config.get("commit_budget_seconds", DEFAULT_COMMIT_BUDGET_SECONDS))
+    if budget > 0 and total / 1e9 > budget:
+        print(
+            f"warning: the commit took {total / 1e9 / 60:.0f} min against a "
+            f"{budget / 60:.0f} min budget; the history is measured slower than it grows"
+        )
 
 
 def _upload_after_commit(

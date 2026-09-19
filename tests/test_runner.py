@@ -26,6 +26,7 @@ from aihc_bench.runner import (
     hold_hackage_index,
     MissingBaseline,
     measure_cells,
+    Phases,
     require_baseline,
     reusable_baselines,
     reused_result,
@@ -850,3 +851,36 @@ class BaselineReuseTests(unittest.TestCase):
         cell = SimpleNamespace(benchmark={"id": "example"}, configuration={"id": "aihc-native-semispace-O2"})
         with self.assertRaises(MissingBaseline):
             require_baseline([(cell, {"status": "compiled"})], ["example"], satisfied=set())
+
+
+class PhaseTimingTests(unittest.TestCase):
+    """A commit's cost was visible per cell only, so building the compiler and
+    preparing its stores -- which happen once per commit and can dominate it --
+    left no trace."""
+
+    def test_each_phase_is_timed_separately(self):
+        phases = Phases()
+        with phases.timing("compiler_build"):
+            time.sleep(0.01)
+        with phases.timing("measure"):
+            pass
+        record = phases.record()
+        self.assertEqual(sorted(record["phases_ns"]), ["compiler_build", "measure"])
+        self.assertGreater(record["phases_ns"]["compiler_build"], record["phases_ns"]["measure"])
+        self.assertEqual(record["total_ns"], sum(record["phases_ns"].values()))
+
+    def test_a_phase_entered_twice_accumulates(self):
+        phases = Phases()
+        for _ in range(2):
+            with phases.timing("compile"):
+                pass
+        self.assertEqual(len(phases.elapsed_ns), 1)
+
+    def test_a_failing_phase_is_still_timed(self):
+        """A commit that dies in the compiler build is exactly the one whose
+        cost needs explaining."""
+        phases = Phases()
+        with self.assertRaises(ValueError):
+            with phases.timing("compiler_build"):
+                raise ValueError("boom")
+        self.assertIn("compiler_build", phases.elapsed_ns)
