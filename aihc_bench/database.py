@@ -264,21 +264,6 @@ class Database:
             )
         return cursor.rowcount > 0
 
-    def result_envelopes(self, experiment_id: Optional[str] = None, platform_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        conditions = ["status != 'running'", "result_json IS NOT NULL"]
-        parameters: List[str] = []
-        if experiment_id:
-            conditions.append("experiment_id=?")
-            parameters.append(experiment_id)
-        if platform_id:
-            conditions.append("platform=?")
-            parameters.append(platform_id)
-        rows = self.connection.execute(
-            "SELECT result_json FROM attempts WHERE " + " AND ".join(conditions) + " ORDER BY finished_at",
-            parameters,
-        ).fetchall()
-        return [json.loads(row["result_json"]) for row in rows]
-
     def results_measured_since(
         self, experiment_id: str, platform_id: str, environment_id: str, since: str
     ) -> List[Dict[str, Any]]:
@@ -303,11 +288,3 @@ class Database:
                 entry["_measured_for"] = row["commit_sha"]
             return envelope.get("results", [])
         return []
-
-    def latest_attempt(self, experiment_id: str, platform_id: str) -> Optional[Dict[str, Any]]:
-        row = self.connection.execute(
-            "SELECT a.*, c.ordinal, c.committed_at, c.subject FROM attempts a JOIN commits c ON c.sha=a.commit_sha "
-            "WHERE experiment_id=? AND platform=? AND a.status != 'running' ORDER BY c.ordinal DESC LIMIT 1",
-            (experiment_id, platform_id),
-        ).fetchone()
-        return dict(row) if row else None

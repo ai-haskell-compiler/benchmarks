@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tarfile
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -110,15 +111,19 @@ def run_commit(
     if not path_exists(aihc_repository, commit["sha"], config["aihc_compiler_marker"]):
         return unavailable("no_compiler")
 
+    phases = Phases()
     try:
-        create_worktree(aihc_repository, worktree, commit["sha"])
-        build_error = build_compiler(worktree, root, compile_timeout)
+        with phases.timing("worktree"):
+            create_worktree(aihc_repository, worktree, commit["sha"])
+        with phases.timing("compiler_build"):
+            build_error = build_compiler(worktree, root, compile_timeout)
         if build_error is not None:
             return unavailable("build_failed", build_error)
 
         aihc_store = root / ".cache" / "aihc-stores" / suite / platform_id / commit["sha"]
-        aihc_setup_errors = _prepare_aihc_store(config, platform_id, worktree, root, aihc_store, compile_timeout)
-        store_archive = _archive_store(aihc_store)
+        with phases.timing("aihc_store"):
+            aihc_setup_errors = _prepare_aihc_store(config, platform_id, worktree, root, aihc_store, compile_timeout)
+            store_archive = _archive_store(aihc_store)
 
         cells = build_cells(
             config,
@@ -133,11 +138,13 @@ def run_commit(
         )
         reused = reusable_baselines(database, config, experiments, platform_id, environment)
         cells = [cell for cell in cells if (cell.benchmark["id"], cell.configuration["id"]) not in reused]
-        compiled = compile_cells(cells, root, compile_timeout)
+        with phases.timing("compile"):
+            compiled = compile_cells(cells, root, compile_timeout)
         # A reused baseline is a baseline: it compiled and ran here, inside
         # the window, on this environment.
         require_baseline(compiled, experiments, satisfied={benchmark for benchmark, _ in reused})
-        results = measure_cells(compiled, root, measurement_config)
+        with phases.timing("measure"):
+            results = measure_cells(compiled, root, measurement_config)
         results.extend(reused_result(entry) for entry in reused.values())
         envelopes = []
         for benchmark, experiment_id in experiments.items():
@@ -146,6 +153,7 @@ def run_commit(
                 compiler_status="available",
                 unavailable_reason=None,
                 results=[result for result in results if result["benchmark"] == benchmark],
+                timing=phases.record(),
             )
             database.finish_attempt(experiment_id, platform_id, commit["sha"], "complete", envelope)
             envelopes.append(envelope)
@@ -456,6 +464,32 @@ def build_cells(
                 )
             )
     return cells
+
+
+class Phases:
+    """Wall clock per phase of a commit, so a slow commit can be explained.
+
+    A commit's cost was only ever visible per cell: compile and run times are
+    recorded, but building the compiler and preparing its stores -- which
+    happen once per commit and need no benchmark -- were not, so the largest
+    parts of an hour-long commit left no trace. A budget cannot be held
+    against what is not measured.
+    """
+
+    def __init__(self) -> None:
+        self.elapsed_ns: Dict[str, int] = {}
+
+    @contextmanager
+    def timing(self, name: str):
+        start = time.perf_counter_ns()
+        try:
+            yield
+        finally:
+            self.elapsed_ns[name] = self.elapsed_ns.get(name, 0) + (time.perf_counter_ns() - start)
+
+    def record(self) -> Dict[str, Any]:
+        total = sum(self.elapsed_ns.values())
+        return {"phases_ns": dict(self.elapsed_ns), "total_ns": total}
 
 
 #: How long a GHC baseline may be reused before it is measured again.

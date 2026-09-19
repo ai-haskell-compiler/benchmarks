@@ -221,6 +221,14 @@ carries whatever the machine did in between, which the window bounds. Reused
 entries record `reused_from`, naming the commit and moment their baseline
 came from. The AIHC side is never reused: its compiler is the commit.
 
+Each commit records its wall clock per phase -- building the compiler,
+preparing the AIHC stores, compiling, measuring -- and `run` prints the
+breakdown and warns when a commit exceeds `commit_budget_seconds` (an hour by
+default; zero disables the check). Building the compiler and preparing its
+stores happen once per commit and need no benchmark, so they can dominate an
+hour without appearing in any per-cell number; the breakdown is what makes a
+slow commit explainable rather than merely slow.
+
 All raw samples and the stopping reason
 are retained.
 
