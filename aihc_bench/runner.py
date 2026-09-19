@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -325,6 +326,36 @@ def build_compiler(worktree: Path, root: Path, timeout_seconds: float) -> Option
     return None
 
 
+#: What a failure looks like in a compiler's output. Searched for before
+#: anything else, because the interesting line is rarely the first: taking
+#: the first line of stderr reported "Warning: Specifying an absolute path to
+#: the project file is deprecated" as the reason a sweep stopped, while the
+#: error four lines below said the machine's Hackage index was too old.
+_FAILURE = re.compile(r"(^error\b|\berror:|\[Cabal-\d+\]|\bfailed\b|^fatal\b|cannot |could not )", re.IGNORECASE)
+
+#: Preamble a compiler emits before saying anything useful, skipped only when
+#: no line looks like a failure at all.
+_PREAMBLE = re.compile(r"^(warning\b|note:|resolving dependencies|configuration is affected|--)", re.IGNORECASE)
+
+
+def first_meaningful_line(text: str) -> str:
+    """The line that says what went wrong, not the preamble before it.
+
+    A line that looks like a failure wins wherever it appears. Failing that,
+    the first line that is not recognisable preamble; failing that, the first
+    line at all, so a message this does not recognise is reported rather than
+    swallowed.
+    """
+    present = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    for line in present:
+        if _FAILURE.search(line):
+            return line
+    for line in present:
+        if not _PREAMBLE.match(line):
+            return line
+    return present[0] if present else ""
+
+
 class MissingBaseline(RuntimeError):
     """A benchmark produced no baseline binary, so it cannot be compared."""
 
@@ -365,7 +396,7 @@ def require_baseline(
         for cell, outcome in outcomes:
             reported = outcome.get("stderr") or outcome.get("reason") or outcome.get("status", "")
             if reported:
-                detail = f"{cell.configuration['id']}: {str(reported).strip().splitlines()[0]}"
+                detail = f"{cell.configuration['id']}: {first_meaningful_line(str(reported))}"
                 break
         configured = "no baseline configuration ran" if not outcomes else detail
         raise MissingBaseline(f"{benchmark} has no baseline result on this machine ({configured})")
