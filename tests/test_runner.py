@@ -30,6 +30,7 @@ from aihc_bench.runner import (
     core_library_paths,
     CONTENDED_LOAD,
     contention_note,
+    first_meaningful_line,
     require_baseline,
     reusable_baselines,
     reused_result,
@@ -1011,3 +1012,33 @@ class ContentionTests(unittest.TestCase):
             }, samples)
         self.assertEqual(samples, [4.5])
         self.assertIsNotNone(contention_note(max(samples)))
+
+
+class FailureReportingTests(unittest.TestCase):
+    """Taking the first line of stderr reported a deprecation warning as the
+    reason a sweep stopped, while the error three lines below said the
+    machine's Hackage index was too old to resolve the benchmark."""
+
+    CABAL_STALE_INDEX = """Warning: Specifying an absolute path to the project file is deprecated. Use
+--project-dir to set the project's directory.
+Configuration is affected by cabal.project at '/tmp/build'.
+Error: [Cabal-7159]
+Latest known index-state for 'hackage.haskell.org' (2026-09-14T10:40:12Z) is older than the requested index-state (2026-09-17T04:58:45Z).
+"""
+
+    def test_the_error_is_reported_not_the_warning_above_it(self):
+        self.assertEqual(first_meaningful_line(self.CABAL_STALE_INDEX), "Error: [Cabal-7159]")
+
+    def test_resolver_preamble_is_skipped(self):
+        text = "Resolving dependencies...\nError: [Cabal-7107]\nCould not resolve dependencies:\n"
+        self.assertEqual(first_meaningful_line(text), "Error: [Cabal-7107]")
+
+    def test_an_unrecognised_message_is_still_reported(self):
+        """A message this does not recognise must not be swallowed."""
+        self.assertEqual(first_meaningful_line("segmentation fault\nmore\n"), "segmentation fault")
+
+    def test_all_noise_falls_back_to_the_first_line(self):
+        self.assertEqual(first_meaningful_line("Warning: one\nWarning: two\n"), "Warning: one")
+
+    def test_empty_output_is_empty(self):
+        self.assertEqual(first_meaningful_line("   \n\n"), "")

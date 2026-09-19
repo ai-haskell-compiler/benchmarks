@@ -12,8 +12,13 @@ and metric, a page per commit, and the coverage of the commit history.
 ## Running locally
 
 Requirements are Nix and Git. The GHC side resolves its dependencies against a
-local Hackage package list, which `doctor` checks for and `cabal update`
-populates once per machine.
+local Hackage package list, which `cabal update` populates. A benchmark's
+freeze file pins the moment of the index it was solved against, and cabal
+refuses to resolve against an index older than that pin, so a machine whose
+`cabal update` predates it cannot build that benchmark at all. `doctor`
+compares the two and says to run `cabal update` when the machine is behind;
+without that check a stale index took out every GHC baseline for
+`aihc-cpp-stackage` and stopped a sweep.
 
 ```console
 nix develop --command cabal update

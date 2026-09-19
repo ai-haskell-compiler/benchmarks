@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -324,7 +325,17 @@ def _doctor(
         print(f"hackage:    missing (no package list at {index}; run 'cabal update')")
         failures.append("hackage index")
     else:
-        print(f"hackage:    {index}")
+        wanted, benchmark = _newest_freeze_index_state(config, root)
+        reached = _index_state_reached(index)
+        if wanted and reached and reached < wanted:
+            print(
+                f"hackage:    {index}\n"
+                f"            stale: {benchmark} pins index-state {wanted}, this machine reaches "
+                f"{reached}; run 'cabal update'"
+            )
+            failures.append("hackage index older than a benchmark's index-state")
+        else:
+            print(f"hackage:    {index}" + (f" (covers index-state {wanted})" if wanted else ""))
     if not (repository / ".git").exists() and not (repository / "HEAD").exists():
         failures.append("aihc repository")
         print("repository does not appear to be a Git checkout")
@@ -336,6 +347,51 @@ def _doctor(
         failures.append("wrangler login")
     if failures:
         raise ValueError("doctor found missing requirements: " + ", ".join(failures))
+
+
+#: ``index-state:`` in a benchmark's freeze file.
+_FREEZE_INDEX_STATE = re.compile(r"(?m)^index-state:\s*hackage\.haskell\.org\s+(\S+)")
+
+
+def _newest_freeze_index_state(config: Dict[str, Any], root: Path) -> Tuple[Optional[str], Optional[str]]:
+    """The newest index-state any benchmark pins, and which benchmark pins it.
+
+    A freeze file pins the moment of the Hackage index it was solved against.
+    Cabal refuses to resolve against an index older than that, so a machine
+    whose ``cabal update`` predates the pin cannot build that benchmark at
+    all -- which is how a stale index took out every GHC baseline for
+    aihc-cpp-stackage and stopped a sweep, reported as a deprecation warning.
+    """
+    newest: Optional[str] = None
+    owner: Optional[str] = None
+    for benchmark in config.get("benchmarks", []):
+        freeze = root / benchmark["source"] / "cabal.project.freeze"
+        if not freeze.is_file():
+            continue
+        found = _FREEZE_INDEX_STATE.search(freeze.read_text(encoding="utf-8"))
+        if found and (newest is None or found.group(1) > newest):
+            newest, owner = found.group(1), benchmark["id"]
+    return newest, owner
+
+
+def _index_state_reached(index: Path) -> Optional[str]:
+    """How far the machine's package list reaches, as an index-state.
+
+    Cabal writes the timestamp beside the tarball; its absence is not a
+    failure, since an index that resolves is the thing that matters and the
+    build says so plainly if it does not.
+    """
+    marker = index.with_name("01-index.timestamp")
+    if marker.is_file():
+        try:
+            stamp = int(marker.read_text(encoding="utf-8").strip())
+        except ValueError:
+            return None
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stamp))
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(index.stat().st_mtime))
+    except OSError:
+        return None
 
 
 def _hackage_index(root: Path) -> Optional[Path]:
