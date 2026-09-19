@@ -70,7 +70,12 @@ benchmark that only uses `base` is unaffected.
 
 Both compilers are timed installing every dependency a benchmark has,
 `text` included. The only libraries prepared beforehand are the compiler's
-own: the packages GHC wires in, and `aihc-base` on the AIHC side. Every artifact is stripped before its size is recorded: `llvm-strip` for native binaries and
+own: the packages GHC wires in, and AIHC's core libraries -- `aihc-base`,
+`aihc-internal`, `aihc-prim`, `aihc-rts` and `aihc-template-haskell`, the set
+AIHC's own lock marks `"source": "core"`. Preparing `aihc-base` alone left the
+rest inside the timed compile, so a benchmark reaching `bytestring` rebuilt
+about 11 MB of core library in every cell while GHC never rebuilds its
+wired-in closure at all. Every artifact is stripped before its size is recorded: `llvm-strip` for native binaries and
 `wasm-tools strip --all` for Wasm, which also handles the component AIHC
 emits. Stripping happens after the timed compile. GHC is measured with its
 native and LLVM backends, and with the `ghc-wasm-meta` cross-compiler for
