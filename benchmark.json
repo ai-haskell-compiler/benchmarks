@@ -48,6 +48,12 @@
       "expected_stdout": "ok\n"
     },
     {
+      "id": "sha-digest-v1",
+      "package": "sha-digest",
+      "source": "benchmarks/sha-digest",
+      "expected_stdout": "ok\n"
+    },
+    {
       "id": "aihc-cpp-stackage-v1",
       "package": "aihc-cpp-stackage",
       "source": "benchmarks/aihc-cpp-stackage",
