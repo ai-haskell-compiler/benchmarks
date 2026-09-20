@@ -32,6 +32,7 @@ from aihc_bench.runner import (
     contention_note,
     first_meaningful_line,
     require_baseline,
+    unmeasured_benchmarks,
     reusable_baselines,
     reused_result,
     strip_command,
@@ -1073,3 +1074,41 @@ Latest known index-state for 'hackage.haskell.org' (2026-09-14T10:40:12Z) is old
 
     def test_empty_output_is_empty(self):
         self.assertEqual(first_meaningful_line("   \n\n"), "")
+
+
+class SilentBenchmarkTests(unittest.TestCase):
+    """A benchmark whose cells all compile but none measure is invisible.
+
+    Its run is recorded available -- the compiler worked -- and it carries no
+    measurements, so the site has nothing to plot. aihc-cpp-stackage sat like
+    that from the day it was added: every cell built and ran, every one failed
+    validation against an expected tally that was wrong, and nothing said so.
+    """
+
+    def _cell(self, benchmark, status):
+        return {"benchmark": benchmark, "configuration": f"{benchmark}-cfg-{status}", "measurement": {"status": status}}
+
+    def test_a_benchmark_measuring_nothing_is_named_with_its_reasons(self):
+        results = [self._cell("cpp", "validation_failed")] * 3 + [self._cell("cpp", "run_failed")]
+        silent = unmeasured_benchmarks(results, ["cpp"])
+        self.assertEqual(silent, {"cpp": {"validation_failed": 3, "run_failed": 1}})
+
+    def test_one_measured_cell_is_enough_to_stay_quiet(self):
+        """A partially broken benchmark still publishes, so it is visible and
+        not this problem."""
+        results = [self._cell("cpp", "validation_failed"), self._cell("cpp", "converged")]
+        self.assertEqual(unmeasured_benchmarks(results, ["cpp"]), {})
+
+    def test_every_completed_status_counts_as_measured(self):
+        for status in ("converged", "nonconverged", "budget"):
+            with self.subTest(status=status):
+                self.assertEqual(unmeasured_benchmarks([self._cell("cpp", status)], ["cpp"]), {})
+
+    def test_a_benchmark_with_no_cells_is_not_reported(self):
+        """It was not measured this commit at all, which is inheritance or a
+        benchmark filled in later, not silence."""
+        self.assertEqual(unmeasured_benchmarks([], ["cpp"]), {})
+
+    def test_other_benchmarks_are_judged_separately(self):
+        results = [self._cell("cpp", "validation_failed"), self._cell("snappy", "converged")]
+        self.assertEqual(sorted(unmeasured_benchmarks(results, ["cpp", "snappy"])), ["cpp"])

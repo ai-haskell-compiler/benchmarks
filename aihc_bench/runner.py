@@ -151,6 +151,13 @@ def run_commit(
         if contended:
             print(f"warning: {contended}", file=sys.stderr)
         results.extend(reused_result(entry) for entry in reused.values())
+        for benchmark, reasons in unmeasured_benchmarks(results, experiments).items():
+            detail = ", ".join(f"{count} {status}" for status, count in sorted(reasons.items()))
+            print(
+                f"warning: {benchmark} produced no measurement on any configuration ({detail}); "
+                f"it compiles but publishes nothing, so it is absent from the site rather than failing",
+                file=sys.stderr,
+            )
         envelopes = []
         for benchmark, experiment_id in experiments.items():
             envelope = envelope_for(
@@ -531,6 +538,33 @@ class Phases:
 #: Overridden by ``baseline_reuse_hours`` in ``benchmark.json``; zero measures
 #: every configuration on every commit.
 DEFAULT_BASELINE_REUSE_HOURS = 24.0
+
+
+def unmeasured_benchmarks(results: List[Dict[str, Any]], benchmarks: Iterable[str]) -> Dict[str, Dict[str, int]]:
+    """Benchmarks whose every cell compiled but none produced a measurement.
+
+    Such a benchmark is not visible as a failure anywhere. Its run is
+    recorded ``available`` -- the compiler worked -- and it simply carries no
+    measurements, so the site has nothing to plot and the benchmark quietly
+    disappears from a suite it is still nominally part of.
+
+    ``aihc-cpp-stackage`` sat like that from the day it was added: every cell
+    built and ran, every one failed ``validation_failed`` against an expected
+    tally that was wrong, and nothing said so.
+    """
+    silent: Dict[str, Dict[str, int]] = {}
+    for benchmark in benchmarks:
+        entries = [result for result in results if result["benchmark"] == benchmark]
+        if not entries:
+            continue
+        if any((entry.get("measurement") or {}).get("status") in MEASURED_STATUSES for entry in entries):
+            continue
+        reasons: Dict[str, int] = {}
+        for entry in entries:
+            status = (entry.get("measurement") or {}).get("status") or "unknown"
+            reasons[status] = reasons.get(status, 0) + 1
+        silent[benchmark] = reasons
+    return silent
 
 
 def reusable_baselines(
