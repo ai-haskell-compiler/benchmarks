@@ -102,14 +102,7 @@ def _dispatch(
 
     if arguments.command in {"plan", "run"}:
         repository = _repository(arguments, root)
-        if arguments.fetch:
-            fetch(repository)
-        history = commits(
-            repository, config.get("aihc_ref", "origin/main"), config["aihc_tree_paths"], since=config.get("aihc_since")
-        )
-        database.replace_commits(history)
-        for experiment in experiments.values():
-            database.propagate_inherited(experiment, platform_id)
+        history = _refresh_history(database, config, repository, platform_id, experiments, arguments.fetch)
 
     if arguments.command == "plan":
         _print_plan(database, experiments, suite, platform_id, len(history))
@@ -126,6 +119,12 @@ def _dispatch(
             print(f"warning: could not warm the Hackage index, measuring against whatever is cached: {index_error.splitlines()[0]}")
         completed = 0
         while True:
+            # Before choosing, not only before the sweep. A sweep runs for
+            # hours and the branch moves while it does, so a run that planned
+            # once kept measuring an old history and never saw the commit that
+            # had just landed -- the one most worth measuring.
+            if completed:
+                history = _refresh_history(database, config, repository, platform_id, experiments, arguments.fetch)
             by_experiment = _terminal_by_experiment(database, experiments, platform_id)
             plan = build_plan(database.commits(), merge_terminal_attempts(by_experiment))
             next_commit = plan["next"]
@@ -218,6 +217,34 @@ def _print_plan(database: Database, experiments: Dict[str, str], suite: str, pla
 #: measure a compiler's history, and a history is only measurable at a rate
 #: that keeps up with it.
 DEFAULT_COMMIT_BUDGET_SECONDS = 3600.0
+
+
+def _refresh_history(
+    database: Database,
+    config: Dict[str, Any],
+    repository: Path,
+    platform_id: str,
+    experiments: Dict[str, str],
+    fetch_first: bool,
+) -> List[Dict[str, Any]]:
+    """Reload the commit history, fetching it first when asked.
+
+    A fetch that fails leaves the history as it was and says so. The branch
+    being briefly unreachable is not a reason to stop a sweep that has hours
+    of measuring left and a perfectly good list of commits already.
+    """
+    if fetch_first:
+        try:
+            fetch(repository)
+        except GitError as error:
+            print(f"warning: could not fetch the compiler history, planning against what is already cloned: {error}")
+    history = commits(
+        repository, config.get("aihc_ref", "origin/main"), config["aihc_tree_paths"], since=config.get("aihc_since")
+    )
+    database.replace_commits(history)
+    for experiment in experiments.values():
+        database.propagate_inherited(experiment, platform_id)
+    return history
 
 
 def _report_commit_timing(config: Dict[str, Any], envelopes: List[Dict[str, Any]]) -> None:

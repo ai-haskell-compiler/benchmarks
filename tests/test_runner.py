@@ -806,7 +806,18 @@ class BaselineReuseTests(unittest.TestCase):
     EXPERIMENTS = {"example": "example-v1-abc"}
     ENVIRONMENT = {"id": "test-platform-aaaa"}
 
-    def _database(self, entries, environment_id="test-platform-aaaa", finished_at="2026-09-19T12:00:00"):
+    @staticmethod
+    def _recently(hours_ago=1.0):
+        """A timestamp relative to now.
+
+        A fixed one passes only until the reuse window slides past it: these
+        tests were written with 2026-09-19T12:00:00 and began failing a day
+        later, when the twenty-four hour window no longer reached it.
+        """
+        return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - hours_ago * 3600))
+
+    def _database(self, entries, environment_id="test-platform-aaaa", finished_at=None):
+        finished_at = finished_at or self._recently()
         class Stub:
             def results_measured_since(self, experiment_id, platform_id, wanted_id, since):
                 if wanted_id != environment_id or finished_at < since:
