@@ -56,8 +56,12 @@ Nothing the suite does competes with a measurement, but something else on the
 machine can, and both compile time and run time move when it does -- in a way
 that afterwards is indistinguishable from a change in the compiler. Since
 measurement is sequential, the load average while it runs should sit near one;
-`run` samples it before each cell and, when it exceeds 2, warns and records
-`contended` on the commit. That does not make the numbers good, it makes them
+`run` samples it before each cell and, when the median exceeds 2, warns and
+records `contended` on the commit. The median rather than the peak, because
+load average is a trailing one-minute mean and the compile phase before it
+uses every core: the first samples carry the decay of the suite's own work,
+and something that really shares the machine is there for the whole
+measurement. That does not make the numbers good, it makes them
 answerable.
 
 Every configuration is measured in four profiles: `O0`, `O1`, `O2` and `Os`.

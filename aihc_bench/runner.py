@@ -147,7 +147,7 @@ def run_commit(
         load_samples: List[float] = []
         with phases.timing("measure"):
             results = measure_cells(compiled, root, measurement_config, load_samples)
-        contended = contention_note(max(load_samples) if load_samples else None)
+        contended = contention_note(load_samples)
         if contended:
             print(f"warning: {contended}", file=sys.stderr)
         results.extend(reused_result(entry) for entry in reused.values())
@@ -871,7 +871,7 @@ def machine_load() -> Optional[float]:
         return None
 
 
-def contention_note(peak_load: Optional[float]) -> Optional[str]:
+def contention_note(samples: Optional[List[float]]) -> Optional[str]:
     """Say when a measurement shared the machine, or nothing when it did not.
 
     Compile time and run time are both published, and both move under
@@ -884,10 +884,19 @@ def contention_note(peak_load: Optional[float]) -> Optional[str]:
 
     Detecting it does not make the numbers good. It makes them answerable.
     """
-    if peak_load is None or peak_load <= CONTENDED_LOAD:
+    if not samples:
+        return None
+    # The median, not the peak. Load average is a trailing one-minute mean and
+    # the compile phase before this one uses every core, so the first samples
+    # carry the decay of the suite's own work: taking the peak reported
+    # contention on an idle machine every time. Something that really shares
+    # the machine is there for the whole measurement, so it moves the median.
+    ordered = sorted(samples)
+    median = ordered[len(ordered) // 2] if len(ordered) % 2 else (ordered[len(ordered) // 2 - 1] + ordered[len(ordered) // 2]) / 2
+    if median <= CONTENDED_LOAD:
         return None
     return (
-        f"the machine was not idle while measuring (peak one-minute load {peak_load:.1f}, "
+        f"the machine was not idle while measuring (median one-minute load {median:.1f}, "
         f"above {CONTENDED_LOAD:.1f}); timings on this commit share the machine with something else"
     )
 
