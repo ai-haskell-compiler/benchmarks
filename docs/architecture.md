@@ -179,13 +179,17 @@ same way AIHC's own flake does.
 
 A benchmark with `corpus_env` reads a directory that the flake builds and
 exports under that variable (`AIHC_BENCH_CPP_CORPUS` for
-`corpus/cpp/corpus.nix`). The runner refuses to build cells without it and
+`corpus/cpp/corpus.nix`, `AIHC_BENCH_PARSER_CORPUS` for
+`corpus/parser/corpus.nix`). The runner refuses to build cells without it and
 `doctor` reports it. The directory is the program's last argument; a
 configuration whose program runs under a sandbox lists in `corpus_options`
 the host options that expose it (`--dir {corpus}` for Wasmtime), inserted in
 front of the artifact. The experiment ID of a corpus benchmark also hashes
-every file under `corpus/`, so a change to the snapshot pin, the assembly
-script or a stand-in header restarts that benchmark's history and no other.
+every file under the directories its `corpus_sources` name -- the corpus's
+own directory and the shared snapshot pin under `corpus/stackage` -- so a
+change to the pin, an assembly script or a stand-in header restarts the
+history of the benchmarks that read it and no other. A benchmark without
+`corpus_sources` hashes all of `corpus/`.
 A benchmark may also carry its own `process_timeout_seconds`, overriding the
 suite-wide one for a sweep that legitimately runs for seconds; being part of
 the benchmark definition, it too affects only that benchmark's identity.

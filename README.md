@@ -169,8 +169,51 @@ toolchains, and passes it to the program as its argument (preopened with
 `--dir` under Wasmtime). The printed tally -- module count, modules without an
 error diagnostic, total output bytes -- is the benchmark's expected output,
 so a miscompiled preprocessor fails the run rather than producing a number.
-The corpus sources under `corpus/` are part of that benchmark's experiment
-identity and of no other.
+A corpus benchmark names the directories its corpus is built from in
+`corpus_sources` (`corpus/cpp` and the shared snapshot pin under
+`corpus/stackage` for this one), and those files are part of that benchmark's
+experiment identity and of no other: a change to one corpus restarts the
+history of the benchmark that reads it and leaves the others valid.
+
+## The parser corpus
+
+`aihc-parser-stackage` measures [`aihc-parser`](https://github.com/ai-haskell-compiler/aihc-parser),
+the compiler's Haskell parser, on the modules of the same snapshot that a
+parser can read as they sit on disk. Its corpus is built the same way:
+
+```console
+nix build .#parser-corpus
+cat result/report.txt
+```
+
+A module is selected when the package's `.cabal` file declares it (so test
+fixtures meant not to parse stay out), it is plain `.hs` rather than `.lhs`
+or `.hsc`, it is valid UTF-8 without a byte-order mark, and no preprocessor
+would touch it: neither CPP, whether a `LANGUAGE` pragma or the package's
+`default-extensions` enable it, nor a custom one named with `-pgmF`. A
+package that enables CPP anywhere is left out whole, since a module of it may
+rely on the preprocessor without saying so. That keeps about 35,000 of the
+snapshot's modules, 240 MB of source. `modules.tsv` lists each with the
+package's `default-language` and `default-extensions`, which is what a build
+hands the parser before the module's own `LANGUAGE` pragmas; the `.cabal`
+file is read loosely, every stanza contributing, so the extension set is a
+superset of any one component's.
+
+The timed run sweeps `benchmark.tsv`, an even stride through the corpus up
+to 32 KiB of module source (`sampleBytes` in `corpus/parser/corpus.nix`)
+that steps over modules above 16 KiB, so it is many hand-written modules
+rather than one generated one. An AIHC build at `-O0` parses hand-written
+modules at around 17 KB/s natively today, so a native run takes about two
+seconds; under Wasmtime it parses around 4 KB/s after two seconds of
+startup, about eleven seconds in all, and the sample is what keeps that
+inside the benchmark's `process_timeout_seconds`. A GHC build at `-O0`
+reads the whole corpus in about two minutes. Every module is read, decoded, parsed and forced completely --
+the whole tree and the recovered parse errors -- before the next one
+starts, as a compiler front end would consume it. `<program> <corpus>
+--report` sweeps every module and prints each parse error. The printed
+tally -- module count, modules without a parse error, imports and
+declarations across every tree -- is the benchmark's expected output, so a
+miscompiled parser fails the run rather than producing a number.
 
 Before the timed compile the runner installs `aihc-base` and the dependencies
 GHC ships as boot libraries into a per-commit store, once per target and

@@ -52,7 +52,17 @@
       "package": "aihc-cpp-stackage",
       "source": "benchmarks/aihc-cpp-stackage",
       "corpus_env": "AIHC_BENCH_CPP_CORPUS",
+      "corpus_sources": ["corpus/cpp", "corpus/stackage"],
       "expected_stdout": "modules=41 ok=40 errored=1 bytes=392397\n",
+      "process_timeout_seconds": 120
+    },
+    {
+      "id": "aihc-parser-stackage-v1",
+      "package": "aihc-parser-stackage",
+      "source": "benchmarks/aihc-parser-stackage",
+      "corpus_env": "AIHC_BENCH_PARSER_CORPUS",
+      "corpus_sources": ["corpus/parser", "corpus/stackage"],
+      "expected_stdout": "modules=9 ok=9 errored=0 imports=63 decls=124\n",
       "process_timeout_seconds": 120
     }
   ],
