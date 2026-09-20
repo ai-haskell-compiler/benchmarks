@@ -2,7 +2,7 @@
 
 Historical runtime benchmarks for every first-parent commit on
 [`ai-haskell-compiler/aihc`](https://github.com/ai-haskell-compiler/aihc)
-since `aihc_since` in `benchmark.json` (2026-09-12); earlier commits predate
+since `aihc_since` in `benchmark.json` (2026-09-20); earlier commits predate
 the current `aihc` command line and are never planned.
 
 Results are published at [perf.aihc.app](https://perf.aihc.app): an overview
