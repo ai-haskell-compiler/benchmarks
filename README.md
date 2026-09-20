@@ -42,7 +42,11 @@ from the CPU model and a hashed hardware identifier and frozen in
 `.state/machine.json`; pass `--machine <id>` to override it.
 
 Run one commit with `run`, or continue until every commit has a terminal
-result with `run --all`. The planner measures an unmeasured `HEAD` first, then
+result with `run --all`. A sweep reloads the compiler's history before each
+commit it chooses -- fetching first when `--fetch` is given -- so a commit
+that lands while the sweep is running is planned straight away rather than
+after it finishes. A fetch that fails leaves the history as it was and says
+so, since a branch briefly out of reach is no reason to stop measuring. The planner measures an unmeasured `HEAD` first, then
 the newest 20 commits, then bisects the gap with the highest score, where a
 gap scores by its width, by the change observed between its measured
 endpoints, and by recency. Commits that leave the compiler-relevant paths
