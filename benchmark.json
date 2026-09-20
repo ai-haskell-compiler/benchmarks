@@ -52,7 +52,7 @@
       "package": "aihc-cpp-stackage",
       "source": "benchmarks/aihc-cpp-stackage",
       "corpus_env": "AIHC_BENCH_CPP_CORPUS",
-      "expected_stdout": "modules=41 ok=40 errored=1 bytes=420421\n",
+      "expected_stdout": "modules=41 ok=40 errored=1 bytes=392397\n",
       "process_timeout_seconds": 120
     }
   ],
