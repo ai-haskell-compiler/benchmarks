@@ -980,11 +980,11 @@ class ContentionTests(unittest.TestCase):
     laptop measuring while other work compiled on it."""
 
     def test_an_idle_machine_says_nothing(self):
-        self.assertIsNone(contention_note(1.0))
-        self.assertIsNone(contention_note(CONTENDED_LOAD))
+        self.assertIsNone(contention_note([1.0, 0.9, 1.1]))
+        self.assertIsNone(contention_note([CONTENDED_LOAD] * 3))
 
     def test_a_shared_machine_is_named_with_its_load(self):
-        note = contention_note(6.0)
+        note = contention_note([6.0, 6.2, 5.9])
         self.assertIsNotNone(note)
         self.assertIn("6.0", note)
         self.assertIn("not idle", note)
@@ -992,6 +992,26 @@ class ContentionTests(unittest.TestCase):
     def test_a_platform_without_load_average_says_nothing(self):
         """Absent evidence is not evidence of contention."""
         self.assertIsNone(contention_note(None))
+        self.assertIsNone(contention_note([]))
+
+    def test_the_suites_own_compiling_does_not_count_as_contention(self):
+        """Load average is a trailing one-minute mean and the compile phase
+        before the measurement uses every core, so the first samples carry the
+        decay of the suite's own work. Taking the peak reported contention on
+        an idle machine every time -- worker-nuc, at a measured peak of 3.8.
+        """
+        decaying = [3.8, 2.4, 1.3, 0.9, 0.8, 0.7, 0.7, 0.6, 0.6]
+        self.assertIsNone(contention_note(decaying))
+
+    def test_contention_lasting_the_whole_measurement_is_caught(self):
+        """Something really sharing the machine is there throughout, so it
+        moves the median rather than only the first sample."""
+        shared = [3.8, 4.1, 3.9, 4.4, 4.0, 3.7, 4.2]
+        self.assertIsNotNone(contention_note(shared))
+
+    def test_an_even_number_of_samples_averages_the_middle_two(self):
+        self.assertIsNone(contention_note([1.0, 1.0, 3.0, 3.0]))
+        self.assertIsNotNone(contention_note([1.0, 3.0, 3.0, 3.0]))
 
     def test_measurement_records_the_load_it_saw(self):
         cell = SimpleNamespace(
@@ -1011,7 +1031,7 @@ class ContentionTests(unittest.TestCase):
                 "process_timeout_seconds": 1, "relative_threshold": 0.01, "maximum_bucket_size": 2
             }, samples)
         self.assertEqual(samples, [4.5])
-        self.assertIsNotNone(contention_note(max(samples)))
+        self.assertIsNotNone(contention_note(samples))
 
 
 class FailureReportingTests(unittest.TestCase):
