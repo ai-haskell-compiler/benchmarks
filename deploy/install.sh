@@ -25,8 +25,19 @@ repo=${2:-$(cd "$here/.." && pwd)}
 units=$HOME/.config/systemd/user
 
 install -d "$HOME/bin" "$units/aihc-bench.service.d"
-install -m 755 "$here/aihc-bench-$mode.sh" "$HOME/bin/aihc-bench.sh"
-install -m 755 "$here/aihc-bench-lib.sh" "$HOME/bin/aihc-bench-lib.sh"
+
+# Rename into place rather than write over the file: bash reads a script as
+# it runs it, and the service is usually mid-commit when this is installed.
+# Overwriting the running file in place would have it resume at an offset
+# into different text.
+replace() {
+  local source=$1 target=$2
+  install -m 755 "$source" "$target.incoming"
+  mv -f "$target.incoming" "$target"
+}
+
+replace "$here/aihc-bench-$mode.sh" "$HOME/bin/aihc-bench.sh"
+replace "$here/aihc-bench-lib.sh" "$HOME/bin/aihc-bench-lib.sh"
 install -m 644 "$here/aihc-bench.service" "$units/"
 install -m 644 "$here/path.conf" "$units/aihc-bench.service.d/"
 {
