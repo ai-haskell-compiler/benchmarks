@@ -55,8 +55,10 @@ def aihc_configuration(backend, profile="O2", **extra):
         "artifact_suffix": ".wasm" if backend == "wasm" else "",
         "runtime_stats": "aihc",
         "compile": ["aihc", "build", "{source}", f"-{profile}", "-o", "{artifact_dir}"],
-        "run": ["wasmtime", "--env", "AIHC_RTS_STATS={stats_file}", "{artifact}"] if backend == "wasm" else ["{artifact}"],
+        "run": ["wasmtime", "--env", "AIHC_RTS_STATS={stats_file}", "{precompiled}"] if backend == "wasm" else ["{artifact}"],
     }
+    if backend == "wasm":
+        entry["precompile"] = ["wasmtime", "compile", "-o", "{precompiled}", "{artifact}"]
     entry.update(extra)
     return entry
 
@@ -170,17 +172,17 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(native.run_command, [str(native.artifact), str(corpus)])
         wasm = by_cell[("sweep", "aihc-wasm-O2")]
         # The sandbox's own option to expose the directory goes before the
-        # artifact; the program's argument goes last.
+        # program (here the precompiled file); the program's argument goes last.
         self.assertEqual(
             wasm.run_command,
-            ["wasmtime", "--env", f"AIHC_RTS_STATS={wasm.stats_file}", "--dir", str(corpus), str(wasm.artifact), str(corpus)],
+            ["wasmtime", "--env", f"AIHC_RTS_STATS={wasm.stats_file}", "--dir", str(corpus), str(wasm.precompiled), str(corpus)],
         )
         ghc = by_cell[("sweep", "ghc-native-O2")]
         self.assertEqual(ghc.run_command[-1], str(corpus))
         # A benchmark without a corpus is untouched, corpus_options included.
         plain = by_cell[("example", "aihc-wasm-O2")]
         self.assertNotIn("--dir", plain.run_command)
-        self.assertEqual(plain.run_command[-1], str(plain.artifact))
+        self.assertEqual(plain.run_command[-1], str(plain.precompiled))
 
     def test_a_missing_corpus_stops_the_run_before_measuring(self):
         self.config["benchmarks"][0]["corpus_env"] = "SWEEP_CORPUS"
@@ -442,6 +444,8 @@ class RunnerTests(unittest.TestCase):
                 try:
                     if command[0] in ("llvm-strip", "wasm-tools"):
                         Path(command[-1]).write_bytes(b"bin")
+                    elif command[0] == "wasmtime":
+                        Path(command[command.index("-o") + 1]).write_bytes(b"machine code")
                     else:
                         target = Path(command[command.index("-o") + 1]) if "-o" in command else Path(command[-1])
                         if target.is_dir() or command[0].endswith("aihc"):
@@ -474,6 +478,8 @@ class RunnerTests(unittest.TestCase):
                 if command[0] == "wasm-tools":
                     self.assertEqual(command[:3], ["wasm-tools", "strip", "--all"])
                     Path(command[-1]).write_bytes(b"small")
+                elif command[0] == "wasmtime":
+                    Path(command[command.index("-o") + 1]).write_bytes(b"machine code")
                 else:
                     Path(command[command.index("-o") + 1], "example.wasm").write_bytes(b"large module")
                 return subprocess.CompletedProcess(command, 0, "", "")
@@ -481,9 +487,82 @@ class RunnerTests(unittest.TestCase):
             with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
                 (cell, outcome), = compile_cells(cells, root, 30)
             self.assertEqual(outcome["status"], "compiled")
+            # The size is that of the stripped Wasm, not of the machine code.
             self.assertEqual(outcome["artifact_bytes"], 5)
             self.assertEqual(cell.artifact.read_bytes(), b"small")
             self.assertFalse(cell.artifact.with_name("example.wasm.stripped").exists())
+
+    def test_wasm_artifacts_are_precompiled_after_the_timed_compile_and_strip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = [cell for cell in self.build(root) if cell.configuration["id"] == "aihc-wasm-O2"]
+            (cell,) = cells
+            self.assertEqual(cell.precompiled, cell.artifact.with_name("example.cwasm"))
+            self.assertEqual(cell.precompile_command, ["wasmtime", "compile", "-o", str(cell.precompiled), str(cell.artifact)])
+            self.assertEqual(cell.run_command[-1], str(cell.precompiled))
+            # A stale precompiled file from an earlier run must not survive.
+            cell.precompiled.parent.mkdir(parents=True)
+            cell.precompiled.write_bytes(b"stale")
+            commands = []
+
+            def fake_compile(command, cwd, timeout, environment=None):
+                commands.append(command[0])
+                if command[0] == "wasm-tools":
+                    Path(command[-1]).write_bytes(b"small")
+                elif command[0] == "wasmtime":
+                    self.assertFalse(cell.precompiled.exists())
+                    self.assertEqual(cell.artifact.read_bytes(), b"small", "precompiled before stripping")
+                    Path(command[command.index("-o") + 1]).write_bytes(b"machine code")
+                else:
+                    Path(command[command.index("-o") + 1], "example.wasm").write_bytes(b"large module")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
+                (_, outcome), = compile_cells(cells, root, 30)
+            self.assertEqual(commands, ["aihc", "wasm-tools", "wasmtime"])
+            self.assertEqual(outcome["status"], "compiled")
+            self.assertTrue(outcome["precompiled"])
+            self.assertEqual(cell.precompiled.read_bytes(), b"machine code")
+
+    def test_native_cells_have_no_precompile_step(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = {cell.configuration["id"]: cell for cell in self.build(root)}
+            for identifier in ("aihc-native-O2", "ghc-native-O2"):
+                self.assertIsNone(cells[identifier].precompiled)
+                self.assertIsNone(cells[identifier].precompile_command)
+                self.assertEqual(cells[identifier].run_command[0], str(cells[identifier].artifact))
+
+    def test_precompile_failure_fails_the_compile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = [cell for cell in self.build(root) if cell.configuration["id"] == "aihc-wasm-O2"]
+
+            def fake_compile(command, cwd, timeout, environment=None):
+                if command[0] == "wasm-tools":
+                    Path(command[-1]).write_bytes(b"small")
+                elif command[0] == "wasmtime":
+                    return subprocess.CompletedProcess(command, 1, "", "unsupported feature")
+                else:
+                    Path(command[command.index("-o") + 1], "example.wasm").write_bytes(b"large module")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
+                (_, outcome), = compile_cells(cells, root, 30)
+            self.assertEqual(outcome["status"], "compile_failed")
+            self.assertIn("unsupported feature", outcome["stderr"])
+
+            def silent(command, cwd, timeout, environment=None):
+                if command[0] == "wasm-tools":
+                    Path(command[-1]).write_bytes(b"small")
+                elif command[0] != "wasmtime":
+                    Path(command[command.index("-o") + 1], "example.wasm").write_bytes(b"large module")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch("aihc_bench.runner.run_command", side_effect=silent):
+                (_, outcome), = compile_cells(cells, root, 30)
+            self.assertEqual(outcome["status"], "compile_failed")
+            self.assertIn("did not write", outcome["stderr"])
 
     def test_strip_failure_fails_the_compile(self):
         with tempfile.TemporaryDirectory() as directory:

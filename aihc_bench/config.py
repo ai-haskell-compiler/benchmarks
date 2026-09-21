@@ -117,6 +117,9 @@ def _validate_configuration(configuration: Dict[str, Any]) -> None:
     corpus_options = configuration.get("corpus_options", [])
     if not isinstance(corpus_options, list) or not all(isinstance(part, str) for part in corpus_options):
         raise ConfigError(f"configuration {identifier}: corpus_options must be a list of command template parts")
+    precompile = configuration.get("precompile")
+    if precompile is not None and (not isinstance(precompile, list) or not precompile or not all(isinstance(part, str) for part in precompile)):
+        raise ConfigError(f"configuration {identifier}: precompile must be a non-empty list of command template parts")
 
 
 def _validate_unique(items: Iterable[Dict[str, Any]], kind: str) -> None:

@@ -143,6 +143,14 @@ class ConfigTests(unittest.TestCase):
                 load_config(write_config(root, {**BASE, "corpus_options": "--dir {corpus}"}))
             self.assertTrue(load_config(write_config(root, {**BASE, "corpus_options": ["--dir", "{corpus}"]})))
 
+    def test_precompile_is_validated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for bad in ("wasmtime compile", [], ["wasmtime", 1]):
+                with self.assertRaises(ConfigError):
+                    load_config(write_config(root, {**BASE, "precompile": bad}))
+            self.assertTrue(load_config(write_config(root, {**BASE, "precompile": ["wasmtime", "compile", "-o", "{precompiled}", "{artifact}"]})))
+
     def test_process_timeout_override_is_validated(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
