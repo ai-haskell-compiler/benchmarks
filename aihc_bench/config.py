@@ -4,7 +4,7 @@ import hashlib
 import json
 import platform as host_platform
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 
 from . import __version__
 from .git_history import DEFAULT_TREE_PATHS, GitError, parse_cutoff
@@ -37,6 +37,7 @@ def load_config(path: Path) -> Dict[str, Any]:
     ghc_boot_libraries = config.setdefault("ghc_boot_libraries", [])
     if not isinstance(ghc_boot_libraries, list) or not all(isinstance(name, str) and name for name in ghc_boot_libraries):
         raise ConfigError("ghc_boot_libraries must be a list of package names")
+    corpus_hashes: Dict[str, Optional[str]] = {}
     for benchmark in config["benchmarks"]:
         if not benchmark.get("package"):
             raise ConfigError(f"benchmark {benchmark.get('id')} lacks a package (its cabal executable name)")
@@ -52,8 +53,18 @@ def load_config(path: Path) -> Dict[str, Any]:
         corpus_env = benchmark.get("corpus_env")
         if corpus_env is not None and (not isinstance(corpus_env, str) or not corpus_env):
             raise ConfigError(f"benchmark {benchmark['id']}: corpus_env must name an environment variable")
-    corpus_root = path.parent / "corpus"
-    config["_corpus_sha256"] = _hash_directory(corpus_root) if corpus_root.is_dir() else None
+        corpus_sources = benchmark.get("corpus_sources")
+        if corpus_sources is not None:
+            if not corpus_env:
+                raise ConfigError(f"benchmark {benchmark['id']}: corpus_sources needs corpus_env")
+            if not isinstance(corpus_sources, list) or not corpus_sources or not all(isinstance(item, str) and item for item in corpus_sources):
+                raise ConfigError(f"benchmark {benchmark['id']}: corpus_sources must list the directories the corpus is built from")
+            for item in corpus_sources:
+                if not (path.parent / item).is_dir():
+                    raise ConfigError(f"benchmark {benchmark['id']}: corpus source is not a directory: {path.parent / item}")
+        if corpus_env:
+            corpus_hashes[benchmark["id"]] = _hash_directories(path.parent, corpus_sources or ["corpus"])
+    config["_corpus_sha256"] = corpus_hashes
     toolchain_hasher = hashlib.sha256()
     for toolchain_file in (path.parent / "flake.nix", path.parent / "flake.lock"):
         if toolchain_file.is_file():
@@ -104,6 +115,29 @@ def _hash_directory(source: Path) -> str:
     return hasher.hexdigest()
 
 
+def _hash_directories(root: Path, sources: Iterable[str]) -> Optional[str]:
+    """Hash the files under several directories of the repository, by path.
+
+    A corpus is assembled from its own directory and the shared snapshot pin,
+    so a corpus benchmark names the directories it is built from and hashes
+    only those: a change to one corpus restarts its benchmark's history and
+    no other's. Paths are taken relative to the repository root, so moving a
+    directory changes the digest as it changes the corpus. ``None`` when
+    none of the directories exists.
+    """
+    hasher = hashlib.sha256()
+    present = False
+    for source in sources:
+        directory = root / source
+        if not directory.is_dir():
+            continue
+        present = True
+        for file_path in sorted(p for p in directory.rglob("*") if p.is_file()):
+            hasher.update(file_path.relative_to(root).as_posix().encode("utf-8"))
+            hasher.update(file_path.read_bytes())
+    return hasher.hexdigest() if present else None
+
+
 def _validate_configuration(configuration: Dict[str, Any]) -> None:
     identifier = configuration["id"]
     for key in ("compiler_family", "compiler_version", "backend", "gc", "optimization", "compile", "run"):
@@ -144,9 +178,9 @@ def benchmark_experiment_id(config: Dict[str, Any], benchmark: Dict[str, Any]) -
         "tree_paths": config.get("aihc_tree_paths"),
         "benchmark": benchmark,
         # A benchmark that reads a corpus measures that corpus, so the files
-        # it is built from are part of its identity; other benchmarks are not
-        # restarted by a corpus change.
-        "corpus_sha256": config.get("_corpus_sha256") if benchmark.get("corpus_env") else None,
+        # it is built from are part of its identity; other benchmarks, and
+        # the benchmarks of other corpora, are not restarted by a change.
+        "corpus_sha256": config.get("_corpus_sha256", {}).get(benchmark["id"]),
         "configurations": config["configurations"],
         "toolchain_sha256": config.get("_toolchain_sha256"),
         "runner_version": config.get("_runner_version"),

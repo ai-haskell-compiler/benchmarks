@@ -130,6 +130,58 @@ class ConfigTests(unittest.TestCase):
             self.assertNotEqual(before["sweep"], after["sweep"])
             self.assertEqual(before["sample"], after["sample"])
 
+    def test_corpus_sources_scope_the_corpus_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = write_config(root, BASE)
+            document = json.loads(config_path.read_text(encoding="utf-8"))
+            document["benchmarks"].append(
+                {"id": "cpp", "package": "sample", "source": "sample", "corpus_env": "CPP_CORPUS", "corpus_sources": ["corpus/cpp", "corpus/stackage"], "expected_stdout": "ok\n"}
+            )
+            document["benchmarks"].append(
+                {"id": "parser", "package": "sample", "source": "sample", "corpus_env": "PARSER_CORPUS", "corpus_sources": ["corpus/parser", "corpus/stackage"], "expected_stdout": "ok\n"}
+            )
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            for name in ("cpp", "parser", "stackage"):
+                (root / "corpus" / name).mkdir(parents=True)
+                (root / "corpus" / name / "list.txt").write_text("one\n", encoding="utf-8")
+            before = experiment_ids(load_config(config_path))
+            (root / "corpus" / "parser" / "list.txt").write_text("two\n", encoding="utf-8")
+            after = experiment_ids(load_config(config_path))
+            # Each corpus benchmark measures its own corpus: a change to one
+            # restarts that benchmark and leaves the other's history valid.
+            self.assertNotEqual(before["parser"], after["parser"])
+            self.assertEqual(before["cpp"], after["cpp"])
+            # The shared snapshot pin is part of both.
+            (root / "corpus" / "stackage" / "list.txt").write_text("two\n", encoding="utf-8")
+            shared = experiment_ids(load_config(config_path))
+            self.assertNotEqual(after["parser"], shared["parser"])
+            self.assertNotEqual(after["cpp"], shared["cpp"])
+            self.assertEqual(after["sample"], shared["sample"])
+
+    def test_corpus_sources_are_validated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = write_config(root, BASE)
+            document = json.loads(config_path.read_text(encoding="utf-8"))
+            (root / "corpus" / "parser").mkdir(parents=True)
+            benchmark = document["benchmarks"][0]
+            for broken in ("corpus/parser", [], [""], ["corpus/missing"]):
+                benchmark["corpus_env"] = "PARSER_CORPUS"
+                benchmark["corpus_sources"] = broken
+                config_path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(ConfigError):
+                    load_config(config_path)
+            # The directories only mean something for a benchmark that reads a corpus.
+            del benchmark["corpus_env"]
+            benchmark["corpus_sources"] = ["corpus/parser"]
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(ConfigError):
+                load_config(config_path)
+            benchmark["corpus_env"] = "PARSER_CORPUS"
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            self.assertTrue(load_config(config_path))
+
     def test_corpus_fields_are_validated(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1,0 +1,11 @@
+cabal-version:      2.4
+name:                aihc-parser-stackage
+version:             0.1.0.0
+synopsis:            AIHC benchmark: aihc-parser over the preprocessor-free modules of a Stackage snapshot
+license:             NONE
+build-type:          Simple
+
+executable aihc-parser-stackage
+  main-is:          Main.hs
+  build-depends:    base, bytestring, deepseq, filepath, text, aihc-parser ==4.0.0.0
+  default-language: Haskell2010

@@ -58,8 +58,10 @@
           test -e "$out/include/wasm32-wasip1/stdlib.h"
           test -e "$out/lib/wasm32-wasip1/libc.a"
         '';
-      # The CPP corpus benchmark's input: see corpus/cpp/corpus.nix.
+      # The corpus benchmarks' inputs: see corpus/cpp/corpus.nix and
+      # corpus/parser/corpus.nix.
       cppCorpus = import ./corpus/cpp/corpus.nix {inherit pkgs;};
+      parserCorpus = import ./corpus/parser/corpus.nix {inherit pkgs;};
       runtimeInputs = [pkgs.python3 pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang llvm.lld llvm.bintools llvm.bintools-unwrapped pkgs.binaryen pkgs.cabal-install];
       runner = pkgs.writeShellApplication {
         name = "aihc-bench";
@@ -69,17 +71,19 @@
           export AIHC_WASM_SYSROOT=${wasiSysroot}
           export AIHC_BENCH_TOOLCHAINS=${toolchains}
           export AIHC_BENCH_CPP_CORPUS=${cppCorpus}
+          export AIHC_BENCH_PARSER_CORPUS=${parserCorpus}
           export PYTHONPATH=${./.}
           exec python3 -m aihc_bench "$@"
         '';
       };
-    in {inherit toolchains runner runtimeInputs cppCorpus;};
+    in {inherit toolchains runner runtimeInputs cppCorpus parserCorpus;};
   in {
     packages = forAllSystems (pkgs: let
-      inherit (tooling pkgs) toolchains runner cppCorpus;
+      inherit (tooling pkgs) toolchains runner cppCorpus parserCorpus;
     in {
       inherit toolchains;
       cpp-corpus = cppCorpus;
+      parser-corpus = parserCorpus;
       wasmtime = pkgs.writeShellApplication {
         name = "aihc-bench-wasmtime";
         runtimeInputs = [pkgs.wasmtime];
