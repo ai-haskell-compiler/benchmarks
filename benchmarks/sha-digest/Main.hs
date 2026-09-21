@@ -1,5 +1,3 @@
-{-# LANGUAGE MagicHash #-}
-
 module Main where
 
 import Data.Digest.Pure.SHA (hmacSha256, sha1, sha256, sha512, showDigest)
@@ -7,8 +5,6 @@ import qualified Data.ByteString as Strict
 import qualified Data.ByteString.Lazy as Lazy
 import Data.Bits (shiftR, (.&.))
 import Data.Word (Word8, Word64)
-import GHC.Ptr (Ptr (..))
-import System.IO (hPutBuf, stdout)
 
 -- | A small, seedable linear congruential generator. Deterministic across
 -- runs and platforms so the benchmark never depends on external data or
@@ -54,6 +50,4 @@ main =
         , showDigest (sha512 message)
         , showDigest (hmacSha256 (Lazy.fromStrict (Strict.take 32 chunk)) message)
         ]
-   in if digests == expected
-        then hPutBuf stdout (Ptr "ok\n"# :: Ptr ()) 3
-        else hPutBuf stdout (Ptr "fail\n"# :: Ptr ()) 5
+   in putStrLn (if digests == expected then "ok" else "fail")
