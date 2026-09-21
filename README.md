@@ -316,6 +316,34 @@ slow commit explainable rather than merely slow.
 All raw samples and the stopping reason
 are retained.
 
+## The worker machines
+
+`deploy/` holds what the two measuring machines run, so that the code behind
+every published number is in the repository rather than only in somebody's
+`~/bin`. Install it on a machine with
+
+```
+deploy/install.sh continuous|window [repository]
+```
+
+which writes `~/bin/aihc-bench.sh`, a user unit, and a drop-in giving it a
+PATH with nix on it -- a systemd user service does not source login profiles,
+and after a reboot the window died on `nix: command not found`. There is one
+unit whatever the mode: two runners on one machine measure each other.
+
+`continuous` measures until every commit has a terminal result, then waits for
+new ones; it suits a machine that does nothing else. `window` measures one
+commit at a time and only between 22:00 and 08:00, for a machine that hosts CI
+runners the rest of the day. It starts a commit only when the window has room
+for one, judged by the longest of the last five commits here rather than by a
+constant -- what a commit costs moves whenever the suite or the machine does,
+and a margin written for a 15-minute commit let a 51-minute one run into CI.
+
+Both fast-forward the checkout to `origin/main` between commits. A worker
+running an old checkout publishes a different suite from its sibling and
+nothing in the results says so, which is how one machine spent a day four
+commits behind.
+
 ## Uploading
 
 Results are served by a Cloudflare Worker at
