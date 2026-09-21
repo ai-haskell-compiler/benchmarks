@@ -877,12 +877,14 @@ def measure_cells(
     compiled: Iterable[Tuple[Cell, Dict[str, Any]]],
     root: Path,
     measurement_config: Dict[str, Any],
-    load_samples: Optional[List[float]] = None,
+    load_samples: Optional[List[Tuple[float, float]]] = None,
 ) -> List[Dict[str, Any]]:
     """Measure every compiled cell, appending the load seen before each one.
 
     Measurement is sequential, so the load while it runs says whether
-    anything else had the machine at the same time.
+    anything else had the machine at the same time. Each sample carries the
+    seconds since measuring began, because the earliest ones are not about
+    this phase at all; see ``contention_note``.
     """
     results: List[Dict[str, Any]] = []
     ordered = sorted(
@@ -891,11 +893,12 @@ def measure_cells(
             f"{item[0].commit_sha}:{item[0].benchmark['id']}:{item[0].configuration['id']}".encode("utf-8")
         ).digest(),
     )
+    started = time.monotonic()
     for cell, compile_result in ordered:
         if load_samples is not None:
             load = machine_load()
             if load is not None:
-                load_samples.append(load)
+                load_samples.append((time.monotonic() - started, load))
         base = {
             "benchmark": cell.benchmark["id"],
             "configuration": cell.configuration["id"],
@@ -941,6 +944,14 @@ def measure_cells(
 #: leaves room for the runner itself and a idle desktop.
 CONTENDED_LOAD = 2.0
 
+#: Seconds of measuring to disregard before judging the load. The one-minute
+#: load average is a decaying mean, and the phase before this one compiles on
+#: every core: a machine that ran at load 8 for an hour still reads about 2.2
+#: a minute into an idle measurement, which is why the warning fired on 11 of
+#: the first 12 commits on an otherwise unoccupied worker. Two time constants
+#: leave under 2% of that behind, so what remains is somebody else's work.
+SETTLE_SECONDS = 120.0
+
 
 def machine_load() -> Optional[float]:
     """One-minute load average, or ``None`` where the platform has none."""
@@ -950,7 +961,7 @@ def machine_load() -> Optional[float]:
         return None
 
 
-def contention_note(samples: Optional[List[float]]) -> Optional[str]:
+def contention_note(samples: Optional[List[Tuple[float, float]]]) -> Optional[str]:
     """Say when a measurement shared the machine, or nothing when it did not.
 
     Compile time and run time are both published, and both move under
@@ -963,15 +974,12 @@ def contention_note(samples: Optional[List[float]]) -> Optional[str]:
 
     Detecting it does not make the numbers good. It makes them answerable.
     """
-    if not samples:
+    settled = [load for elapsed, load in samples or [] if elapsed >= SETTLE_SECONDS]
+    if len(settled) < 3:
         return None
-    # The median, not the peak. Load average is a trailing one-minute mean and
-    # the compile phase before this one uses every core, so the first samples
-    # carry the decay of the suite's own work: taking the peak reported
-    # contention on an idle machine every time. Something that really shares
-    # the machine is there for the whole measurement, so it moves the median.
-    ordered = sorted(samples)
-    median = ordered[len(ordered) // 2] if len(ordered) % 2 else (ordered[len(ordered) // 2 - 1] + ordered[len(ordered) // 2]) / 2
+    ordered = sorted(settled)
+    middle = len(ordered) // 2
+    median = ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
     if median <= CONTENDED_LOAD:
         return None
     return (

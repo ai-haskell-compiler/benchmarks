@@ -61,12 +61,14 @@ machine can, and both compile time and run time move when it does -- in a way
 that afterwards is indistinguishable from a change in the compiler. Since
 measurement is sequential, the load average while it runs should sit near one;
 `run` samples it before each cell and, when the median exceeds 2, warns and
-records `contended` on the commit. The median rather than the peak, because
-load average is a trailing one-minute mean and the compile phase before it
-uses every core: the first samples carry the decay of the suite's own work,
-and something that really shares the machine is there for the whole
-measurement. That does not make the numbers good, it makes them
-answerable.
+records `contended` on the commit. The median of the samples taken after the
+first two minutes, not of all of them: load average is a trailing one-minute
+mean and the compile phase before it uses every core, so the early samples
+measure the suite's own work rather than anyone else's. Judging them warned
+on 11 of the first 12 commits on a worker that was running nothing else. A
+measurement shorter than those two minutes gets no verdict at all, and
+something that really shares the machine is still there once the decay has
+gone. That does not make the numbers good, it makes them answerable.
 
 Every configuration is measured in four profiles: `O0`, `O1`, `O2` and `Os`.
 AIHC passes the matching `-O` flag to `aihc build`, where `-O2` and `-Os` also

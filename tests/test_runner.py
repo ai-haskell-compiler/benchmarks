@@ -1,3 +1,4 @@
+import math
 import os
 import subprocess
 import time
@@ -29,6 +30,7 @@ from aihc_bench.runner import (
     Phases,
     core_library_paths,
     CONTENDED_LOAD,
+    SETTLE_SECONDS,
     contention_note,
     first_meaningful_line,
     require_baseline,
@@ -1070,12 +1072,17 @@ class ContentionTests(unittest.TestCase):
     on these machines: a second sweep beside the continuous service, and a
     laptop measuring while other work compiled on it."""
 
+    @staticmethod
+    def _settled(loads):
+        """Samples spaced over the part of the phase the verdict looks at."""
+        return [(SETTLE_SECONDS + 10.0 * index, load) for index, load in enumerate(loads)]
+
     def test_an_idle_machine_says_nothing(self):
-        self.assertIsNone(contention_note([1.0, 0.9, 1.1]))
-        self.assertIsNone(contention_note([CONTENDED_LOAD] * 3))
+        self.assertIsNone(contention_note(self._settled([1.0, 0.9, 1.1])))
+        self.assertIsNone(contention_note(self._settled([CONTENDED_LOAD] * 3)))
 
     def test_a_shared_machine_is_named_with_its_load(self):
-        note = contention_note([6.0, 6.2, 5.9])
+        note = contention_note(self._settled([6.0, 6.2, 5.9]))
         self.assertIsNotNone(note)
         self.assertIn("6.0", note)
         self.assertIn("not idle", note)
@@ -1086,25 +1093,32 @@ class ContentionTests(unittest.TestCase):
         self.assertIsNone(contention_note([]))
 
     def test_the_suites_own_compiling_does_not_count_as_contention(self):
-        """Load average is a trailing one-minute mean and the compile phase
-        before the measurement uses every core, so the first samples carry the
-        decay of the suite's own work. Taking the peak reported contention on
-        an idle machine every time -- worker-nuc, at a measured peak of 3.8.
+        """The load average is a one-minute decaying mean and the phase before
+        this one compiles on every core, so early samples measure the suite's
+        own work. Judging them -- as the peak did, and then the median over
+        the whole phase -- warned on 11 of the first 12 commits on a worker
+        that ``ps`` showed running nothing else. This is that machine: an hour
+        of compiling at load 8, then an idle measurement.
         """
-        decaying = [3.8, 2.4, 1.3, 0.9, 0.8, 0.7, 0.7, 0.6, 0.6]
+        decaying = [(elapsed, 1.0 + 30.0 * math.exp(-elapsed / 60.0)) for elapsed in range(0, 300, 5)]
         self.assertIsNone(contention_note(decaying))
 
     def test_contention_lasting_the_whole_measurement_is_caught(self):
-        """Something really sharing the machine is there throughout, so it
-        moves the median rather than only the first sample."""
-        shared = [3.8, 4.1, 3.9, 4.4, 4.0, 3.7, 4.2]
+        """Something really sharing the machine is there throughout, so it is
+        still there once the suite's own decay has gone."""
+        shared = [(elapsed, 4.0 + 8.0 * math.exp(-elapsed / 60.0)) for elapsed in range(0, 300, 5)]
         self.assertIsNotNone(contention_note(shared))
 
-    def test_an_even_number_of_samples_averages_the_middle_two(self):
-        self.assertIsNone(contention_note([1.0, 1.0, 3.0, 3.0]))
-        self.assertIsNotNone(contention_note([1.0, 3.0, 3.0, 3.0]))
+    def test_a_measurement_too_short_to_settle_gives_no_verdict(self):
+        """Under two time constants there is no sample the decay has left
+        alone, and a guess either way is worse than silence."""
+        self.assertIsNone(contention_note([(elapsed, 9.0) for elapsed in (0.0, 30.0, 60.0, 90.0)]))
 
-    def test_measurement_records_the_load_it_saw(self):
+    def test_an_even_number_of_samples_averages_the_middle_two(self):
+        self.assertIsNone(contention_note(self._settled([1.0, 1.0, 3.0, 3.0])))
+        self.assertIsNotNone(contention_note(self._settled([1.0, 3.0, 3.0, 3.0])))
+
+    def test_measurement_records_the_load_it_saw_and_when(self):
         cell = SimpleNamespace(
             benchmark={"id": "example", "expected_stdout": "ok\n"},
             configuration={
@@ -1121,8 +1135,8 @@ class ContentionTests(unittest.TestCase):
             measure_cells([(cell, {"status": "compiled"})], Path("/tmp"), {
                 "process_timeout_seconds": 1, "relative_threshold": 0.01, "maximum_bucket_size": 2
             }, samples)
-        self.assertEqual(samples, [4.5])
-        self.assertIsNotNone(contention_note(samples))
+        self.assertEqual([load for _, load in samples], [4.5])
+        self.assertLess(samples[0][0], 1.0)
 
 
 class FailureReportingTests(unittest.TestCase):
