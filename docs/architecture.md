@@ -12,7 +12,8 @@
 - Unavailable compilers are data, not missing data.
 - A terminal result is never retried unless its active record is manually forgotten.
 - Compilation is parallel, followed by a full barrier, followed by sequential execution.
-- Process startup is part of wall time and peak RSS.
+- Process startup is part of wall time and peak RSS; Wasmtime's compilation of
+  a module is not, as Wasm artifacts are precompiled before measuring.
 - Raw result objects are immutable once uploaded.
 
 ## Machine identity
@@ -119,7 +120,12 @@ The flake builds the GHC wrappers once and exports their directory as
 `AIHC_BENCH_TOOLCHAINS`; compile templates reference
 `{toolchains}/bin/ghc-<version>`. `ghc-9.14.1-wasm` wraps the `ghc-wasm-meta`
 cross-compiler, pinned as a flake input, whose programs run under Wasmtime with
-`+RTS -t` statistics like the native ones. The runner never invokes `nix run` on
+`+RTS -t` statistics like the native ones. A configuration with a `precompile`
+template (every Wasm one: `wasmtime compile -o {precompiled} {artifact}`) has
+it run after the timed compile and the strip, outside `compile_time`, and its
+`run` template executes `{precompiled}` (the artifact with a `.cwasm` suffix)
+with `--allow-precompiled`, so wall time measures the program rather than
+Cranelift. `artifact_size` is still the stripped Wasm. The runner never invokes `nix run` on
 this repository itself: doing so copied the working tree, including `.cache`,
 into the Nix store on every compile and raced with the AIHC store preparation
 writing there. The toolchain versions are pinned by `flake.lock`, which is part

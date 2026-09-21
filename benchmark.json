@@ -136,18 +136,26 @@
         "-N",
         "-RTS"
       ],
+      "precompile": [
+        "wasmtime",
+        "compile",
+        "-C",
+        "cache=n",
+        "-o",
+        "{precompiled}",
+        "{artifact}"
+      ],
       "run": [
         "wasmtime",
         "run",
-        "-C",
-        "cache=n",
         "-S",
         "cli",
+        "--allow-precompiled",
         "--dir",
         "{stats_dir}",
         "--env",
         "AIHC_RTS_STATS={stats_file}",
-        "{artifact}"
+        "{precompiled}"
       ],
       "corpus_options": [
         "--dir",
@@ -250,18 +258,26 @@
         "-N",
         "-RTS"
       ],
+      "precompile": [
+        "wasmtime",
+        "compile",
+        "-C",
+        "cache=n",
+        "-o",
+        "{precompiled}",
+        "{artifact}"
+      ],
       "run": [
         "wasmtime",
         "run",
-        "-C",
-        "cache=n",
         "-S",
         "cli",
+        "--allow-precompiled",
         "--dir",
         "{stats_dir}",
         "--env",
         "AIHC_RTS_STATS={stats_file}",
-        "{artifact}"
+        "{precompiled}"
       ],
       "corpus_options": [
         "--dir",
@@ -477,16 +493,24 @@
         "O2",
         "--ghc-option=-rtsopts"
       ],
+      "precompile": [
+        "wasmtime",
+        "compile",
+        "-C",
+        "cache=n",
+        "-o",
+        "{precompiled}",
+        "{artifact}"
+      ],
       "run": [
         "wasmtime",
         "run",
-        "-C",
-        "cache=n",
         "-S",
         "cli",
+        "--allow-precompiled",
         "--dir",
         "{stats_dir}",
-        "{artifact}",
+        "{precompiled}",
         "+RTS",
         "-t{stats_file}",
         "--machine-readable",
@@ -525,16 +549,24 @@
         "O0",
         "--ghc-option=-rtsopts"
       ],
+      "precompile": [
+        "wasmtime",
+        "compile",
+        "-C",
+        "cache=n",
+        "-o",
+        "{precompiled}",
+        "{artifact}"
+      ],
       "run": [
         "wasmtime",
         "run",
-        "-C",
-        "cache=n",
         "-S",
         "cli",
+        "--allow-precompiled",
         "--dir",
         "{stats_dir}",
-        "{artifact}",
+        "{precompiled}",
         "+RTS",
         "-t{stats_file}",
         "--machine-readable",
@@ -608,18 +640,26 @@
         "-N",
         "-RTS"
       ],
+      "precompile": [
+        "wasmtime",
+        "compile",
+        "-C",
+        "cache=n",
+        "-o",
+        "{precompiled}",
+        "{artifact}"
+      ],
       "run": [
         "wasmtime",
         "run",
-        "-C",
-        "cache=n",
         "-S",
         "cli",
+        "--allow-precompiled",
         "--dir",
         "{stats_dir}",
         "--env",
         "AIHC_RTS_STATS={stats_file}",
-        "{artifact}"
+        "{precompiled}"
       ],
       "corpus_options": [
         "--dir",
@@ -761,16 +801,24 @@
         "O1",
         "--ghc-option=-rtsopts"
       ],
+      "precompile": [
+        "wasmtime",
+        "compile",
+        "-C",
+        "cache=n",
+        "-o",
+        "{precompiled}",
+        "{artifact}"
+      ],
       "run": [
         "wasmtime",
         "run",
-        "-C",
-        "cache=n",
         "-S",
         "cli",
+        "--allow-precompiled",
         "--dir",
         "{stats_dir}",
-        "{artifact}",
+        "{precompiled}",
         "+RTS",
         "-t{stats_file}",
         "--machine-readable",
@@ -844,18 +892,26 @@
         "-N",
         "-RTS"
       ],
+      "precompile": [
+        "wasmtime",
+        "compile",
+        "-C",
+        "cache=n",
+        "-o",
+        "{precompiled}",
+        "{artifact}"
+      ],
       "run": [
         "wasmtime",
         "run",
-        "-C",
-        "cache=n",
         "-S",
         "cli",
+        "--allow-precompiled",
         "--dir",
         "{stats_dir}",
         "--env",
         "AIHC_RTS_STATS={stats_file}",
-        "{artifact}"
+        "{precompiled}"
       ],
       "corpus_options": [
         "--dir",
@@ -997,16 +1053,24 @@
         "Os",
         "--ghc-option=-rtsopts"
       ],
+      "precompile": [
+        "wasmtime",
+        "compile",
+        "-C",
+        "cache=n",
+        "-o",
+        "{precompiled}",
+        "{artifact}"
+      ],
       "run": [
         "wasmtime",
         "run",
-        "-C",
-        "cache=n",
         "-S",
         "cli",
+        "--allow-precompiled",
         "--dir",
         "{stats_dir}",
-        "{artifact}",
+        "{precompiled}",
         "+RTS",
         "-t{stats_file}",
         "--machine-readable",
@@ -1024,7 +1088,7 @@
     "bucket": "aihc-benchmarks",
     "database": "aihc-benchmarks"
   },
-  "toolchains_note": "GHC binaries come from AIHC_BENCH_TOOLCHAINS, exported by the flake as ghc-<version> with ghc-pkg-<version> and hsc2hs-<version> siblings; their versions are pinned by flake.lock, which is part of the experiment ID. Every GHC configuration, Wasm included, builds the benchmark's Cabal package through compile_with_cabal.py so Hackage dependencies are resolved and compiled inside the timed step. The Wasm GHC is the ghc-wasm-meta cross-compiler targeting wasm32-wasi (WASI preview 1); AIHC targets wasm32-wasip3, so both run under Wasmtime but through different host interfaces.",
+  "toolchains_note": "GHC binaries come from AIHC_BENCH_TOOLCHAINS, exported by the flake as ghc-<version> with ghc-pkg-<version> and hsc2hs-<version> siblings; their versions are pinned by flake.lock, which is part of the experiment ID. Every GHC configuration, Wasm included, builds the benchmark's Cabal package through compile_with_cabal.py so Hackage dependencies are resolved and compiled inside the timed step. The Wasm GHC is the ghc-wasm-meta cross-compiler targeting wasm32-wasi (WASI preview 1); AIHC targets wasm32-wasip3, so both run under Wasmtime but through different host interfaces. Each Wasm configuration's precompile template runs wasmtime compile after the timed compile and the strip, and its run template executes the result with --allow-precompiled, so Wasmtime's code generation is in neither compile_time nor the runtime metrics.",
   "ghc_boot_libraries": [
     "Cabal",
     "Cabal-syntax",

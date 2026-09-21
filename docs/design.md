@@ -228,7 +228,8 @@ the baseline with the same backend and profile, so the GHC side is exactly
 the twelve cells the twelve AIHC cells are divided by. The Wasm baseline is
 the `ghc-wasm-meta` cross-compiler (`wasm32-wasi`, native bignum); AIHC
 targets `wasm32-wasip3`, so the ratio includes the two WASI host interfaces'
-startup costs.
+startup costs, though not Wasmtime's code generation: both artifacts are
+precompiled with `wasmtime compile` before the measured runs.
 
 A second GHC release is not measured. Comparing two GHC releases against each
 other is not what this suite is for, and every configuration is paid for on

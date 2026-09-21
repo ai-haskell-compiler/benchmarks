@@ -102,7 +102,12 @@ emits. Stripping happens after the timed compile. GHC is measured with its
 native and LLVM backends, and with the `ghc-wasm-meta` cross-compiler for
 Wasm. GHC targets `wasm32-wasi` while AIHC targets `wasm32-wasip3`; both run
 under Wasmtime, so the Wasm ratio includes the difference between the two host
-interfaces' startup costs. Every GHC configuration, Wasm included, builds the
+interfaces' startup costs. Wasmtime's own code generation is not part of it:
+after the timed compile and the strip, every Wasm artifact is precompiled
+with `wasmtime compile` and the runtime measurements execute the machine code
+with `--allow-precompiled`. Before that, a Wasm invocation was mostly
+Cranelift compiling the module. The precompile step is timed by nobody, and
+`artifact_size` remains the stripped Wasm. Every GHC configuration, Wasm included, builds the
 benchmark's Cabal package with `cabal build` against the flake's toolchain
 (`ghc-<version>` plus its `ghc-pkg`/`hsc2hs` siblings) and a private store per
 configuration, so Hackage dependencies are resolved and compiled inside the
@@ -268,7 +273,8 @@ never uploaded.
 ## Measurement
 
 The runner measures complete process invocations, including native startup and
-Wasmtime startup. It records wall time, CPU time and peak RSS for run buckets
+Wasmtime startup, but not Wasmtime's compilation of the module, which happens
+once before measuring (see above). It records wall time, CPU time and peak RSS for run buckets
 of 1, 2, 4, 8, 16, 32, and 64 processes, stopping when adjacent bucket means
 are within 1%, when the buckets run out, or when the cell has spent
 `cell_budget_seconds`. Doubling a bucket costs whatever an invocation costs,

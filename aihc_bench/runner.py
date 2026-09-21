@@ -38,6 +38,12 @@ class Cell:
     stats_file: Optional[str] = None
     stats_format: Optional[str] = None
     run_environment: Dict[str, str] = field(default_factory=dict)
+    #: The command that turns the stripped artifact into ``precompiled``,
+    #: the file ``run_command`` actually executes, and that file; see
+    #: ``precompile_artifact``. Both are ``None`` for a configuration whose
+    #: artifact runs as it is.
+    precompile_command: Optional[List[str]] = None
+    precompiled: Optional[Path] = None
     #: The prepared AIHC store, restored before this cell's timed compile so
     #: that what an earlier cell installed is not already there; see
     #: ``_archive_store``.
@@ -445,6 +451,7 @@ def build_cells(
             stem = benchmark["package"] if family == "aihc" else "program"
             artifact = artifact_root / identity / f"{stem}{suffix}"
             build_dir = artifact.parent / "build"
+            precompiled = artifact.with_suffix(".cwasm") if configuration.get("precompile") else None
             stats_dir = root / ".cache" / "stats" / experiment_id / platform_id / commit["sha"]
             stats_file = stats_dir / f"{identity}.stats"
             corpus = _corpus_directory(benchmark)
@@ -457,6 +464,7 @@ def build_cells(
                 "package": benchmark.get("package", ""),
                 "artifact": str(artifact),
                 "artifact_dir": str(artifact.parent),
+                "precompiled": str(precompiled) if precompiled else "",
                 "build_dir": str(build_dir),
                 "commit": commit["sha"],
                 "toolchains": toolchains,
@@ -483,6 +491,7 @@ def build_cells(
             run_environment: Dict[str, str] = {}
             if available and family == "aihc" and stats_format == "aihc":
                 run_environment["AIHC_RTS_STATS"] = str(stats_file)
+            precompile_command = expand_command(configuration["precompile"], values) if available and precompiled else None
             run_command = expand_command(configuration["run"], values) if available else None
             if run_command is not None and corpus:
                 run_command = _with_corpus(run_command, configuration, values)
@@ -502,6 +511,8 @@ def build_cells(
                     stats_file=str(stats_file) if available and stats_format else None,
                     stats_format=stats_format if available else None,
                     run_environment=run_environment,
+                    precompile_command=precompile_command,
+                    precompiled=precompiled if available else None,
                     store_archive=store_archive if family == "aihc" and available else None,
                 )
             )
@@ -672,11 +683,12 @@ def _with_corpus(run_command: List[str], configuration: Dict[str, Any], values: 
     The directory becomes the program's last argument. A configuration whose
     program runs under a sandbox names the options that expose a directory in
     ``corpus_options`` (``--dir {corpus}`` for Wasmtime); they go in front of
-    the artifact, among the host's own options.
+    the program, among the host's own options. The program is the
+    precompiled file when the configuration has one, else the artifact.
     """
     options = expand_command(configuration.get("corpus_options", []), values)
     try:
-        position = run_command.index(values["artifact"])
+        position = run_command.index(values["precompiled"] or values["artifact"])
     except ValueError:
         position = len(run_command)
     return run_command[:position] + options + run_command[position:] + [values["corpus"]]
@@ -715,6 +727,8 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
         shutil.rmtree(cell.build_dir, ignore_errors=True)
         _restore_store(cell)
         cell.artifact.unlink(missing_ok=True)
+        if cell.precompiled:
+            cell.precompiled.unlink(missing_ok=True)
         cell.build_dir.mkdir(parents=True, exist_ok=True)
         cell.artifact.parent.mkdir(parents=True, exist_ok=True)
         if cell.stats_file:
@@ -742,11 +756,15 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
         strip_error = strip_artifact(cell.artifact, root, timeout_seconds)
         if strip_error:
             return cell, {"status": "compile_failed", "wall_time_ns": wall_time_ns, "stderr": strip_error[-8192:]}
+        precompile_error = precompile_artifact(cell, root, timeout_seconds)
+        if precompile_error:
+            return cell, {"status": "compile_failed", "wall_time_ns": wall_time_ns, "stderr": precompile_error[-8192:]}
         return cell, {
             "status": "compiled",
             "wall_time_ns": wall_time_ns,
             "artifact_bytes": cell.artifact.stat().st_size,
             "stripped": True,
+            "precompiled": cell.precompiled is not None,
         }
 
     for cell in available:
@@ -825,6 +843,33 @@ def strip_artifact(artifact: Path, cwd: Path, timeout_seconds: float) -> Optiona
         if not stripped.exists():
             return f"{command[0]} did not write {stripped}"
         os.replace(stripped, artifact)
+    return None
+
+
+def precompile_artifact(cell: Cell, cwd: Path, timeout_seconds: float) -> Optional[str]:
+    """Run the cell's ``precompile`` command; return an error message when that fails.
+
+    Wasmtime compiles a module to machine code before it runs it, and that
+    codegen took most of a Wasm invocation: a GHC module that ran in 170 ms
+    spent about 150 ms of it in Cranelift. Timing it would measure Wasmtime,
+    not the compiler under test, so a Wasm configuration names in
+    ``precompile`` the command (``wasmtime compile``) that writes the
+    machine code next to the artifact, and its ``run`` executes that file
+    with ``--allow-precompiled``. The step runs after the timed compile and
+    the strip, and is not part of ``compile_time``; ``artifact_size`` stays
+    the size of the stripped Wasm, not of the host-specific machine code.
+    """
+    if not cell.precompile_command or not cell.precompiled:
+        return None
+    command = cell.precompile_command
+    try:
+        process = run_command(command, cwd, timeout_seconds)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"{command[0]} failed: {error}"
+    if process.returncode != 0:
+        return f"{command[0]} exited with {process.returncode}: {process.stderr or process.stdout}"
+    if not cell.precompiled.exists():
+        return f"{command[0]} did not write {cell.precompiled}"
     return None
 
 
