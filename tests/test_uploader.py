@@ -14,6 +14,7 @@ from aihc_bench.uploader import (
     is_transient,
     run_with_retry,
     envelope_key,
+    last_commit_statement,
     refresh_overview,
     USER_AGENT,
     _open_url,
@@ -105,6 +106,22 @@ class UploaderTests(unittest.TestCase):
         self.assertIn("'it''s fast'", text)
         self.assertIn("'peak_heap', 'byte', 'unavailable', NULL, 0", text)
         self.assertNotIn("aihc-native-semispace-O0", text)
+
+    def test_run_statements_record_the_commit_duration(self):
+        measured = envelope("a" * 40)
+        measured["timing"] = {"phases_ns": {"compiler_build": 600, "measure": 400}, "total_ns": 1000, "contended": "load"}
+        statement = last_commit_statement(measured)
+        self.assertIn(statement, run_statements(measured, "raw/v2/m/a/run-0.json.gz"))
+        self.assertIn(f"last_commit_sha = '{'a' * 40}'", statement)
+        self.assertIn('\'{"phases_ns": {"compiler_build": 600, "measure": 400}, "total_ns": 1000}\'', statement)
+        # A backlog uploaded out of order must not replace a newer commit.
+        self.assertIn("AND (last_commit_at IS NULL OR last_commit_at < '2026-09-10T00:00:00Z')", statement)
+
+        inherited = envelope("b" * 40, inherited_from="a" * 40)
+        inherited["timing"] = measured["timing"]
+        self.assertIsNone(last_commit_statement(inherited))
+        self.assertIsNone(last_commit_statement(envelope("c" * 40)))
+        self.assertNotIn("last_commit", "\n".join(run_statements(inherited, "k")))
 
     def test_inherited_runs_reuse_the_source_envelope(self):
         source = envelope("a" * 40)

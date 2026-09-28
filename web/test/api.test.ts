@@ -153,6 +153,20 @@ describe("perf.aihc.app API", () => {
     await env.DB.prepare("DELETE FROM commits WHERE ordinal = 5").run();
   });
 
+  it("reports how long each machine's most recent commit took", async () => {
+    expect((await get(`/api/overview?suite=${SUITE}`)).body.machines[0].last_commit).toBeNull();
+    // The uploader's statement: only a newer envelope replaces the record.
+    const record = env.DB.prepare(
+      "UPDATE machines SET last_commit_sha = ?, last_commit_at = ?, last_commit_timing = ? WHERE machine_id = ? AND (last_commit_at IS NULL OR last_commit_at < ?)",
+    );
+    const timing = (total: number) => JSON.stringify({ total_ns: total, phases_ns: { compiler_build: total / 2, measure: total / 2 } });
+    await record.bind(sha(2), "2026-09-10T02:00:00Z", timing(3.6e12), MACHINE, "2026-09-10T02:00:00Z").run();
+    await record.bind(sha(4), "2026-09-10T01:00:00Z", timing(1e12), MACHINE, "2026-09-10T01:00:00Z").run();
+    const machine = (await get(`/api/overview?suite=${SUITE}`)).body.machines[0];
+    expect(machine.last_commit).toEqual({ sha: sha(2), measured_at: "2026-09-10T02:00:00Z", total_ns: 3.6e12, phases_ns: { compiler_build: 1.8e12, measure: 1.8e12 } });
+    await env.DB.prepare("UPDATE machines SET last_commit_sha = NULL, last_commit_at = NULL, last_commit_timing = NULL").run();
+  });
+
   it("materializes the overview in R2 and serves it from there", async () => {
     const first = await get("/api/overview");
     const stored = await env.RAW.get("cache/overview/v2.json");
