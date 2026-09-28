@@ -110,6 +110,28 @@ function detailTable(machine, backend, profile) {
   );
 }
 
+const PHASE_LABELS = { worktree: "checkout", compiler_build: "compiler build", aihc_store: "AIHC stores", compile: "compile", measure: "measure" };
+
+function formatMinutes(ns) {
+  const minutes = Math.round(ns / 6e10);
+  if (minutes < 1) return `${Math.round(ns / 1e9)} s`;
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+/** How long the machine's most recent commit took, with where the time went on hover. */
+function lastCommitNote(machine) {
+  const last = machine.last_commit;
+  if (!last || !last.total_ns) return [];
+  const phases = last.phases_ns || {};
+  const title = Object.keys(phases)
+    .filter((name) => phases[name])
+    .sort((a, b) => phases[b] - phases[a])
+    .map((name) => `${PHASE_LABELS[name] ?? name}: ${formatMinutes(phases[name])}`)
+    .join("\n");
+  return [" · ", el("span", { title }, "last commit (", commitLink(last), `) took ${formatMinutes(last.total_ns)}`)];
+}
+
 function card(machine, backend) {
   const latest = machine.latest;
   const covered = machine.measured + machine.inherited;
@@ -120,8 +142,8 @@ function card(machine, backend) {
     ),
     el("div", { class: "tiles" }, ...HEADLINES.map((headline) => tile(machine, backend, headline))),
     latest
-      ? el("p", { class: "meta" }, "Commit ", commitLink(latest), " ", el("span", {}, latest.subject), " · ", el("a", { href: `${GITHUB}/commit/${latest.sha}` }, "GitHub"), ` · ${covered} of ${machine.total_commits} commits covered · last upload ${formatDate(machine.last_seen_at)}`)
-      : el("p", { class: "meta" }, `No measured commit yet · last upload ${formatDate(machine.last_seen_at)}`),
+      ? el("p", { class: "meta" }, "Commit ", commitLink(latest), " ", el("span", {}, latest.subject), " · ", el("a", { href: `${GITHUB}/commit/${latest.sha}` }, "GitHub"), ` · ${covered} of ${machine.total_commits} commits covered · last upload ${formatDate(machine.last_seen_at)}`, ...lastCommitNote(machine))
+      : el("p", { class: "meta" }, `No measured commit yet · last upload ${formatDate(machine.last_seen_at)}`, ...lastCommitNote(machine)),
     el("details", { open: detailsOpen.get(machine.machine_id) === true, ontoggle: (event) => detailsOpen.set(machine.machine_id, event.target.open) },
       el("summary", {}, "Per-benchmark ratios"),
       ...DETAIL_PROFILES.flatMap(({ profile, title }) => [el("h3", {}, title), detailTable(machine, backend, profile)]),

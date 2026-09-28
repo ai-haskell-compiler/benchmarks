@@ -246,7 +246,13 @@ async function coverageRows(env: Bindings, suite: Suite): Promise<CoverageRow[]>
 
 async function overview(env: Bindings, suite: Suite): Promise<Record<string, unknown>> {
   const window = await commitWindow(env);
-  const machines = await env.DB.prepare("SELECT machine_id, last_seen_at FROM machines ORDER BY machine_id").all<{ machine_id: string; last_seen_at: string | null }>();
+  const machines = await env.DB.prepare("SELECT machine_id, last_seen_at, last_commit_sha, last_commit_at, last_commit_timing FROM machines ORDER BY machine_id").all<{
+    machine_id: string;
+    last_seen_at: string | null;
+    last_commit_sha: string | null;
+    last_commit_at: string | null;
+    last_commit_timing: string | null;
+  }>();
   const rows = await coverageRows(env, suite);
   const size = suite.experiments.length;
   // A commit counts as covered once every benchmark has a run for it. The
@@ -296,6 +302,12 @@ async function overview(env: Bindings, suite: Suite): Promise<Record<string, unk
     cards.push({
       machine_id: machine.machine_id,
       last_seen_at: machine.last_seen_at,
+      // The most recently measured commit, which the planner may have picked
+      // from anywhere in the history -- not necessarily `latest`.
+      last_commit:
+        machine.last_commit_sha && machine.last_commit_timing
+          ? { sha: machine.last_commit_sha, measured_at: machine.last_commit_at, ...(JSON.parse(machine.last_commit_timing) as Json) }
+          : null,
       measured: summary.measured,
       inherited: summary.inherited,
       total_commits: window.total,

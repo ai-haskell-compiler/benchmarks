@@ -278,6 +278,14 @@ a copy. The Worker in `web/` only reads. Inserts use `INSERT OR IGNORE` on
 their primary keys, and the local database records `uploaded_at` only after
 both commands succeeded, so an interrupted upload resumes where it stopped.
 
+Each measured envelope also carries the commit's `timing` record, and the
+uploader copies it onto the machine's row as `last_commit_sha`,
+`last_commit_at` (the envelope's `created_at`) and `last_commit_timing`, so the
+overview can show how long the most recent commit took beside the last upload.
+Only an envelope newer than the stored one replaces it, so a backlog uploaded
+out of order cannot put an older commit back, and inherited envelopes, which
+measured nothing, are skipped.
+
 After the runs, the uploader records its suite in the `suites` table: the
 suite key, the suite ID and the benchmark to experiment mapping. The suite
 uploaded most recently is the active one.

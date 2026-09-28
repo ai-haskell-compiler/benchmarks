@@ -214,6 +214,27 @@ def suite_statement(suite: str, suite_id: str, experiments: Dict[str, str]) -> s
     )
 
 
+def last_commit_statement(envelope: Dict[str, Any]) -> Optional[str]:
+    """Record how long the machine's most recent commit took, if this is it.
+
+    Every envelope of a commit carries the same timing record, so writing it
+    once per envelope is harmless. The ``created_at`` guard keeps a backlog
+    uploaded out of order from replacing a newer commit with an older one. An
+    inherited envelope carries its source's timing but measured nothing, and
+    an unavailable one has no timing at all; neither is recorded.
+    """
+    timing = envelope.get("timing")
+    if envelope.get("inherited_from") or not timing or not timing.get("total_ns"):
+        return None
+    record = {"total_ns": timing["total_ns"], "phases_ns": timing.get("phases_ns") or {}}
+    created_at = sql_literal(envelope["created_at"])
+    return (
+        f"UPDATE machines SET last_commit_sha = {sql_literal(envelope['aihc_commit']['sha'])}, "
+        f"last_commit_at = {created_at}, last_commit_timing = {sql_literal(json.dumps(record, sort_keys=True))} "
+        f"WHERE machine_id = {sql_literal(envelope['machine_id'])} AND (last_commit_at IS NULL OR last_commit_at < {created_at});"
+    )
+
+
 def run_statements(envelope: Dict[str, Any], key: str) -> List[str]:
     now = utc_now()
     machine = envelope["machine_id"]
@@ -248,6 +269,9 @@ def run_statements(envelope: Dict[str, Any], key: str) -> List[str]:
         )
         + ");",
     ]
+    last_commit = last_commit_statement(envelope)
+    if last_commit:
+        statements.append(last_commit)
     for result in envelope.get("results", []):
         measurement = result.get("measurement", {})
         for metric in measurement.get("metrics", []):
