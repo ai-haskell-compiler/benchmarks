@@ -331,8 +331,9 @@ PATH with nix on it -- a systemd user service does not source login profiles,
 and after a reboot the window died on `nix: command not found`. There is one
 unit whatever the mode: two runners on one machine measure each other.
 
-`continuous` measures until every commit has a terminal result, then waits for
-new ones; it suits a machine that does nothing else. `window` measures one
+`continuous` measures one commit after another until every commit has a
+terminal result, then waits for new ones; it suits a machine that does nothing
+else. `window` measures one
 commit at a time and only between 22:00 and 08:00, for a machine that hosts CI
 runners the rest of the day. It starts a commit only when the window has room
 for one, judged by the longest of the last five commits here rather than by a
@@ -342,7 +343,11 @@ and a margin written for a 15-minute commit let a 51-minute one run into CI.
 Both fast-forward the checkout to `origin/main` between commits. A worker
 running an old checkout publishes a different suite from its sibling and
 nothing in the results says so, which is how one machine spent a day four
-commits behind.
+commits behind. Neither runs `run --all`, which returns only once the whole
+history is measured and so kept one worker on a days-old checkout.
+
+`~/bin/aihc-bench.sh` is a copy, not a link, so a change under `deploy/`
+reaches a machine only when `deploy/install.sh` is run there again.
 
 ## Uploading
 
