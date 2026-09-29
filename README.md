@@ -46,10 +46,13 @@ result with `run --all`. A sweep reloads the compiler's history before each
 commit it chooses -- fetching first when `--fetch` is given -- so a commit
 that lands while the sweep is running is planned straight away rather than
 after it finishes. A fetch that fails leaves the history as it was and says
-so, since a branch briefly out of reach is no reason to stop measuring. The planner measures an unmeasured `HEAD` first, then
-the newest 20 commits, then bisects the gap with the highest score, where a
-gap scores by its width, by the change observed between its measured
-endpoints, and by recency. Commits that leave the compiler-relevant paths
+so, since a branch briefly out of reach is no reason to stop measuring. The planner measures an unmeasured `HEAD` first. After
+that it splits the history into age buckets counted back from `HEAD` -- the
+last day, week, month, half year and everything older -- and serves the bucket
+with the fewest measured commits, so recent history is measured densely and
+older history ever more sparsely. Within that bucket it bisects the gap with
+the highest score, where a gap scores by its width, by the change observed
+between its measured endpoints, and by recency. Commits that leave the compiler-relevant paths
 untouched inherit their neighbour's result instead of being measured.
 `plan` reports measured and inherited coverage separately. Compile time is a
 published metric, so compilation is as timing-sensitive as execution: both are

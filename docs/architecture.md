@@ -43,8 +43,8 @@ suite as a whole.
 
 The planner treats a commit as measured only when every benchmark's
 experiment has a terminal result for it, so a newly added benchmark makes
-the history eligible again and fills in head first, then the warmup window,
-then the scored gaps. Each visit builds the compiler once and measures only
+the history eligible again and fills in head first, then the age buckets
+and their scored gaps. Each visit builds the compiler once and measures only
 the benchmarks that still lack a result for that commit, writing one
 envelope per benchmark.
 

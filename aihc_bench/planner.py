@@ -1,15 +1,20 @@
 """Commit selection for the overnight runner.
 
-Selection proceeds in three stages over the first-parent history:
+Selection proceeds in two stages over the first-parent history:
 
 1. An unmeasured HEAD is always first.
-2. While any of the newest ``warmup`` commits is unmeasured, the newest of
-   those is selected, so recent history fills in densely before anything else.
-3. Every maximal run of unmeasured commits between measured neighbours is a
-   gap. Gaps are scored by width, by the change observed between their
-   measured endpoints, and by recency; the midpoint of the best gap is
-   selected. Even spacing gives coverage, and the signal term localizes
-   regressions to the commit that caused them.
+2. The history is split into age buckets, measured back from HEAD's commit
+   time: the last day, week, month and half year, and everything older. The
+   bucket with the fewest measured commits that still has an unmeasured one
+   is chosen, the newer bucket on a tie. The buckets grow roughly
+   geometrically, so keeping their counts level measures recent history
+   densely while older history still fills in, ever more sparsely.
+   Within the chosen bucket, every maximal run of unmeasured commits between
+   measured neighbours is a gap, clipped to the bucket. Gaps are scored by
+   width, by the change observed between their measured endpoints, and by
+   recency; the midpoint of the best gap is selected. Even spacing gives
+   coverage, and the signal term localizes regressions to the commit that
+   caused them.
 
 Commits that inherit a result from a same-tree neighbour count as measured
 and are never selected.
@@ -19,31 +24,42 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 SIGNAL_METRICS = ("wall_time", "allocated_bytes")
 SIGNAL_WEIGHT = 8.0
-DEFAULT_WARMUP = 20
+
+#: Age buckets as (name, maximum age before HEAD), newest first. The last
+#: bucket has no bound and takes everything older.
+BUCKETS: Tuple[Tuple[str, Optional[timedelta]], ...] = (
+    ("day", timedelta(days=1)),
+    ("week", timedelta(days=7)),
+    ("month", timedelta(days=30)),
+    ("half-year", timedelta(days=182)),
+    ("older", None),
+)
 
 
 def select_next(
     commits: List[Dict[str, Any]],
     terminal_attempts: Iterable[Dict[str, Any]],
-    warmup: int = DEFAULT_WARMUP,
 ) -> Optional[Dict[str, Any]]:
-    plan = build_plan(commits, terminal_attempts, warmup)
+    plan = build_plan(commits, terminal_attempts)
     return plan["next"]
 
 
 def build_plan(
     commits: List[Dict[str, Any]],
     terminal_attempts: Iterable[Dict[str, Any]],
-    warmup: int = DEFAULT_WARMUP,
 ) -> Dict[str, Any]:
-    """Return the next commit, the stage that chose it, and the ranked gaps."""
+    """Return the next commit, the stage that chose it, the buckets and the ranked gaps.
+
+    The stage is ``head`` or the name of the bucket the commit came from.
+    """
     attempts = list(terminal_attempts)
     measured = {attempt["commit_sha"]: attempt for attempt in attempts}
-    plan: Dict[str, Any] = {"next": None, "stage": None, "gaps": []}
+    plan: Dict[str, Any] = {"next": None, "stage": None, "buckets": [], "gaps": []}
     if not commits:
         return plan
     unmeasured = [commit for commit in commits if commit["sha"] not in measured]
@@ -51,23 +67,67 @@ def build_plan(
         return plan
 
     head = commits[-1]
+    buckets = bucket_commits(commits, measured)
+    plan["buckets"] = buckets
     if head["sha"] not in measured:
         plan.update(next=head, stage="head")
         return plan
 
-    recent = [commit for commit in commits[-warmup:] if commit["sha"] not in measured]
-    if recent:
-        plan.update(next=recent[-1], stage="warmup")
-        return plan
-
-    gaps = rank_gaps(commits, measured)
+    open_buckets = [bucket for bucket in buckets if bucket["measured"] < bucket["size"]]
+    # Buckets are newest first and min keeps the first of equals, so a tie
+    # goes to the newer bucket.
+    chosen = min(open_buckets, key=lambda bucket: bucket["measured"])
+    eligible = {commit["sha"] for commit in commits if commit_bucket(commit, head) == chosen["name"]}
+    gaps = rank_gaps(commits, measured, eligible)
     plan["gaps"] = gaps
-    if gaps:
-        plan.update(next=gaps[0]["pick"], stage="gap")
+    plan.update(next=gaps[0]["pick"], stage=chosen["name"])
     return plan
 
 
-def rank_gaps(commits: List[Dict[str, Any]], measured: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+def bucket_commits(commits: List[Dict[str, Any]], measured: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Every bucket, newest first, with how many commits it holds and how many are measured."""
+    head = commits[-1]
+    counts = {name: {"name": name, "size": 0, "measured": 0} for name, _ in BUCKETS}
+    for commit in commits:
+        bucket = counts[commit_bucket(commit, head)]
+        bucket["size"] += 1
+        if commit["sha"] in measured:
+            bucket["measured"] += 1
+    return list(counts.values())
+
+
+def commit_bucket(commit: Dict[str, Any], head: Dict[str, Any]) -> str:
+    """The name of the bucket a commit falls in by its age before HEAD.
+
+    Ages are measured from HEAD rather than from now, so a quiet month does
+    not empty the recent buckets and the plan depends only on the history.
+    A commit dated after HEAD, as rebases can produce, counts as the newest.
+    """
+    age = _commit_time(head) - _commit_time(commit)
+    for name, limit in BUCKETS:
+        if limit is None or age <= limit:
+            return name
+    raise AssertionError("the last bucket is unbounded")
+
+
+def _commit_time(commit: Dict[str, Any]) -> datetime:
+    moment = datetime.fromisoformat(commit["committed_at"])
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment
+
+
+def rank_gaps(
+    commits: List[Dict[str, Any]],
+    measured: Dict[str, Dict[str, Any]],
+    eligible: Optional[Set[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Rank the gaps between measured commits, best first.
+
+    With ``eligible``, each gap is clipped to the eligible commits in it, so
+    its width and midpoint cover only those; its endpoints and hence its
+    signal stay those of the whole gap.
+    """
     head_ordinal = max(commits[-1]["ordinal"], 1)
     signals = {sha: attempt_signals(attempt) for sha, attempt in measured.items()}
     gaps: List[Dict[str, Any]] = []
@@ -75,19 +135,20 @@ def rank_gaps(commits: List[Dict[str, Any]], measured: Dict[str, Dict[str, Any]]
     left: Optional[Dict[str, Any]] = None
 
     def close(right: Optional[Dict[str, Any]]) -> None:
-        if not run:
+        candidates = [commit for commit in run if eligible is None or commit["sha"] in eligible]
+        if not candidates:
             return
         signal = 0.0
         if left is not None and right is not None:
             signal = signal_between(signals[left["sha"]], signals[right["sha"]])
-        width = len(run)
-        midpoint = run[len(run) // 2]
+        width = len(candidates)
+        midpoint = candidates[len(candidates) // 2]
         recency = midpoint["ordinal"] / head_ordinal
         score = width * (1.0 + SIGNAL_WEIGHT * signal) * (1.0 + recency)
         gaps.append(
             {
-                "start": run[0],
-                "end": run[-1],
+                "start": candidates[0],
+                "end": candidates[-1],
                 "left": left,
                 "right": right,
                 "width": width,
@@ -148,7 +209,7 @@ def merge_terminal_attempts(attempts_by_experiment: Dict[str, Iterable[Dict[str,
     Experiments are per benchmark, but the planner reasons about commits: a
     commit counts as measured only when every experiment has a terminal
     attempt for it, so a newly added benchmark makes the whole history
-    eligible again and fills in with the usual head, warmup, gap order. The
+    eligible again and fills in with the usual head, then bucket order. The
     merged attempt carries the concatenated results under ``result`` so gap
     signals see every benchmark.
     """
