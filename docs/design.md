@@ -306,15 +306,27 @@ count as measured for coverage and are never selected for measurement, and
 `forget` drops them together with their source. Docs, CI and test-only
 commits therefore cost nothing.
 
-### Stage 1: recent warmup
+### Stage 1: HEAD
 
-While any of the newest 20 first-parent commits is unmeasured, select the
-newest unmeasured one.
+An unmeasured `HEAD` is always selected first.
 
-### Stage 2: scored gaps
+### Stage 2: age buckets
+
+Split the history into buckets by each commit's age before `HEAD`'s commit
+time: at most a day, a week, 30 days, 182 days, and everything older. Among
+the buckets that still hold an unmeasured commit, choose the one with the
+fewest measured commits (inherited and unavailable results count), the newer
+bucket on a tie. The buckets grow roughly geometrically, so keeping their
+counts level makes measurement density fall off exponentially with age:
+recent history is measured densely while older history still fills in.
+Ages are measured from `HEAD` rather than from the wall clock, so a quiet
+month does not empty the recent buckets and the plan depends only on the
+history.
+
+### Stage 3: scored gaps
 
 Consider every maximal run of unmeasured commits between two measured commits
-(a gap). For each gap compute
+(a gap), clipped to the commits of the chosen bucket. For each gap compute
 
 ```text
 signal  = max over (benchmark, configuration, metric in {wall_time, allocated_bytes})
@@ -323,14 +335,15 @@ score   = width * (1 + 8 * signal) * (1 + recency)
 recency = ordinal_of_gap_midpoint / ordinal_of_head            (in [0, 1])
 ```
 
-Select the midpoint of the highest-scoring gap. Ties break toward the newer
-gap. A gap with no signal is still worth `width`, so coverage improves
-everywhere while regressions are localized first. `allocated_bytes` is included
+Select the midpoint of the highest-scoring clipped gap. Ties break toward the
+newer gap. A gap with no signal is still worth `width`, so coverage improves
+within the bucket while regressions are localized first. `allocated_bytes` is included
 because it is noise-free and bisects reliably even on a loaded machine.
 
 Gaps whose endpoints have status `unavailable` on one side carry `signal = 0`.
 
-`plan` prints the top five gaps with their scores so the choice is auditable.
+`plan` prints each bucket's measured and total commits and the chosen
+bucket's top five gaps with their scores so the choice is auditable.
 
 ## Worker API
 
@@ -390,7 +403,7 @@ Every filter state is reflected in the URL so views can be linked.
    (done in this repository). Land the AIHC runtime hook
    and `-O0` flag in the AIHC repository (tracked separately). This starts
    new experiment IDs, so it should land before any long overnight run.
-2. **Planner.** Tree keys, inherited results, warmup and scored gaps (done).
+2. **Planner.** Tree keys, inherited results, age buckets and scored gaps (done).
 3. **Worker.** D1 migrations, upload endpoint, read endpoints, `wrangler deploy`
    workflow, `perf.aihc.app` custom domain, local uploader with `uploaded_at`
    (done; `web/`).
