@@ -342,11 +342,9 @@ unit whatever the mode: two runners on one machine measure each other.
 `continuous` measures one commit after another until every commit has a
 terminal result, then waits for new ones; it suits a machine that does nothing
 else. `window` measures one
-commit at a time and only between 22:00 and 08:00, for a machine that hosts CI
-runners the rest of the day. It starts a commit only when the window has room
-for one, judged by the longest of the last five commits here rather than by a
-constant -- what a commit costs moves whenever the suite or the machine does,
-and a margin written for a 15-minute commit let a 51-minute one run into CI.
+commit at a time and only starts one between 22:00 and 06:00, for a machine
+that hosts CI runners the rest of the day. A commit started just before 06:00
+is allowed to finish past it.
 
 Both fast-forward the checkout to `origin/main` between commits. A worker
 running an old checkout publishes a different suite from its sibling and
