@@ -186,6 +186,22 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("--dir", plain.run_command)
         self.assertEqual(plain.run_command[-1], str(plain.precompiled))
 
+    def test_profile_argument_is_the_programs_last_argument(self):
+        self.config["benchmarks"][0]["profile_argument"] = True
+        with tempfile.TemporaryDirectory() as directory:
+            cells = {cell.configuration["id"]: cell for cell in self.build(Path(directory))}
+        native = cells["aihc-native-O0"]
+        self.assertEqual(native.run_command[-1], "O0")
+        optimized = cells["aihc-native-Os"]
+        self.assertEqual(optimized.run_command[-1], "Os")
+        ghc = cells["ghc-native-O2"]
+        # The profile follows the RTS block, so GHC returns it from getArgs
+        # and does not try to parse it as an RTS option.
+        self.assertEqual(ghc.run_command[-2:], ["-RTS", "O2"])
+        wasm = cells["aihc-wasm-O2"]
+        self.assertEqual(wasm.run_command[-1], "O2")
+        self.assertEqual(wasm.run_command[-2], str(wasm.precompiled))
+
     def test_a_missing_corpus_stops_the_run_before_measuring(self):
         self.config["benchmarks"][0]["corpus_env"] = "SWEEP_CORPUS"
         with tempfile.TemporaryDirectory() as directory:

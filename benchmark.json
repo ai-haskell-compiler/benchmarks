@@ -33,24 +33,28 @@
       "id": "integer-factorial-v1",
       "package": "integer-factorial",
       "source": "benchmarks/integer-factorial",
+      "profile_argument": true,
       "expected_stdout": "ok\n"
     },
     {
       "id": "integer-fibonacci-v1",
       "package": "integer-fibonacci",
       "source": "benchmarks/integer-fibonacci",
+      "profile_argument": true,
       "expected_stdout": "ok\n"
     },
     {
       "id": "snappy-roundtrip-v1",
       "package": "snappy-roundtrip",
       "source": "benchmarks/snappy-roundtrip",
+      "profile_argument": true,
       "expected_stdout": "ok\n"
     },
     {
       "id": "sha-digest-v1",
       "package": "sha-digest",
       "source": "benchmarks/sha-digest",
+      "profile_argument": true,
       "expected_stdout": "ok\n"
     },
     {

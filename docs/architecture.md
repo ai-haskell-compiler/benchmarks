@@ -59,7 +59,9 @@ commit inherit its result instead of being measured; see
 Every configuration carries an `optimization` profile: `O0`, `O1`, `O2` or
 `Os`. GHC receives the matching flag, except that `Os` builds with `-O1`
 because GHC has no size level. AIHC receives the matching flag too; at `-O2`
-and `-Os` `aihc build` also compiles the whole program at once.
+and `-Os` `aihc build` also compiles the whole program at once. A benchmark
+with `profile_argument` is run with that profile name as its last argument,
+and does a different amount of work in each profile.
 
 The GHC level and backend flag are carried by a `package *` stanza in the
 generated project file rather than by cabal's command-line `-O` and
