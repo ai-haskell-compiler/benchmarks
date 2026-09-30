@@ -182,25 +182,29 @@ def run_commit(
         remove_worktree(aihc_repository, worktree)
 
 
-#: Where AIHC keeps the package versions it derives from the Hackage index.
+#: The derived table and the tarball it is derived from. ``IndexCache.isStale``
+#: reads the table's modification time, and treats a cache without the tarball
+#: as incomplete.
+INDEX_TABLE_NAME = "index.txt"
+INDEX_TARBALL_NAME = "01-index.tar"
+
+
+#: Where AIHC keeps the table it derives from the Hackage index.
 #: ``Aihc.Hackage.Cache`` puts it under the XDG cache directory, and
-#: ``IndexCache`` appends ``-index`` to that.
+#: ``IndexCache`` appends ``-index`` to that. The table is ``index.txt``, whose
+#: modification time ``IndexCache.isStale`` reads; the ``preferred-versions.txt``
+#: it replaced (ai-haskell-compiler/aihc#2155) is deleted by AIHC on sight, so
+#: pointing here at it made every run warm the index and ``doctor`` call it
+#: missing.
 def hackage_index_cache() -> Path:
     base = os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")
-    return Path(base) / "aihc" / "hackage-index" / "preferred-versions.txt"
+    return Path(base) / "aihc" / "hackage-index" / INDEX_TABLE_NAME
 
 
 #: Refresh the derived file once it is older than this. Comfortably inside
 #: AIHC's own 24h staleness window, so a measured commit always finds a fresh
 #: file and never refreshes it itself.
 INDEX_WARM_AGE_SECONDS = 12 * 60 * 60
-
-
-#: The files AIHC derives the index from, beside ``preferred-versions.txt``.
-#: ``IndexCache.isStale`` reads the derived table's modification time, and
-#: treats a cache without the tarball as incomplete.
-INDEX_TABLE_NAME = "index.txt"
-INDEX_TARBALL_NAME = "01-index.tar"
 
 
 def hackage_index_files() -> List[Path]:

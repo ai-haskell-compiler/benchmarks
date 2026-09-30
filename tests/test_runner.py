@@ -647,14 +647,12 @@ class HackageIndexWarmingTests(unittest.TestCase):
         different Hackage than the ones before it, inside one series."""
         with tempfile.TemporaryDirectory() as directory:
             cache = Path(directory)
-            derived = cache / "preferred-versions.txt"
-            derived.write_text("a 1.0\n", encoding="utf-8")
             table = cache / "index.txt"
             table.write_text("a 1.0 entry\n", encoding="utf-8")
             (cache / "01-index.tar").write_bytes(b"tar")
             stale = time.time() - 40 * 60 * 60
             os.utime(table, (stale, stale))
-            with patch("aihc_bench.runner.hackage_index_cache", return_value=derived):
+            with patch("aihc_bench.runner.hackage_index_cache", return_value=table):
                 hold_hackage_index()
             self.assertLess(time.time() - table.stat().st_mtime, 60)
 
@@ -664,13 +662,11 @@ class HackageIndexWarmingTests(unittest.TestCase):
         would only hide that the cache needs rebuilding."""
         with tempfile.TemporaryDirectory() as directory:
             cache = Path(directory)
-            derived = cache / "preferred-versions.txt"
-            derived.write_text("a 1.0\n", encoding="utf-8")
             table = cache / "index.txt"
             table.write_text("a 1.0 entry\n", encoding="utf-8")
             stale = time.time() - 40 * 60 * 60
             os.utime(table, (stale, stale))
-            with patch("aihc_bench.runner.hackage_index_cache", return_value=derived):
+            with patch("aihc_bench.runner.hackage_index_cache", return_value=table):
                 hold_hackage_index()
             self.assertGreater(time.time() - table.stat().st_mtime, 30 * 60 * 60)
 
@@ -680,9 +676,8 @@ class HackageIndexWarmingTests(unittest.TestCase):
         Hackage chose its versions."""
         with tempfile.TemporaryDirectory() as directory:
             cache = Path(directory)
-            derived = cache / "preferred-versions.txt"
+            derived = cache / "index.txt"
             derived.write_text("a 1.0\n", encoding="utf-8")
-            (cache / "index.txt").write_text("a 1.0 entry\n", encoding="utf-8")
             with patch("aihc_bench.runner.hackage_index_cache", return_value=derived):
                 first = hackage_index_identity()
                 derived.write_text("a 1.1\n", encoding="utf-8")
@@ -692,13 +687,13 @@ class HackageIndexWarmingTests(unittest.TestCase):
 
     def test_the_index_identity_is_absent_without_a_cache(self):
         with tempfile.TemporaryDirectory() as directory:
-            derived = Path(directory) / "preferred-versions.txt"
+            derived = Path(directory) / "index.txt"
             with patch("aihc_bench.runner.hackage_index_cache", return_value=derived):
                 self.assertIsNone(hackage_index_identity())
 
     def test_a_fresh_index_is_left_alone(self):
         with tempfile.TemporaryDirectory() as directory:
-            derived = Path(directory) / "preferred-versions.txt"
+            derived = Path(directory) / "index.txt"
             derived.write_text("a 1.0\n", encoding="utf-8")
             with (
                 patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
@@ -750,7 +745,7 @@ class HackageIndexWarmingTests(unittest.TestCase):
 
     def test_a_stale_index_is_refreshed_with_the_current_compiler(self):
         with tempfile.TemporaryDirectory() as directory:
-            derived = Path(directory) / "preferred-versions.txt"
+            derived = Path(directory) / "index.txt"
             derived.write_text("a 1.0\n", encoding="utf-8")
             old = time.time() - INDEX_WARM_AGE_SECONDS - 60
             os.utime(derived, (old, old))
@@ -812,7 +807,7 @@ class HackageIndexWarmingTests(unittest.TestCase):
 
     def test_the_cache_path_follows_xdg(self):
         with patch.dict(os.environ, {"XDG_CACHE_HOME": "/xdg"}):
-            self.assertEqual(hackage_index_cache(), Path("/xdg/aihc/hackage-index/preferred-versions.txt"))
+            self.assertEqual(hackage_index_cache(), Path("/xdg/aihc/hackage-index/index.txt"))
 
 
 if __name__ == "__main__":
