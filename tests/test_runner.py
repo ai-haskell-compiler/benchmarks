@@ -905,7 +905,7 @@ class BaselineReuseTests(unittest.TestCase):
 
         A fixed one passes only until the reuse window slides past it: these
         tests were written with 2026-09-19T12:00:00 and began failing a day
-        later, when the twenty-four hour window no longer reached it.
+        later, when the then twenty-four hour window no longer reached it.
         """
         return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - hours_ago * 3600))
 
@@ -976,6 +976,15 @@ class BaselineReuseTests(unittest.TestCase):
     def test_a_result_older_than_the_window_is_measured_again(self):
         """The machine drifts even when the benchmark and toolchain do not."""
         database = self._database([self._ghc()], finished_at="2020-01-01T00:00:00")
+        self.assertEqual(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
+
+    def test_a_baseline_lasts_a_month(self):
+        """A GHC baseline costs as much to compile as the AIHC side of a
+        commit, and a daily window paid it again every day on every machine
+        for a number whose inputs had not changed."""
+        database = self._database([self._ghc()], finished_at=self._recently(hours_ago=20 * 24))
+        self.assertEqual(len(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT)), 1)
+        database = self._database([self._ghc()], finished_at=self._recently(hours_ago=40 * 24))
         self.assertEqual(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
 
     def test_a_reused_result_says_where_it_came_from(self):

@@ -554,7 +554,7 @@ class Phases:
 #: How long a GHC baseline may be reused before it is measured again.
 #: Overridden by ``baseline_reuse_hours`` in ``benchmark.json``; zero measures
 #: every configuration on every commit.
-DEFAULT_BASELINE_REUSE_HOURS = 24.0
+DEFAULT_BASELINE_REUSE_HOURS = 720.0
 
 
 def unmeasured_benchmarks(results: List[Dict[str, Any]], benchmarks: Iterable[str]) -> Dict[str, Dict[str, int]]:

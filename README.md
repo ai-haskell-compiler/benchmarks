@@ -305,7 +305,7 @@ compiler with the machine to itself.
 A GHC configuration is not measured again for every AIHC commit. Its inputs
 are the benchmark, the toolchain and the machine, and none of them is the
 commit under test, so the number cannot have moved. A GHC result is reused
-for `baseline_reuse_hours` (24 by default; zero measures everything every
+for `baseline_reuse_hours` (720, thirty days, by default; zero measures everything every
 time), after which it is measured again, and a changed `environment_id` -- a
 new OS, CPU or runner -- discards it at once. What this trades away is drift
 cancelling: an AIHC number measured now against a baseline measured earlier
