@@ -2,7 +2,7 @@
   "schema_version": 2,
   "suite_id": "aihc-core-v2",
   "aihc_ref": "origin/main",
-  "baseline_reuse_hours": 24,
+  "baseline_reuse_hours": 720,
   "commit_budget_seconds": 3600,
   "aihc_since": "2026-09-20",
   "aihc_compiler_marker": "bin/aihc/aihc.cabal",
