@@ -50,7 +50,15 @@ def load_config(path: Path) -> Dict[str, Any]:
         timeout = benchmark.get("process_timeout_seconds")
         if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
             raise ConfigError(f"benchmark {benchmark['id']}: process_timeout_seconds must be a positive number")
+        profile_argument = benchmark.get("profile_argument", False)
+        if not isinstance(profile_argument, bool):
+            raise ConfigError(f"benchmark {benchmark['id']}: profile_argument must be a boolean")
         corpus_env = benchmark.get("corpus_env")
+        if profile_argument and corpus_env:
+            raise ConfigError(
+                f"benchmark {benchmark['id']}: profile_argument cannot be combined with a corpus, "
+                "because both want to be the program's last argument"
+            )
         if corpus_env is not None and (not isinstance(corpus_env, str) or not corpus_env):
             raise ConfigError(f"benchmark {benchmark['id']}: corpus_env must name an environment variable")
         corpus_sources = benchmark.get("corpus_sources")

@@ -216,6 +216,24 @@ class ConfigTests(unittest.TestCase):
             config_path.write_text(json.dumps(document), encoding="utf-8")
             self.assertEqual(load_config(config_path)["benchmarks"][0]["process_timeout_seconds"], 120)
 
+    def test_profile_argument_is_validated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = write_config(root, BASE)
+            document = json.loads(config_path.read_text(encoding="utf-8"))
+            document["benchmarks"][0]["profile_argument"] = "O2"
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(ConfigError):
+                load_config(config_path)
+            document["benchmarks"][0]["profile_argument"] = True
+            document["benchmarks"][0]["corpus_env"] = "SAMPLE_CORPUS"
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(ConfigError):
+                load_config(config_path)
+            document["benchmarks"][0].pop("corpus_env")
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            self.assertTrue(load_config(config_path)["benchmarks"][0]["profile_argument"])
+
     def test_repository_configuration_loads(self):
         config = load_config(Path(__file__).resolve().parents[1] / "benchmark.json")
         profiles = {(item["compiler_family"], item["optimization"]) for item in config["configurations"]}

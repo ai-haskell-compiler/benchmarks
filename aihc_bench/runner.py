@@ -495,6 +495,8 @@ def build_cells(
             run_command = expand_command(configuration["run"], values) if available else None
             if run_command is not None and corpus:
                 run_command = _with_corpus(run_command, configuration, values)
+            if run_command is not None and benchmark.get("profile_argument"):
+                run_command = _with_profile(run_command, configuration)
             cells.append(
                 Cell(
                     benchmark=benchmark,
@@ -692,6 +694,19 @@ def _with_corpus(run_command: List[str], configuration: Dict[str, Any], values: 
     except ValueError:
         position = len(run_command)
     return run_command[:position] + options + run_command[position:] + [values["corpus"]]
+
+
+def _with_profile(run_command: List[str], configuration: Dict[str, Any]) -> List[str]:
+    """Pass the optimization profile as the program's last argument.
+
+    A benchmark flagged ``profile_argument`` does a different amount of work
+    in each profile, and the profile name (``O0``, ``Os``, ``O1``, ``O2``)
+    selects that size. It is appended after every host option, including a
+    GHC ``+RTS`` block, so the program's own ``getArgs`` sees it and the RTS
+    does not. Corpus benchmarks do not take one: their work is the sample
+    they are given, and an extra argument fails their usage check.
+    """
+    return [*run_command, configuration["optimization"]]
 
 
 #: Preparing the runtime and installing the core libraries are compilations
