@@ -8,9 +8,10 @@ from aihc_bench.process import ProcessMeasurement
 
 
 class FakeRunner:
-    def __init__(self, times, stats=None, allocations=None):
+    def __init__(self, times, stats=None, allocations=None, counts=None):
         self.times = iter(times)
         self.stats = stats
+        self.counts = counts
         self.allocations = iter(allocations) if allocations else None
 
     def __call__(self, command, cwd, timeout):
@@ -27,6 +28,8 @@ class FakeRunner:
             stderr=b"",
             timed_out=False,
             runtime_stats=stats,
+            instructions=self.counts[0] if self.counts else None,
+            cycles=self.counts[1] if self.counts else None,
         )
 
 
@@ -81,6 +84,26 @@ class MeasurementTests(unittest.TestCase):
         self.assertEqual(metric(result, "allocated_bytes")["status"], "ok")
         self.assertEqual(metric(result, "gc_count")["estimate"], 3)
         self.assertEqual(metric(result, "gc_time")["estimate"], 700)
+        # STATS predates the longest pause, as AIHC's runtime does today.
+        self.assertEqual(metric(result, "gc_max_pause")["status"], "unavailable")
+
+    def test_longest_gc_pause_becomes_a_metric(self):
+        stats = dict(STATS, gc_max_pause_ns=250)
+        result = measure_adaptively(["unused"], Path("."), b"ok\n", 1, 0.01, 64, invoke=FakeRunner([100, 100, 100], stats=stats))
+        self.assertEqual(metric(result, "gc_max_pause")["estimate"], 250)
+
+    def test_hardware_counts_become_metrics(self):
+        result = measure_adaptively(
+            ["unused"], Path("."), b"ok\n", 1, 0.01, 64, invoke=FakeRunner([100, 100, 100], counts=(9_000, 3_000))
+        )
+        self.assertEqual(metric(result, "instructions")["estimate"], 9_000)
+        self.assertEqual(metric(result, "cycles")["estimate"], 3_000)
+        self.assertEqual(result["samples"][0]["instructions"], 9_000)
+
+    def test_hardware_counts_are_unavailable_without_counters(self):
+        result = measure_adaptively(["unused"], Path("."), b"ok\n", 1, 0.01, 64, invoke=FakeRunner([100, 100, 100]))
+        self.assertEqual(metric(result, "instructions")["status"], "unavailable")
+        self.assertEqual(metric(result, "cycles")["status"], "unavailable")
 
     def test_deterministic_metric_disagreement_is_recorded(self):
         result = measure_adaptively(

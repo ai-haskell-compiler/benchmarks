@@ -305,7 +305,7 @@ def _format_interval(interval: Optional[Tuple[float, float]]) -> str:
     return f"[{(interval[0] - 1) * 100:+.1f}%, {(interval[1] - 1) * 100:+.1f}%]"
 
 
-def format_report(report: Dict[str, Any], markdown: bool = False, metrics: Iterable[str] = ("wall_time", "cpu_time", "peak_rss", "peak_heap", "allocated_bytes")) -> str:
+def format_report(report: Dict[str, Any], markdown: bool = False, metrics: Iterable[str] = ("wall_time", "cpu_time", "instructions", "peak_rss", "peak_heap", "allocated_bytes")) -> str:
     a_label, b_label = (side["label"] for side in report["sides"])
     wanted = list(metrics)
     lines: List[str] = []

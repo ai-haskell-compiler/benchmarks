@@ -293,9 +293,28 @@ about ten milliseconds, so the full escalation costs a second and buys
 precision cheaply, while `aihc-cpp-stackage` takes about ten seconds an
 invocation, where the same escalation is twenty-one minutes for a single
 cell. The budget bounds the expensive cells without taking precision from
-the cheap ones, which a smaller bucket limit would. Peak heap, bytes allocated, GC count and GC time come from GHC's
+the cheap ones, which a smaller bucket limit would. Peak heap, bytes allocated, GC count, GC time and the longest GC pause come from GHC's
 `+RTS -t` output and from the `AIHC_RTS_STATS` hook once the AIHC runtime has
-it. Compile time and artifact size are recorded per compilation. Every
+it; the longest pause is optional in the hook, so a runtime that reports the
+rest but not it leaves only that metric unavailable.
+
+Every invocation also records the instructions it retired and the cycles it
+took, from the CPU's own counters. Wall time moves with whatever else the
+machine is doing; the instruction count barely moves at all -- repeated runs
+agree to a few parts in a million on Linux -- so a change in the compiler
+shows up in it even where timing noise hides it. On Linux the runner opens
+`perf_event_open` counters on itself that every child inherits and enables
+when it calls `exec`, so the count covers the benchmark process and anything
+it starts, in user space only; that needs `perf_event_paranoid` at 2 or
+lower, the kernel default. On macOS it reads `ri_instructions` and
+`ri_cycles` from `proc_pid_rusage` once the process has exited and before
+it is reaped, which covers that one process in user and kernel mode. The
+two are therefore not comparable across platforms, which machine ids keep
+apart anyway. A counter that was multiplexed with others only ran part of
+the time and is recorded unavailable rather than extrapolated, and `doctor`
+reports whether this machine can count at all. A GHC baseline measured
+before a metric existed is not reused, since it would leave that metric's
+ratio empty for the whole reuse window. Compile time and artifact size are recorded per compilation. Every
 configuration is compiled from scratch -- the build directory and any previous
 artifact are removed first -- so compile time always describes a full compile
 rather than an incremental no-op. Both compilers run with `+RTS -N -RTS` and so
