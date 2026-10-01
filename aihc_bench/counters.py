@@ -28,6 +28,7 @@ import os
 import platform
 import select
 import struct
+import subprocess
 import sys
 from typing import List, Optional, Tuple
 
@@ -70,20 +71,34 @@ def open_session() -> CounterSession:
 
 
 def probe() -> str:
-    """Describe whether this machine can count, for ``doctor``."""
+    """Describe whether this machine can count, for ``doctor``.
+
+    A counter that opens is not yet one that counts: a macOS virtual machine
+    answers ``proc_pid_rusage`` with zero instructions, so a short child is
+    counted for real.
+    """
     if sys.platform.startswith("linux"):
+        source = "perf_event_open (user space)"
         try:
-            _LinuxSession().close()
+            session: CounterSession = _LinuxSession()
         except OSError as error:
             return f"unavailable ({error}; perf_event_paranoid must be 2 or lower)"
-        return "perf_event_open (user space)"
-    if sys.platform == "darwin":
+    elif sys.platform == "darwin":
+        source = "proc_pid_rusage"
         try:
-            _DarwinSession()
+            session = _DarwinSession()
         except OSError as error:
             return f"unavailable ({error})"
-        return "proc_pid_rusage"
-    return "unavailable on this platform"
+    else:
+        return "unavailable on this platform"
+    with session:
+        process = subprocess.Popen([sys.executable, "-c", "pass"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        session.wait_exited(process.pid)
+        counts = session.read(process.pid)
+        process.wait()
+    if counts is None:
+        return "unavailable (the counters opened but counted nothing; a virtual machine without a PMU?)"
+    return source
 
 
 # --- Linux ------------------------------------------------------------------
