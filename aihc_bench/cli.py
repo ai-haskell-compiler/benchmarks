@@ -207,12 +207,11 @@ def _print_plan(database: Database, experiments: Dict[str, str], suite: str, pla
         print(f"next:       {next_commit['sha']}  {next_commit['subject']}  [{plan['stage']}]")
     else:
         print("next:       none")
-    print("buckets:    " + ", ".join(f"{bucket['name']} {bucket['measured']}/{bucket['size']}" for bucket in plan["buckets"]))
     if plan["gaps"]:
-        print("gaps:       ordinals      width  signal  recency  score")
+        print("gaps:       ordinals      width  signal")
         for gap in plan["gaps"][:5]:
             span = f"{gap['start']['ordinal'] + 1}-{gap['end']['ordinal'] + 1}"
-            print(f"            {span:12} {gap['width']:5}  {gap['signal']:.3f}  {gap['recency']:.3f}  {gap['score']:8.1f}")
+            print(f"            {span:12} {gap['width']:5}  {gap['signal']:.3f}")
 
 
 #: A commit that takes longer than this is reported. The suite exists to

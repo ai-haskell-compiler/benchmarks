@@ -282,13 +282,13 @@ comments. Results are stored in `adhoc_runs` and are never uploaded.
 
 ## Planner
 
-The planner keeps "unmeasured HEAD first" and replaces pure spacing with a
-scored selection over three stages.
+The planner measures the history endpoints first, then bisects the ranges
+with the largest observed performance changes.
 
 The history is the first-parent log of `aihc_ref`, restricted to commits
 committed at or after `aihc_since` in `benchmark.json` (an ISO 8601
-timestamp; a bare date means midnight UTC). Commits before the cutoff predate
-a usable compiler and are dropped from the local state together with their
+timestamp; a bare date means midnight UTC), currently October 1, 2026. Commits
+before the cutoff are dropped from the local state together with their
 attempts. Ordinals are positions in the full first-parent history, so moving
 the cutoff never renumbers the commits that remain or the results already
 published under them.
@@ -316,40 +316,37 @@ commits therefore cost nothing.
 
 An unmeasured `HEAD` is always selected first.
 
-### Stage 2: age buckets
+### Stage 2: first commit
 
-Split the history into buckets by each commit's age before `HEAD`'s commit
-time: at most a day, a week, 30 days, 182 days, and everything older. Among
-the buckets that still hold an unmeasured commit, choose the one with the
-fewest measured commits (inherited and unavailable results count), the newer
-bucket on a tie. The buckets grow roughly geometrically, so keeping their
-counts level makes measurement density fall off exponentially with age:
-recent history is measured densely while older history still fills in.
-Ages are measured from `HEAD` rather than from the wall clock, so a quiet
-month does not empty the recent buckets and the plan depends only on the
-history.
+The first commit in the eligible history is selected next if it lacks a
+terminal result. This establishes the other endpoint even when the history
+already contains measurements of intermediate commits.
 
-### Stage 3: scored gaps
+### Stage 3: largest endpoint difference
 
-Consider every maximal run of unmeasured commits between two measured commits
-(a gap), clipped to the commits of the chosen bucket. For each gap compute
+Consider every maximal run of unmeasured commits between measured commits
+(a gap). For each gap compute
 
 ```text
-signal  = max over (benchmark, configuration, metric in {wall_time, allocated_bytes})
-          of |log(estimate_right / estimate_left)|
-score   = width * (1 + 8 * signal) * (1 + recency)
-recency = ordinal_of_gap_midpoint / ordinal_of_head            (in [0, 1])
+signal = max over (benchmark, configuration, metric in {wall_time, allocated_bytes})
+         of |log(estimate_right / estimate_left)|
 ```
 
-Select the midpoint of the highest-scoring clipped gap. Ties break toward the
-newer gap. A gap with no signal is still worth `width`, so coverage improves
-within the bucket while regressions are localized first. `allocated_bytes` is included
-because it is noise-free and bisects reliably even on a loaded machine.
+Select the midpoint of the gap with the largest signal. Neither width nor
+age can outweigh a larger signal. Equal signals break ties by gap width,
+then toward the newer midpoint. This repeatedly narrows ranges with large
+changes until the commits responsible have been measured. Improvements and
+regressions have equal priority. `allocated_bytes` is included because it is
+noise-free and bisects reliably even on a loaded machine.
 
-Gaps whose endpoints have status `unavailable` on one side carry `signal = 0`.
+Gaps with unavailable endpoints or no shared positive metric estimates carry
+`signal = 0`. If all signals are zero, bisection of the widest gap supplies
+coverage and can discover changes that cancel out between existing endpoints.
+Terminal failures and inherited results count as measured and are not retried
+by the planner.
 
-`plan` prints each bucket's measured and total commits and the chosen
-bucket's top five gaps with their scores so the choice is auditable.
+`plan` prints the selection stage and the top five gaps with their widths and
+signals so the choice is auditable.
 
 ## Worker API
 
@@ -409,7 +406,7 @@ Every filter state is reflected in the URL so views can be linked.
    (done in this repository). Land the AIHC runtime hook
    and `-O0` flag in the AIHC repository (tracked separately). This starts
    new experiment IDs, so it should land before any long overnight run.
-2. **Planner.** Tree keys, inherited results, age buckets and scored gaps (done).
+2. **Planner.** Tree keys, inherited results, endpoint priorities and signal-ranked gaps (done).
 3. **Worker.** D1 migrations, upload endpoint, read endpoints, `wrangler deploy`
    workflow, `perf.aihc.app` custom domain, local uploader with `uploaded_at`
    (done; `web/`).

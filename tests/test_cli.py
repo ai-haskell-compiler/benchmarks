@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from aihc_bench.cli import _refresh_history, _upload_after_commit
+from aihc_bench.cli import _print_plan, _refresh_history, _upload_after_commit
 from aihc_bench.git_history import GitError
 from aihc_bench.uploader import UploadError
 
@@ -118,3 +118,23 @@ class RefreshHistoryTests(unittest.TestCase):
         self.assertEqual(
             sorted(call.args[0] for call in database.propagate_inherited.call_args_list), ["e1", "e2"]
         )
+
+
+class PrintPlanTests(unittest.TestCase):
+    def test_plan_reports_endpoint_stages_and_signal_ranked_gaps(self):
+        history = [{"sha": f"c{i}", "ordinal": i, "subject": str(i)} for i in range(3)]
+        database = MagicMock()
+        database.commits.return_value = history
+        for shas, expected in [([], "c2  2  [head]"), (["c2"], "c0  0  [first]"),
+                               (["c0", "c2"], "c1  1  [signal]"), (["c0", "c1", "c2"], "none")]:
+            with self.subTest(shas=shas):
+                database.terminal_attempts.return_value = [
+                    {"commit_sha": sha, "status": "unavailable"} for sha in shas
+                ]
+                with patch("builtins.print") as printed:
+                    _print_plan(database, {"fib": "experiment"}, "suite", "platform", len(history))
+                output = "\n".join(call.args[0] for call in printed.call_args_list)
+                self.assertIn(f"next:       {expected}", output)
+                self.assertNotIn("buckets:", output)
+                if len(shas) == 2:
+                    self.assertIn("gaps:       ordinals      width  signal", output)
