@@ -1,44 +1,18 @@
-"""Commit selection for the overnight runner.
+"""Bisect first-parent history where benchmark values change the most.
 
-Selection proceeds in two stages over the first-parent history:
-
-1. An unmeasured HEAD is always first.
-2. The history is split into age buckets, measured back from HEAD's commit
-   time: the last day, week, month and half year, and everything older. The
-   bucket with the fewest measured commits that still has an unmeasured one
-   is chosen, the newer bucket on a tie. The buckets grow roughly
-   geometrically, so keeping their counts level measures recent history
-   densely while older history still fills in, ever more sparsely.
-   Within the chosen bucket, every maximal run of unmeasured commits between
-   measured neighbours is a gap, clipped to the bucket. Gaps are scored by
-   width, by the change observed between their measured endpoints, and by
-   recency; the midpoint of the best gap is selected. Even spacing gives
-   coverage, and the signal term localizes regressions to the commit that
-   caused them.
-
-Commits that inherit a result from a same-tree neighbour count as measured
-and are never selected.
+An unmeasured HEAD is selected first, followed by the first eligible commit.
+Then the midpoint of the gap with the largest relative change between its
+measured endpoints is selected. Gap width and recency only break ties.
+Commits with terminal or inherited results are never selected again.
 """
 
 from __future__ import annotations
 
 import json
 import math
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 SIGNAL_METRICS = ("wall_time", "allocated_bytes")
-SIGNAL_WEIGHT = 8.0
-
-#: Age buckets as (name, maximum age before HEAD), newest first. The last
-#: bucket has no bound and takes everything older.
-BUCKETS: Tuple[Tuple[str, Optional[timedelta]], ...] = (
-    ("day", timedelta(days=1)),
-    ("week", timedelta(days=7)),
-    ("month", timedelta(days=30)),
-    ("half-year", timedelta(days=182)),
-    ("older", None),
-)
 
 
 def select_next(
@@ -53,109 +27,63 @@ def build_plan(
     commits: List[Dict[str, Any]],
     terminal_attempts: Iterable[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """Return the next commit, the stage that chose it, the buckets and the ranked gaps.
+    """Return the next commit, its selection stage, and the ranked gaps.
 
-    The stage is ``head`` or the name of the bucket the commit came from.
+    Stages are ``head``, ``first`` and ``signal``. Commits are oldest first.
     """
-    attempts = list(terminal_attempts)
-    measured = {attempt["commit_sha"]: attempt for attempt in attempts}
-    plan: Dict[str, Any] = {"next": None, "stage": None, "buckets": [], "gaps": []}
+    measured = {attempt["commit_sha"]: attempt for attempt in terminal_attempts}
+    plan: Dict[str, Any] = {"next": None, "stage": None, "gaps": []}
     if not commits:
-        return plan
-    unmeasured = [commit for commit in commits if commit["sha"] not in measured]
-    if not unmeasured:
         return plan
 
     head = commits[-1]
-    buckets = bucket_commits(commits, measured)
-    plan["buckets"] = buckets
     if head["sha"] not in measured:
         plan.update(next=head, stage="head")
         return plan
 
-    open_buckets = [bucket for bucket in buckets if bucket["measured"] < bucket["size"]]
-    # Buckets are newest first and min keeps the first of equals, so a tie
-    # goes to the newer bucket.
-    chosen = min(open_buckets, key=lambda bucket: bucket["measured"])
-    eligible = {commit["sha"] for commit in commits if commit_bucket(commit, head) == chosen["name"]}
-    gaps = rank_gaps(commits, measured, eligible)
+    first = commits[0]
+    if first["sha"] not in measured:
+        plan.update(next=first, stage="first")
+        return plan
+
+    gaps = rank_gaps(commits, measured)
     plan["gaps"] = gaps
-    plan.update(next=gaps[0]["pick"], stage=chosen["name"])
+    if gaps:
+        plan.update(next=gaps[0]["pick"], stage="signal")
     return plan
-
-
-def bucket_commits(commits: List[Dict[str, Any]], measured: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Every bucket, newest first, with how many commits it holds and how many are measured."""
-    head = commits[-1]
-    counts = {name: {"name": name, "size": 0, "measured": 0} for name, _ in BUCKETS}
-    for commit in commits:
-        bucket = counts[commit_bucket(commit, head)]
-        bucket["size"] += 1
-        if commit["sha"] in measured:
-            bucket["measured"] += 1
-    return list(counts.values())
-
-
-def commit_bucket(commit: Dict[str, Any], head: Dict[str, Any]) -> str:
-    """The name of the bucket a commit falls in by its age before HEAD.
-
-    Ages are measured from HEAD rather than from now, so a quiet month does
-    not empty the recent buckets and the plan depends only on the history.
-    A commit dated after HEAD, as rebases can produce, counts as the newest.
-    """
-    age = _commit_time(head) - _commit_time(commit)
-    for name, limit in BUCKETS:
-        if limit is None or age <= limit:
-            return name
-    raise AssertionError("the last bucket is unbounded")
-
-
-def _commit_time(commit: Dict[str, Any]) -> datetime:
-    moment = datetime.fromisoformat(commit["committed_at"])
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
-    return moment
 
 
 def rank_gaps(
     commits: List[Dict[str, Any]],
     measured: Dict[str, Dict[str, Any]],
-    eligible: Optional[Set[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Rank the gaps between measured commits, best first.
+    """Rank unmeasured runs by endpoint difference, then width, then recency.
 
-    With ``eligible``, each gap is clipped to the eligible commits in it, so
-    its width and midpoint cover only those; its endpoints and hence its
-    signal stay those of the whole gap.
+    Difference is the strongest absolute log ratio among shared signal
+    metrics. Missing or unavailable endpoints carry zero signal. Equal or
+    unknown signals fall back to bisection of the widest gap so the planner
+    can discover changes even without an initial signal.
     """
-    head_ordinal = max(commits[-1]["ordinal"], 1)
     signals = {sha: attempt_signals(attempt) for sha, attempt in measured.items()}
     gaps: List[Dict[str, Any]] = []
     run: List[Dict[str, Any]] = []
     left: Optional[Dict[str, Any]] = None
 
     def close(right: Optional[Dict[str, Any]]) -> None:
-        candidates = [commit for commit in run if eligible is None or commit["sha"] in eligible]
-        if not candidates:
+        if not run:
             return
         signal = 0.0
         if left is not None and right is not None:
             signal = signal_between(signals[left["sha"]], signals[right["sha"]])
-        width = len(candidates)
-        midpoint = candidates[len(candidates) // 2]
-        recency = midpoint["ordinal"] / head_ordinal
-        score = width * (1.0 + SIGNAL_WEIGHT * signal) * (1.0 + recency)
         gaps.append(
             {
-                "start": candidates[0],
-                "end": candidates[-1],
+                "start": run[0],
+                "end": run[-1],
                 "left": left,
                 "right": right,
-                "width": width,
+                "width": len(run),
                 "signal": signal,
-                "recency": recency,
-                "score": score,
-                "pick": midpoint,
+                "pick": run[len(run) // 2],
             }
         )
 
@@ -167,7 +95,7 @@ def rank_gaps(
         else:
             run.append(commit)
     close(None)
-    gaps.sort(key=lambda gap: (gap["score"], gap["pick"]["ordinal"]), reverse=True)
+    gaps.sort(key=lambda gap: (gap["signal"], gap["width"], gap["pick"]["ordinal"]), reverse=True)
     return gaps
 
 
@@ -209,9 +137,9 @@ def merge_terminal_attempts(attempts_by_experiment: Dict[str, Iterable[Dict[str,
     Experiments are per benchmark, but the planner reasons about commits: a
     commit counts as measured only when every experiment has a terminal
     attempt for it, so a newly added benchmark makes the whole history
-    eligible again and fills in with the usual head, then bucket order. The
-    merged attempt carries the concatenated results under ``result`` so gap
-    signals see every benchmark.
+    eligible again and fills in HEAD, then the first commit, then gaps ranked
+    by endpoint difference. The merged attempt carries the concatenated
+    results under ``result`` so gap signals see every benchmark.
     """
     experiments = dict(attempts_by_experiment)
     if not experiments:

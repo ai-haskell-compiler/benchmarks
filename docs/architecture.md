@@ -43,16 +43,18 @@ suite as a whole.
 
 The planner treats a commit as measured only when every benchmark's
 experiment has a terminal result for it, so a newly added benchmark makes
-the history eligible again and fills in head first, then the age buckets
-and their scored gaps. Each visit builds the compiler once and measures only
+the history eligible again and fills in HEAD first, then the first eligible
+commit, then gaps ranked by endpoint difference. Each visit builds the compiler once and measures only
 the benchmarks that still lack a result for that commit, writing one
 envelope per benchmark.
 
-The planner benchmarks an unmeasured `HEAD` first, then fills in the newest
-20 commits, then bisects gaps between measured commits. A gap's score is its
-width times `1 + 8 * signal` times `1 + recency`, where the signal is the
-largest relative change in wall time or allocated bytes between the gap's
-measured endpoints. Commits whose compiler-relevant tree matches a measured
+The planner benchmarks an unmeasured `HEAD` first, then the first eligible
+commit, then bisects gaps between measured commits. Gaps are ranked by the
+largest absolute log ratio of shared wall time or allocated bytes estimates
+between measured endpoints. Gap width, then the newer midpoint, break ties;
+quiet ranges cannot outweigh a larger performance change. Missing or
+unavailable endpoint measurements carry zero signal, so without a known
+change the planner bisects the widest gap to discover one. Commits whose compiler-relevant tree matches a measured
 commit inherit its result instead of being measured; see
 [design.md](design.md) for the tree-key definition.
 

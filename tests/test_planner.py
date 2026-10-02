@@ -1,13 +1,7 @@
 import json
 import unittest
-from datetime import datetime, timedelta, timezone
 
-from aihc_bench.planner import build_plan, commit_bucket, merge_terminal_attempts, rank_gaps, select_next
-
-#: Days before HEAD for each commit of a history spanning every bucket:
-#: three older than half a year, three in the half year, three in the month,
-#: three in the week and three in the day.
-AGES = [400, 300, 200, 150, 100, 50, 25, 20, 10, 6, 4, 2, 0.5, 0.25, 0]
+from aihc_bench.planner import build_plan, merge_terminal_attempts, rank_gaps, select_next
 
 
 def envelope(wall):
@@ -34,30 +28,38 @@ class PlannerTests(unittest.TestCase):
     def test_head_is_always_first(self):
         self.assertEqual(select_next(self.commits, [])["sha"], "c8")
 
-    def test_gap_bisection_within_a_bucket(self):
-        attempts = [measured("c8"), measured("c7"), measured("c6")]
-        plan = build_plan(self.commits, attempts)
-        self.assertEqual(plan["stage"], "day")
-        self.assertEqual(plan["next"]["sha"], "c3")
-        self.assertEqual(plan["gaps"][0]["width"], 6)
+    def test_first_commit_is_second_even_with_a_large_signal(self):
+        plan = build_plan(self.commits, [measured("c4", 100), measured("c8", 1000)])
+        self.assertEqual(plan["stage"], "first")
+        self.assertEqual(plan["next"]["sha"], "c0")
+
+    def test_gap_bisection(self):
+        plan = build_plan(self.commits, [measured("c0"), measured("c8")])
+        self.assertEqual(plan["stage"], "signal")
+        self.assertEqual(plan["next"]["sha"], "c4")
+        self.assertEqual(plan["gaps"][0]["width"], 7)
         self.assertEqual(plan["gaps"][0]["signal"], 0.0)
 
     def test_signal_prioritizes_the_gap_with_a_change(self):
-        attempts = [measured("c0", 100), measured("c4", 100), measured("c8", 200)]
-        with_signal = build_plan(self.commits, attempts)
-        self.assertEqual(with_signal["next"]["sha"], "c6")
-        self.assertGreater(with_signal["gaps"][0]["signal"], 0.6)
-        without = build_plan(self.commits, [measured("c0"), measured("c4"), measured("c8")])
-        self.assertEqual(without["next"]["sha"], "c6")
-        self.assertEqual(without["gaps"][0]["signal"], 0.0)
-        older = build_plan(self.commits, [measured("c0", 200), measured("c4", 100), measured("c8", 100)])
-        self.assertEqual(older["next"]["sha"], "c2")
+        attempts = [measured("c0", 200), measured("c4", 100), measured("c8", 100)]
+        plan = build_plan(self.commits, attempts)
+        self.assertEqual(plan["next"]["sha"], "c2")
+        self.assertGreater(plan["gaps"][0]["signal"], 0.6)
 
-    def test_recency_breaks_ties_between_equal_gaps(self):
+    def test_signal_outweighs_width_and_recency(self):
+        # A single older commit with a sharp change wins over five newer
+        # commits with a small change, regardless of their timestamps.
+        attempts = [measured("c0", 200), measured("c2", 100), measured("c8", 101)]
+        plan = build_plan(self.commits, attempts)
+        self.assertEqual(plan["next"]["sha"], "c1")
+        self.assertEqual([gap["width"] for gap in plan["gaps"]], [1, 5])
+
+    def test_width_then_recency_break_signal_ties(self):
+        attempts = [measured("c0"), measured("c2"), measured("c8")]
+        self.assertEqual(select_next(self.commits, attempts)["sha"], "c5")
         attempts = [measured("c0"), measured("c4"), measured("c8")]
         gaps = rank_gaps(self.commits, {attempt["commit_sha"]: attempt for attempt in attempts})
         self.assertEqual([gap["pick"]["sha"] for gap in gaps], ["c6", "c2"])
-        self.assertGreater(gaps[0]["recency"], 0)
 
     def test_unavailable_endpoints_carry_no_signal(self):
         attempts = [measured("c0", status="unavailable"), measured("c8", 500)]
@@ -65,57 +67,54 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(plan["gaps"][0]["signal"], 0.0)
         self.assertEqual(plan["next"]["sha"], "c4")
 
-    def aged_history(self):
-        head = datetime(2026, 9, 29, 12, tzinfo=timezone.utc)
-        return [
-            {"sha": f"a{index}", "ordinal": index, "committed_at": (head - timedelta(days=age)).isoformat(), "subject": str(index)}
-            for index, age in enumerate(AGES)
-        ]
+    def test_relative_changes_treat_improvements_and_regressions_equally(self):
+        for left, right in [(100, 200), (200, 100)]:
+            with self.subTest(left=left):
+                attempts = [measured("c0", left), measured("c4", right), measured("c8", right)]
+                self.assertEqual(select_next(self.commits, attempts)["sha"], "c2")
 
-    def test_commits_fall_in_buckets_by_age_before_head(self):
-        history = self.aged_history()
-        names = [commit_bucket(commit, history[-1]) for commit in history]
-        self.assertEqual(names, ["older"] * 3 + ["half-year"] * 3 + ["month"] * 3 + ["week"] * 3 + ["day"] * 3)
-        # A zone offset is honoured, and a commit dated after HEAD is the newest.
-        self.assertEqual(commit_bucket({"committed_at": "2026-09-29T20:00:00+10:00"}, history[-1]), "day")
-        self.assertEqual(commit_bucket({"committed_at": "2026-09-30T00:00:00+00:00"}, history[-1]), "day")
+    def test_allocations_and_other_benchmarks_can_supply_the_strongest_signal(self):
+        left = measured("c0")
+        data = json.loads(left["result_json"])
+        data["results"].append({
+            "benchmark": "ack", "configuration": "aihc-native-O0",
+            "measurement": {"metrics": [{"metric": "allocated_bytes", "estimate": 4000}]},
+        })
+        left["result_json"] = json.dumps(data)
+        right = measured("c4")
+        data["results"][-1]["measurement"]["metrics"][0]["estimate"] = 1000
+        right["result_json"] = json.dumps(data)
+        end = dict(right, commit_sha="c8")
+        self.assertEqual(select_next(self.commits, [left, right, end])["sha"], "c2")
 
-    def test_buckets_fill_evenly_newest_first(self):
-        history = self.aged_history()
+    def test_repeated_bisection_localizes_a_step_change(self):
+        attempts = [measured("c0", 100), measured("c8", 200)]
+        order = []
+        for _ in range(3):
+            pick = select_next(self.commits, attempts)
+            order.append(pick["sha"])
+            attempts.append(measured(pick["sha"], 100 if pick["ordinal"] < 3 else 200))
+        self.assertEqual(order, ["c4", "c2", "c3"])
+
+    def test_equal_values_eventually_cover_the_history(self):
         attempts = []
         order = []
-        while True:
-            plan = build_plan(history, attempts)
-            if plan["next"] is None:
-                break
-            order.append((plan["next"]["sha"], plan["stage"]))
-            attempts.append(measured(plan["next"]["sha"]))
-        self.assertEqual(order[0], ("a14", "head"))
-        # HEAD fills the day bucket's first slot, then every other bucket
-        # catches up, newest first, before any gets its second.
-        self.assertEqual([stage for _, stage in order[1:5]], ["week", "month", "half-year", "older"])
-        self.assertEqual([stage for _, stage in order[5:10]], ["day", "week", "month", "half-year", "older"])
-        self.assertEqual(len(order), len(history))
+        while (pick := select_next(self.commits, attempts)) is not None:
+            order.append(pick["sha"])
+            attempts.append(measured(pick["sha"]))
+        self.assertEqual(order[:3], ["c8", "c0", "c4"])
+        self.assertEqual(len(order), len(self.commits))
+        self.assertEqual(len(set(order)), len(self.commits))
 
-    def test_a_bucket_that_is_full_drops_out(self):
-        history = self.aged_history()
-        # The day and week buckets are fully measured; the rest have one each.
-        attempts = [measured(f"a{index}") for index in (0, 3, 6, 9, 10, 11, 12, 13, 14)]
-        plan = build_plan(history, attempts)
-        self.assertEqual(plan["stage"], "month")
-        self.assertEqual(plan["next"]["sha"], "a8")
-        self.assertEqual([(bucket["name"], bucket["measured"], bucket["size"]) for bucket in plan["buckets"]], [
-            ("day", 3, 3), ("week", 3, 3), ("month", 1, 3), ("half-year", 1, 3), ("older", 1, 3),
-        ])
+    def test_empty_and_single_commit_histories(self):
+        self.assertIsNone(select_next([], []))
+        self.assertEqual(select_next(self.commits[:1], [])["sha"], "c0")
+        self.assertIsNone(select_next(self.commits[:1], [measured("c0")]))
 
-    def test_gaps_are_clipped_to_the_chosen_bucket(self):
-        history = self.aged_history()
-        # One gap runs from a1 to a13, across four buckets.
-        attempts = [measured("a0"), measured("a14", 100), measured("a13", 100), measured("a12", 100)]
-        plan = build_plan(history, attempts)
-        self.assertEqual(plan["stage"], "week")
-        self.assertEqual([gap["width"] for gap in plan["gaps"]], [3])
-        self.assertEqual(plan["next"]["sha"], "a10")
+    def test_a_new_head_takes_priority_over_existing_gaps(self):
+        attempts = [measured("c0"), measured("c4", 200), measured("c8", 200)]
+        new_head = {"sha": "c9", "ordinal": 9}
+        self.assertEqual(select_next(self.commits + [new_head], attempts), new_head)
 
     def test_inherited_results_count_as_measured(self):
         attempts = [measured(f"c{index}") for index in range(9)]
@@ -136,7 +135,7 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(merged["c2"]["status"], "inherited")
         self.assertEqual(merged["c2"]["inherited_from"], "c4")
         plan = build_plan(self.commits, merged.values())
-        self.assertEqual(plan["next"]["sha"], "c5")
+        self.assertEqual(plan["next"]["sha"], "c0")
         self.assertEqual(merge_terminal_attempts({}), [])
 
     def test_merge_marks_unavailable_only_when_no_benchmark_built(self):
