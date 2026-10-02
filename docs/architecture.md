@@ -228,13 +228,15 @@ results[]
     status
     bucket_sizes
     samples[]             wall_time_ns, cpu_time_ns, peak_rss_bytes,
-                          peak_heap_bytes, allocated_bytes, gc_count, gc_time_ns
+                          peak_heap_bytes, allocated_bytes, gc_count, gc_time_ns,
+                          gc_max_pause_ns, instructions, cycles
     metrics[]             metric, unit, status, estimate, samples
 ```
 
 Metrics carry their own name, unit, status, estimate, and samples. The
 invocation metrics are `wall_time`, `cpu_time`, `peak_rss`, `peak_heap`,
-`allocated_bytes`, `gc_count` and `gc_time`; `compile_time` and
+`allocated_bytes`, `gc_count`, `gc_time`, `gc_max_pause`, `instructions` and
+`cycles`; `compile_time` and
 `artifact_size` describe the compilation. A metric the process could not
 report has status `unavailable` and a null estimate. `allocated_bytes` and
 `gc_count` are expected to be identical across invocations and are marked
@@ -245,6 +247,16 @@ report has status `unavailable` and a null estimate. `allocated_bytes` and
 The runner directly starts the benchmark process and calls `wait4`, measuring
 monotonic elapsed time and child `rusage`. `ru_maxrss` is normalized to bytes;
 Darwin reports bytes and Linux reports KiB. CPU time is `ru_utime + ru_stime`.
+
+`instructions` and `cycles` come from the CPU's counters (`aihc_bench/counters.py`).
+On Linux the runner opens two `perf_event_open` counters on itself, disabled,
+inherited and enabled on `exec`, so they count the child and its descendants
+in user space and the totals are read once the child has exited
+(`waitid(WNOWAIT)`) and before it is reaped. On Darwin the same moment is
+found with a kqueue `NOTE_EXIT`, and `proc_pid_rusage(RUSAGE_INFO_V4)` gives
+`ri_instructions` and `ri_cycles` for the process in user and kernel mode. A
+multiplexed Linux counter, a machine without counters and a timed-out process
+all record the metrics unavailable.
 
 Wall-time bucket sizes are 1, 2, 4, 8, 16, 32, and 64. Adjacent means converge
 when their symmetric relative difference is at most 1%. Every published
@@ -261,12 +273,13 @@ unavailable metrics.
 
 - `ghc`: the program is compiled with `-rtsopts` and run with
   `+RTS -t{stats_file} --machine-readable -RTS`. `max_live_bytes` becomes
-  `peak_heap`, `allocated_bytes` and `num_GCs` map directly, and
-  `GC_cpu_seconds` becomes `gc_time`.
+  `peak_heap`, `allocated_bytes` and `num_GCs` map directly,
+  `GC_cpu_seconds` becomes `gc_time`, and the largest
+  `gen_<n>_max_pause_seconds` (wall-clock) becomes `gc_max_pause`.
 - `aihc`: the runner sets `AIHC_RTS_STATS={stats_file}` in the environment
   (through `--env` and `--dir` under Wasmtime). The runtime is expected to
   write a schema 1 JSON object with `peak_heap_bytes`, `allocated_bytes`,
-  `gc_count` and `gc_time_ns`. See [design.md](design.md) for the contract.
+  `gc_count` and `gc_time_ns`, and optionally `gc_max_pause_ns`. See [design.md](design.md) for the contract.
 
 ## Publication
 

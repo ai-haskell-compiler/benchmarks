@@ -12,6 +12,9 @@ GHC_OUTPUT = """'./prog' +RTS '-tstats.txt' '--machine-readable'
  ,("allocated_bytes", "11200352")
  ,("max_live_bytes", "36024")
  ,("gen_0_collections", "2")
+ ,("gen_0_max_pause_seconds", "0.000097")
+ ,("gen_1_collections", "1")
+ ,("gen_1_max_pause_seconds", "0.000731")
  ]
 """
 
@@ -19,7 +22,16 @@ GHC_OUTPUT = """'./prog' +RTS '-tstats.txt' '--machine-readable'
 class StatsTests(unittest.TestCase):
     def test_parses_ghc_machine_readable_pairs(self):
         stats = parse_ghc_machine_readable(GHC_OUTPUT)
-        self.assertEqual(stats, {"peak_heap_bytes": 36024, "allocated_bytes": 11200352, "gc_count": 3, "gc_time_ns": 287000})
+        self.assertEqual(
+            stats,
+            {"peak_heap_bytes": 36024, "allocated_bytes": 11200352, "gc_count": 3, "gc_time_ns": 287000, "gc_max_pause_ns": 731000},
+        )
+
+    def test_ghc_without_pause_fields_reports_the_rest(self):
+        without = "\n".join(line for line in GHC_OUTPUT.splitlines() if "max_pause" not in line)
+        stats = parse_ghc_machine_readable(without)
+        self.assertNotIn("gc_max_pause_ns", stats)
+        self.assertEqual(stats["gc_count"], 3)
 
     def test_rejects_ghc_output_without_pairs(self):
         with self.assertRaises(StatsError):
@@ -30,6 +42,13 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(parse_aihc_json(text), {"peak_heap_bytes": 10, "allocated_bytes": 20, "gc_count": 2, "gc_time_ns": 5})
         with self.assertRaises(StatsError):
             parse_aihc_json(json.dumps({"schema": 2}))
+
+    def test_aihc_json_may_report_its_longest_pause(self):
+        """Optional, so a runtime that predates it still reports the rest."""
+        text = json.dumps({"schema": 1, "peak_heap_bytes": 10, "allocated_bytes": 20, "gc_count": 2, "gc_time_ns": 5, "gc_max_pause_ns": 3})
+        self.assertEqual(parse_aihc_json(text)["gc_max_pause_ns"], 3)
+        with self.assertRaises(StatsError):
+            parse_aihc_json(json.dumps({"schema": 1, "peak_heap_bytes": 10, "allocated_bytes": 20, "gc_count": 2}))
 
     def test_missing_or_empty_file_means_no_stats(self):
         self.assertIsNone(read_stats_file("/nonexistent/stats", "ghc"))

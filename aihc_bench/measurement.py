@@ -20,8 +20,12 @@ INVOCATION_METRICS = (
     ("allocated_bytes", "byte", "allocated_bytes", True),
     ("gc_count", "count", "gc_count", True),
     ("gc_time", "ns", "gc_time_ns", False),
+    ("gc_max_pause", "ns", "gc_max_pause_ns", False),
+    ("instructions", "count", "instructions", False),
+    ("cycles", "count", "cycles", False),
 )
-RUNTIME_STATS_METRICS = {"peak_heap", "allocated_bytes", "gc_count", "gc_time"}
+INVOCATION_METRIC_NAMES = frozenset(name for name, _unit, _field, _deterministic in INVOCATION_METRICS)
+RUNTIME_STATS_METRICS = {"peak_heap", "allocated_bytes", "gc_count", "gc_time", "gc_max_pause"}
 
 
 #: Statuses a measurement that ran to completion can carry. The escalation
@@ -106,6 +110,8 @@ def _sample_record(sample: ProcessMeasurement) -> Dict[str, Any]:
     }
     for field in STATS_FIELDS:
         record[field] = sample.runtime_stats.get(field) if sample.runtime_stats else None
+    record["instructions"] = sample.instructions
+    record["cycles"] = sample.cycles
     return record
 
 

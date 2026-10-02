@@ -2,17 +2,20 @@
 
 export const GITHUB = "https://github.com/ai-haskell-compiler/aihc";
 
-const TIME_METRICS = new Set(["wall_time", "cpu_time", "gc_time", "compile_time"]);
+const TIME_METRICS = new Set(["wall_time", "cpu_time", "gc_time", "gc_max_pause", "compile_time"]);
 const BYTE_METRICS = new Set(["peak_rss", "peak_heap", "allocated_bytes", "artifact_size"]);
 
 export const METRIC_LABELS = {
   wall_time: "Wall time",
   cpu_time: "CPU time",
+  instructions: "Instructions",
+  cycles: "Cycles",
   peak_rss: "Peak RSS",
   peak_heap: "Peak heap",
   allocated_bytes: "Bytes allocated",
   gc_count: "GC count",
   gc_time: "GC time",
+  gc_max_pause: "Longest GC pause",
   compile_time: "Compile time",
   artifact_size: "Artifact size",
 };

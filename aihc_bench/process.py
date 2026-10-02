@@ -10,8 +10,9 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Callable, Dict, Iterable, Optional
 
+from . import counters
 from .stats import StatsError, read_stats_file
 
 
@@ -27,6 +28,8 @@ class ProcessMeasurement:
     timed_out: bool
     runtime_stats: Optional[Dict[str, int]] = None
     stats_error: Optional[str] = None
+    instructions: Optional[int] = None
+    cycles: Optional[int] = None
     environment: Dict[str, str] = field(default_factory=dict)
 
 
@@ -80,8 +83,13 @@ def run_measured(
     environment_overrides: Optional[Dict[str, str]] = None,
     stats_file: Optional[str] = None,
     stats_format: Optional[str] = None,
+    open_counters: Callable[[], counters.CounterSession] = counters.open_session,
 ) -> ProcessMeasurement:
     """Run one benchmark process and measure it through ``wait4``.
+
+    Instruction and cycle counts come from ``open_counters`` (see
+    ``counters``) and are read once the process has exited, before it is
+    reaped; a timed-out process has none.
 
     ``stats_file`` names a file the process may write runtime statistics to.
     It is removed before the process starts, so a file present afterwards was
@@ -99,7 +107,7 @@ def run_measured(
         except FileNotFoundError:
             pass
 
-    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file, open_counters() as session:
         start = time.perf_counter_ns()
         process = subprocess.Popen(
             argv,
@@ -113,6 +121,7 @@ def run_measured(
         timed_out = False
         usage = None
         status = 0
+        counts = None
         previous_handler = signal.getsignal(signal.SIGALRM)
 
         def expire(_signum: int, _frame: object) -> None:
@@ -121,9 +130,12 @@ def run_measured(
         try:
             signal.signal(signal.SIGALRM, expire)
             signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+            session.wait_exited(process.pid)
+            counts = session.read(process.pid)
             _, status, usage = os.wait4(process.pid, 0)
         except _AlarmExpired:
             timed_out = True
+            counts = None
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
@@ -170,6 +182,8 @@ def run_measured(
         timed_out=timed_out,
         runtime_stats=runtime_stats,
         stats_error=stats_error,
+        instructions=counts[0] if counts else None,
+        cycles=counts[1] if counts else None,
         environment=dict(environment_overrides or {}),
     )
 

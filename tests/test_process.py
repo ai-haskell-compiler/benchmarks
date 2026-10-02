@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aihc_bench import counters
+from aihc_bench.counters import CounterSession
 from aihc_bench.process import run_command, run_measured, utf8_locale
 
 
@@ -22,6 +24,35 @@ class ProcessTests(unittest.TestCase):
         result = run_measured([sys.executable, "-c", "import time; time.sleep(2)"], Path("."), 0.05)
         self.assertTrue(result.timed_out)
         self.assertNotEqual(result.exit_code, 0)
+        self.assertIsNone(result.instructions)
+
+    def test_counts_are_read_after_exit_and_before_reaping(self):
+        calls = []
+
+        class Recording(CounterSession):
+            def wait_exited(self, pid):
+                calls.append("exited")
+
+            def read(self, pid):
+                # Not yet reaped, so the pid still names the child.
+                calls.append(os.waitpid(pid, os.WNOHANG)[0] == 0 or "reaped")
+                return 7, 5
+
+            def close(self):
+                calls.append("closed")
+
+        result = run_measured([sys.executable, "-c", "pass"], Path("."), 5, open_counters=Recording)
+        self.assertEqual((result.instructions, result.cycles), (7, 5))
+        self.assertEqual(calls[0], "exited")
+        self.assertEqual(calls[-1], "closed")
+
+    @unittest.skipIf(counters.probe().startswith("unavailable"), "no hardware counters on this machine")
+    def test_counts_this_machine_s_child(self):
+        small = run_measured([sys.executable, "-c", "pass"], Path("."), 10)
+        large = run_measured([sys.executable, "-c", "sum(range(3_000_000))"], Path("."), 10)
+        self.assertGreater(small.instructions, 0)
+        self.assertGreater(small.cycles, 0)
+        self.assertGreater(large.instructions, small.instructions + 10_000_000)
 
     def test_reads_stats_written_by_the_process_and_removes_the_file(self):
         with tempfile.TemporaryDirectory() as directory:

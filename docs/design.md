@@ -187,22 +187,28 @@ On normal exit the runtime writes one JSON object to `<path>`:
   "peak_heap_bytes": 0,
   "allocated_bytes": 0,
   "gc_count": 0,
-  "gc_time_ns": 0
+  "gc_time_ns": 0,
+  "gc_max_pause_ns": 0
 }
 ```
 
 `peak_heap_bytes` is the maximum live heap after any collection plus the
 allocation high-water mark between collections, so it is comparable to GHC's
-`max_live_bytes`. Under Wasm the file is written through WASI, so the benchmark
+`max_live_bytes`. `gc_max_pause_ns` is the longest single collection in
+wall-clock time, comparable to GHC's `gen_<n>_max_pause_seconds`; it is
+optional, so a runtime that writes the other four fields is still read and
+only `gc_max_pause` is unavailable. Under Wasm the file is written through WASI, so the benchmark
 runner passes `--dir` for the stats directory.
 
 GHC baselines use `+RTS -t<path> --machine-readable -RTS`, which requires
 `-rtsopts` at compile time. The runner maps `max_live_bytes`, `allocated_bytes`,
-`num_GCs` and `GC_cpu_seconds` onto the same fields.
+`num_GCs`, `GC_cpu_seconds` and the largest `gen_<n>_max_pause_seconds` onto
+the same fields.
 
 The runner needs no probe for the hook: the statistics file is removed before
 each invocation, so a runtime that writes nothing yields `peak_heap`,
-`allocated_bytes`, `gc_count` and `gc_time` with status `unavailable`.
+`allocated_bytes`, `gc_count`, `gc_time` and `gc_max_pause` with status
+`unavailable`.
 
 The AIHC command line is not probed either. Only its current shape is
 supported -- `build`, `install` and `prepare-runtime` as `aihc_since` pins them

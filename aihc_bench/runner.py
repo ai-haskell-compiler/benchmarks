@@ -17,7 +17,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from .config import expand_command
 from .database import Database
 from .git_history import GitError, create_worktree, fetch, path_exists, remove_worktree, rev_parse
-from .measurement import MEASURED_STATUSES, compile_metrics, measure_adaptively
+from .measurement import INVOCATION_METRIC_NAMES, MEASURED_STATUSES, compile_metrics, measure_adaptively
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
 
@@ -606,7 +606,9 @@ def reusable_baselines(
 
     Only a measured, successful GHC result is reused. A failure is a question
     about this machine now, and the AIHC side is never reused at all: its
-    compiler is the commit.
+    compiler is the commit. Nor is a result that lacks a metric this runner
+    measures: a baseline from before instruction counts were recorded would
+    otherwise leave every new ratio empty for the whole window.
     """
     hours = float(config.get("baseline_reuse_hours", DEFAULT_BASELINE_REUSE_HOURS))
     if hours <= 0:
@@ -617,7 +619,10 @@ def reusable_baselines(
         for entry in database.results_measured_since(experiment_id, platform_id, environment.get("id", ""), since):
             if entry.get("compiler_family") != "ghc":
                 continue
-            if (entry.get("measurement") or {}).get("status") not in MEASURED_STATUSES:
+            measurement = entry.get("measurement") or {}
+            if measurement.get("status") not in MEASURED_STATUSES:
+                continue
+            if not INVOCATION_METRIC_NAMES <= {metric.get("metric") for metric in measurement.get("metrics", [])}:
                 continue
             reusable[(benchmark, entry["configuration"])] = entry
     return reusable

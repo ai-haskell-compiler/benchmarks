@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import counters
 from .compare import CompareError, format_report, resolve_side, run_compare, select_configuration, worktree_side
 from .config import OPTIMIZATION_PROFILES, ConfigError, detect_platform, experiment_ids, load_config, suite_key
 from .database import Database
@@ -339,6 +340,9 @@ def _doctor(
     print(f"locale:     {locale_name or 'missing (no UTF-8 locale is supported; aihc cannot write its core files)'}")
     if not locale_name:
         failures.append("utf8 locale")
+    # Not a failure: without counters the instruction and cycle metrics are
+    # recorded unavailable and everything else is measured as before.
+    print(f"counters:   {counters.probe()}")
     derived = hackage_index_cache()
     if derived.is_file():
         age = (time.time() - derived.stat().st_mtime) / 3600

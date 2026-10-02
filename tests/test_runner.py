@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from aihc_bench.config import load_config
 from aihc_bench.git_history import GitError
+from aihc_bench.measurement import INVOCATION_METRIC_NAMES
 from aihc_bench.runner import (
     INDEX_WARM_AGE_SECONDS,
     _archive_store,
@@ -926,8 +927,15 @@ class BaselineReuseTests(unittest.TestCase):
             "compiler_family": "ghc",
             "baseline": True,
             "compile": {"status": "compiled", "wall_time_ns": 3_000_000_000},
-            "measurement": {"status": status, "metrics": []},
+            "measurement": {"status": status, "metrics": [{"metric": name} for name in sorted(INVOCATION_METRIC_NAMES)]},
         }
+
+    def test_a_baseline_without_a_current_metric_is_not_reused(self):
+        """Measured before instruction counts were recorded, it would leave their ratios empty."""
+        entry = self._ghc()
+        entry["measurement"]["metrics"] = [metric for metric in entry["measurement"]["metrics"] if metric["metric"] != "instructions"]
+        database = self._database([entry])
+        self.assertEqual(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
 
     def test_a_recent_ghc_result_is_reused(self):
         database = self._database([self._ghc()])
