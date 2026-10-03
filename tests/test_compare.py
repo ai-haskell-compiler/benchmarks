@@ -19,6 +19,7 @@ from aihc_bench.compare import (
 )
 from aihc_bench.database import Database
 from aihc_bench.process import ProcessMeasurement
+from aihc_bench.toolchain import Compiler
 from aihc_bench.runner import build_cells
 
 
@@ -134,8 +135,8 @@ class CompareTests(unittest.TestCase):
             side = Side("old", "a" * 40, root / "wt-a", False)
             seen = {}
 
-            def fake_prepare(config, platform_id, worktree, root_, store, timeout_seconds):
-                seen.update(root=root_, store=store, timeout=timeout_seconds)
+            def fake_prepare(config, platform_id, worktree, root_, store, timeout_seconds, compiler):
+                seen.update(root=root_, store=store, timeout=timeout_seconds, compiler=compiler)
                 return {}
 
             def fake_compile(cells, root_, timeout):
@@ -143,7 +144,7 @@ class CompareTests(unittest.TestCase):
 
             with (
                 patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": "/toolchains"}),
-                patch("aihc_bench.compare.build_compiler", return_value=None),
+                patch("aihc_bench.compare.build_compiler", return_value=Compiler(Path("/store/aihc/bin/aihc"), Path("/store/aihc"))),
                 patch("aihc_bench.compare._prepare_aihc_store", side_effect=fake_prepare),
                 patch("aihc_bench.compare.compile_cells", side_effect=fake_compile),
             ):
@@ -170,7 +171,7 @@ class CompareTests(unittest.TestCase):
                 patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": "/toolchains"}),
                 patch("aihc_bench.compare.create_worktree"),
                 patch("aihc_bench.compare.remove_worktree", side_effect=lambda repo, path: removed.append(path)),
-                patch("aihc_bench.compare.build_compiler", return_value=None),
+                patch("aihc_bench.compare.build_compiler", return_value=Compiler(Path("/store/aihc/bin/aihc"), Path("/store/aihc"))),
                 patch("aihc_bench.compare._prepare_aihc_store", return_value={}),
                 patch("aihc_bench.compare.compile_cells", side_effect=fake_compile),
             ):

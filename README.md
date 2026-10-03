@@ -251,11 +251,24 @@ failure is terminal. Warming it first means every commit in a run resolves
 against the same index and none of them performs the refresh. A warming
 failure is reported and the run continues against whatever is cached.
 
-Every AIHC number is published as a ratio against GHC, so a benchmark whose
-baseline compiler produced nothing is not a partial result but a useless one.
-A commit measured that way stops the run with a non-zero exit rather than
-recording an AIHC-only result: the attempt stays unfinished, so the commit is
-measured again once the machine is fixed and no `forget` is needed.
+A fault of the machine is never published as a result. The run stops with
+exit code 2 and records nothing for the commit, so the attempt stays unfinished
+and the commit is measured again once the machine is sound; no `forget` is
+needed. The faults are:
+
+- a toolchain that fails verification before measuring (`nix store verify`,
+  and on macOS `codesign` on every executable and library) or that Nix cannot
+  build or root for reasons of the machine (network, disk, a killed builder);
+- a compiler, or its store preparation, killed with SIGKILL -- nothing a
+  compiler does ends that way, while macOS rejecting a code signature and an
+  out-of-memory killer both do;
+- a program whose code signature stripping broke (macOS);
+- a benchmark whose baseline compiler produced nothing. Every AIHC number is
+  published as a ratio against GHC, so an AIHC-only result is not a partial
+  result but a useless one.
+
+A compiler that fails to build, crashes, or links a program macOS will not run
+is the commit's result and is recorded as such.
 
 Results and resumable state are stored in `.state/benchmarks.sqlite3`. A failed
 historical compiler is terminal until its record is deliberately removed:

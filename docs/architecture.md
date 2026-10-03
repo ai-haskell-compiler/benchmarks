@@ -138,10 +138,25 @@ of the experiment ID.
 ## Compiling with AIHC
 
 Only the current `aihc` command line is supported, so the runner probes
-nothing: it builds the commit's compiler once (`nix run <worktree>#aihc --
---help`), and a commit whose compiler does not build is recorded as
-`build_failed`. Commits older than `aihc_since` predate that command line and
-are never planned.
+nothing beyond starting it. It builds the commit's compiler once, before
+anything is timed: `nix eval` names the derivations behind the flake's `aihc`
+app, `nix build --out-link .cache/gcroots/aihc` builds and roots them in one
+step, and every AIHC command of the commit runs that program by its absolute
+path. No `nix` runs inside a timed compile, so a compile time carries no flake
+evaluation and no build, and the garbage collector cannot take the compiler
+away halfway through a commit. A commit whose compiler does not evaluate,
+build or start is recorded as `build_failed`. Commits older than `aihc_since`
+predate that command line and are never planned.
+
+Before the compiler is used it is checked: `nix store verify` compares its
+closure with the hashes Nix recorded, and on macOS `codesign --verify
+--strict` checks every executable and library in it against its own code
+signature, which is what the kernel enforces page by page while a program
+runs. A build that fails is deleted and built once more; a second failure is
+a machine fault (see below). The store paths the runner itself was started
+with -- the GHC toolchains, the corpora, the strip and Wasm tools -- are rooted
+under `.cache/gcroots/runner` and checked the same way, since on macOS Nix does
+not count a process's environment as a root.
 
 `aihc build <package directory>` builds every executable of a Cabal package,
 resolving and installing the `build-depends` of each executable stanza
@@ -149,8 +164,11 @@ itself, so the compile template is the command itself rather than a wrapper
 script:
 
 ```text
-nix run {worktree}#aihc -- build {source} --target T --gc semispace -O<level> -o {artifact_dir}
+{aihc} build {source} --target T --gc semispace -O<level> -o {artifact_dir}
 ```
+
+`{aihc}` is the built compiler. A configuration whose compile command starts
+with `nix` is rejected when the configuration loads.
 
 The executables land in `{artifact_dir}` under the names their stanzas carry
 (plus `.wasm` for the WebAssembly target), which is why an AIHC artifact is

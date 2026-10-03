@@ -153,6 +153,11 @@ def _validate_configuration(configuration: Dict[str, Any]) -> None:
             raise ConfigError(f"configuration {identifier} lacks {key}")
     if configuration["optimization"] not in OPTIMIZATION_PROFILES:
         raise ConfigError(f"configuration {identifier} has an unknown optimization profile")
+    if configuration["compile"][:1] == ["nix"]:
+        # Nix inside a timed compile evaluates a flake, and may build or
+        # garbage-collect, on the clock; the runner builds and roots the
+        # compiler beforehand and names it ``{aihc}``. See ``toolchain``.
+        raise ConfigError(f"configuration {identifier} compiles through nix; name the prepared compiler with {{aihc}}")
     stats_format = configuration.get("runtime_stats")
     if stats_format is not None and stats_format not in STATS_FORMATS:
         raise ConfigError(f"configuration {identifier} has an unknown runtime_stats format")

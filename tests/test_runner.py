@@ -12,6 +12,8 @@ from unittest.mock import patch
 from aihc_bench.config import load_config
 from aihc_bench.git_history import GitError
 from aihc_bench.measurement import INVOCATION_METRIC_NAMES
+from aihc_bench.database import Database
+from aihc_bench.toolchain import Compiler, CompilerDoesNotBuild
 from aihc_bench.runner import (
     INDEX_WARM_AGE_SECONDS,
     _archive_store,
@@ -19,7 +21,6 @@ from aihc_bench.runner import (
     _configured_aihc_builds,
     _prepare_aihc_store,
     build_cells,
-    build_compiler,
     MissingCorpus,
     runtime_is_package,
     compile_cells,
@@ -27,6 +28,7 @@ from aihc_bench.runner import (
     hackage_index_identity,
     hold_hackage_index,
     MissingBaseline,
+    MachineFault,
     measure_cells,
     Phases,
     core_library_paths,
@@ -38,11 +40,15 @@ from aihc_bench.runner import (
     unmeasured_benchmarks,
     reusable_baselines,
     reused_result,
+    run_commit,
     strip_command,
     warm_hackage_index,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+#: A built compiler, as ``toolchain.build_compiler`` returns it.
+COMPILER = Compiler(program=Path("/store/aihc/bin/aihc"), store_path=Path("/store/aihc"))
 
 
 
@@ -115,13 +121,6 @@ class RunnerTests(unittest.TestCase):
                 aihc_store=store,
                 store_archive=archive,
             )
-
-    def test_build_compiler_reports_only_a_failed_build(self):
-        with patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], 0, "help", "")) as run:
-            self.assertIsNone(build_compiler(Path("/wt"), Path("/root"), 30))
-        self.assertEqual(run.call_args.args[0], ["nix", "run", "/wt#aihc", "--", "--help"])
-        with patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], 1, "", "boom")):
-            self.assertEqual(build_compiler(Path("/wt"), Path("/root"), 30), "boom")
 
     def test_cells_cover_only_the_requested_benchmarks(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -279,7 +278,7 @@ class RunnerTests(unittest.TestCase):
                 patch.dict(os.environ, {"AIHC_BENCH_WASM_CLANG": "/toolchain/bin"}),
                 patch("aihc_bench.runner.run_command", return_value=completed) as run,
             ):
-                self.assertEqual(_prepare_aihc_store(self.config, "test-platform", worktree, root, store, 30), {})
+                self.assertEqual(_prepare_aihc_store(self.config, "test-platform", worktree, root, store, 30, compiler=COMPILER.program), {})
 
         commands = [call.args[0] for call in run.call_args_list]
         # One runtime per target and GC, whatever optimization levels use it.
@@ -305,7 +304,7 @@ class RunnerTests(unittest.TestCase):
         # A core library is a local path, so only --immutable puts it in the
         # store where aihc build resolves it as a core standin; without it the
         # install lands under the worktree and the build compiles it again.
-        self.assertTrue(all("/core-libs/" in command[5] for command in installs))
+        self.assertTrue(all("/core-libs/" in command[2] for command in installs))
         self.assertTrue(all("--immutable" in command for command in installs))
         self.assertEqual(run.call_args_list[1].args[3]["AIHC_WASM_CLANG"], "/toolchain/bin/clang")
 
@@ -319,7 +318,7 @@ class RunnerTests(unittest.TestCase):
                 patch.dict(os.environ, {"AIHC_BENCH_WASM_CLANG": "/toolchain/bin"}),
                 patch("aihc_bench.runner.run_command", return_value=completed) as run,
             ):
-                self.assertEqual(_prepare_aihc_store(self.config, "test-platform", worktree, root, root / "store", 30), {})
+                self.assertEqual(_prepare_aihc_store(self.config, "test-platform", worktree, root, root / "store", 30, compiler=COMPILER.program), {})
         commands = [call.args[0] for call in run.call_args_list]
         # aihc-prim depends on aihc-rts, so installing aihc-base builds the
         # runtime; there is no prepare-runtime command to call any more.
@@ -336,7 +335,7 @@ class RunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with patch("aihc_bench.runner.run_command", side_effect=fake_run):
-                errors = _prepare_aihc_store(self.config, "test-platform", root / "worktree", root, root / "store", 30)
+                errors = _prepare_aihc_store(self.config, "test-platform", root / "worktree", root, root / "store", 30, compiler=COMPILER.program)
             self.assertEqual(list(errors), ["wasm32-wasip3"])
             self.assertIn("no sysroot", errors["wasm32-wasip3"])
             (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
@@ -600,6 +599,74 @@ class RunnerTests(unittest.TestCase):
             self.assertIn("llvm-strip", outcome["stderr"])
             self.assertIn("not an object file", outcome["stderr"])
 
+    def test_a_compiler_killed_by_the_kernel_is_a_machine_fault(self):
+        """Nothing a compiler does ends in SIGKILL; worker-m1's did, 24 times a commit."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = [cell for cell in self.build(root) if cell.configuration["id"] == "aihc-native-O2"]
+            with patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], -9, "", "")):
+                with self.assertRaises(MachineFault) as raised:
+                    compile_cells(cells, root, 30)
+        self.assertIn("aihc-native-O2", str(raised.exception))
+
+    def test_a_compiler_that_crashes_is_still_a_compile_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = [cell for cell in self.build(root) if cell.configuration["id"] == "aihc-native-O2"]
+            with patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], -11, "", "")):
+                (_, outcome), = compile_cells(cells, root, 30)
+        self.assertEqual(outcome["status"], "compile_failed")
+        self.assertEqual(outcome["exit_code"], -11)
+
+    def test_code_signatures_are_checked_around_the_strip(self):
+        """A bad signature from the compiler is its result; one after stripping is the machine's."""
+
+        def fake_compile(command, cwd, timeout, environment=None):
+            if command[0] != "llvm-strip":
+                Path(command[-1]).write_bytes(b"binary")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        bad = {"/a/program": "invalid signature (code or signature have been modified)"}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cells = [cell for cell in self.build(root) if cell.configuration["id"] == "ghc-native-O2"]
+            with (
+                patch("aihc_bench.runner.run_command", side_effect=fake_compile),
+                patch("aihc_bench.runner.signature_failures", side_effect=[bad]),
+            ):
+                (_, outcome), = compile_cells(cells, root, 30)
+            self.assertEqual(outcome["status"], "compile_failed")
+            self.assertIn("invalid code signature", outcome["stderr"])
+            with (
+                patch("aihc_bench.runner.run_command", side_effect=fake_compile),
+                patch("aihc_bench.runner.signature_failures", side_effect=[{}, bad]),
+                self.assertRaises(MachineFault),
+            ):
+                compile_cells(cells, root, 30)
+
+    def test_setup_killed_by_the_kernel_is_a_machine_fault(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worktree = _core_libs(root / "worktree", ["aihc-base", "aihc-rts"])
+            with (
+                patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], -9, "", "")),
+                self.assertRaises(MachineFault),
+            ):
+                _prepare_aihc_store(self.config, "test-platform", worktree, root, root / "store", 30, compiler=COMPILER.program)
+
+    def test_compile_commands_run_the_built_compiler(self):
+        config = {
+            **self.config,
+            "configurations": [aihc_configuration("native", compile=["{aihc}", "build", "{source}", "-o", "{artifact_dir}"])],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
+            (cell,) = build_cells(
+                config, "test-platform", {"sha": "abc123"}, root / "worktree", root, {"example": "e"}, compiler=COMPILER.program
+            )
+        self.assertEqual(cell.compile_command[:2], [str(COMPILER.program), "build"])
+
     def test_every_core_library_is_installed_ahead_of_the_timed_compile(self):
         """Installing a dependency is part of what a compiler is timed doing.
 
@@ -622,10 +689,69 @@ class RunnerTests(unittest.TestCase):
             names = ["aihc-base", "aihc-internal", "aihc-prim", "aihc-rts", "aihc-template-haskell"]
             _core_libs(worktree, names)
             with patch("aihc_bench.runner.run_command", return_value=completed) as run:
-                _prepare_aihc_store(config, "aarch64-darwin", worktree, REPO_ROOT, root / "store", 30)
-        installed = {command[5] for command in (call.args[0] for call in run.call_args_list) if "install" in command}
+                _prepare_aihc_store(config, "aarch64-darwin", worktree, REPO_ROOT, root / "store", 30, compiler=COMPILER.program)
+        installed = {command[2] for command in (call.args[0] for call in run.call_args_list) if "install" in command}
         self.assertEqual(installed, {str(worktree / "core-libs" / name) for name in names})
 
+
+
+class RunCommitFaultTests(unittest.TestCase):
+    """What the machine gets wrong is never recorded; what the commit gets wrong is."""
+
+    commit = {"sha": "c" * 40, "ordinal": 1, "committed_at": "2026-10-02T00:00:00Z", "subject": "s"}
+    config = {"measurement": {"compile_timeout_seconds": 30}, "aihc_compiler_marker": "bin/aihc/aihc.cabal"}
+
+    def run_commit(self, directory, **patches):
+        database = Database(Path(directory) / "state.sqlite3")
+        database.replace_commits([self.commit])
+        defaults = {
+            "hold_hackage_index": None,
+            "hackage_index_identity": None,
+            "path_exists": True,
+            "pin_runner_environment": [],
+            "create_worktree": None,
+            "remove_worktree": None,
+        }
+        stack = []
+        for name, value in {**defaults, **patches}.items():
+            if isinstance(value, BaseException):
+                stack.append(patch(f"aihc_bench.runner.{name}", side_effect=value))
+            else:
+                stack.append(patch(f"aihc_bench.runner.{name}", return_value=value))
+        for item in stack:
+            item.start()
+        try:
+            return database, lambda: run_commit(
+                database=database,
+                config=self.config,
+                experiments={"example": "example-experiment"},
+                suite="suite",
+                platform_id="test-platform",
+                machine={"machine_id": "m"},
+                commit=self.commit,
+                aihc_repository=Path(directory) / "repo",
+                root=Path(directory),
+            )
+        finally:
+            self.addCleanup(lambda: [item.stop() for item in stack])
+
+    def test_a_machine_fault_leaves_the_commit_to_be_measured_again(self):
+        for name in ("pin_runner_environment", "build_compiler"):
+            with self.subTest(fault_in=name), tempfile.TemporaryDirectory() as directory:
+                database, run = self.run_commit(directory, **{name: MachineFault("store path collected")})
+                with self.assertRaises(MachineFault):
+                    run()
+                self.assertEqual(database.terminal_attempts("example-experiment", "test-platform"), [])
+                database.close()
+
+    def test_a_compiler_that_does_not_build_is_recorded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database, run = self.run_commit(directory, build_compiler=CompilerDoesNotBuild("type error in Main.hs"))
+            (envelope,) = run()
+            self.assertEqual(envelope["unavailable_reason"], "build_failed")
+            (attempt,) = database.terminal_attempts("example-experiment", "test-platform")
+            self.assertEqual(attempt["detail"], "type error in Main.hs")
+            database.close()
 
 
 class HackageIndexWarmingTests(unittest.TestCase):
@@ -720,7 +846,7 @@ class HackageIndexWarmingTests(unittest.TestCase):
                 patch("aihc_bench.runner.rev_parse", side_effect=lambda r, ref: order.append("resolve") or "f" * 40),
                 patch("aihc_bench.runner.create_worktree"),
                 patch("aihc_bench.runner.remove_worktree"),
-                patch("aihc_bench.runner.build_compiler", return_value=None),
+                patch("aihc_bench.runner.build_compiler", return_value=COMPILER),
                 patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], 0, "", "")),
             ):
                 warm_hackage_index(self.config, "test-platform", Path("/repo"), Path(directory) / "root", 30)
@@ -736,7 +862,7 @@ class HackageIndexWarmingTests(unittest.TestCase):
                 patch("aihc_bench.runner.rev_parse", return_value="f" * 40),
                 patch("aihc_bench.runner.create_worktree"),
                 patch("aihc_bench.runner.remove_worktree"),
-                patch("aihc_bench.runner.build_compiler", return_value=None),
+                patch("aihc_bench.runner.build_compiler", return_value=COMPILER),
                 patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], 0, "", "")) as run,
             ):
                 self.assertIsNone(
@@ -757,7 +883,7 @@ class HackageIndexWarmingTests(unittest.TestCase):
                 patch("aihc_bench.runner.rev_parse", return_value="f" * 40),
                 patch("aihc_bench.runner.create_worktree"),
                 patch("aihc_bench.runner.remove_worktree") as remove,
-                patch("aihc_bench.runner.build_compiler", return_value=None),
+                patch("aihc_bench.runner.build_compiler", return_value=COMPILER),
                 patch(
                     "aihc_bench.runner.run_command",
                     return_value=subprocess.CompletedProcess([], 0, "", ""),
@@ -765,7 +891,7 @@ class HackageIndexWarmingTests(unittest.TestCase):
             ):
                 self.assertIsNone(warm_hackage_index(self.config, "test-platform", Path("/repo"), root, 30))
             command = run.call_args.args[0]
-            self.assertEqual(command[4:6], ["install", "bytestring"])
+            self.assertEqual(command[:3], [str(COMPILER.program), "install", "bytestring"])
             self.assertIn("--target", command)
             self.assertEqual(command[command.index("--target") + 1], "test-native")
             # The worktree is cleaned up even on the happy path.
@@ -780,7 +906,7 @@ class HackageIndexWarmingTests(unittest.TestCase):
                 patch("aihc_bench.runner.rev_parse", return_value="f" * 40),
                 patch("aihc_bench.runner.create_worktree"),
                 patch("aihc_bench.runner.remove_worktree"),
-                patch("aihc_bench.runner.build_compiler", return_value=None),
+                patch("aihc_bench.runner.build_compiler", return_value=COMPILER),
                 patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], 0, "", "")) as run,
             ):
                 self.assertIsNone(
@@ -797,7 +923,7 @@ class HackageIndexWarmingTests(unittest.TestCase):
                 patch("aihc_bench.runner.rev_parse", return_value="f" * 40),
                 patch("aihc_bench.runner.create_worktree"),
                 patch("aihc_bench.runner.remove_worktree") as remove,
-                patch("aihc_bench.runner.build_compiler", return_value=None),
+                patch("aihc_bench.runner.build_compiler", return_value=COMPILER),
                 patch("aihc_bench.runner.run_command", return_value=subprocess.CompletedProcess([], 1, "", "boom")),
             ):
                 self.assertEqual(
