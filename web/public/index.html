@@ -110,7 +110,7 @@ function detailTable(machine, backend, profile) {
   );
 }
 
-const PHASE_LABELS = { worktree: "checkout", compiler_build: "compiler build", aihc_store: "AIHC stores", compile: "compile", measure: "measure" };
+const PHASE_LABELS = { toolchain_check: "toolchain check", worktree: "checkout", compiler_build: "compiler build", aihc_store: "AIHC stores", compile: "compile", measure: "measure" };
 
 function formatMinutes(ns) {
   const minutes = Math.round(ns / 6e10);

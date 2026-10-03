@@ -42,8 +42,15 @@ while true; do
     update_suite
     PYTHONUNBUFFERED=1 nix run . -- run --fetch --upload >> "$LOG" 2>&1
     status=$?
-    [ "$status" -ne 0 ] && log "run exited $status"
-    sleep 5
+    if [ "$status" -ne 0 ]; then
+      # Exit 2 is a machine fault (see the README): the commit was not
+      # recorded and the next run retries it. Give the machine a minute
+      # rather than rebuilding against the same fault in a tight loop.
+      log "run exited $status"
+      sleep 60
+    else
+      sleep 5
+    fi
   else
     log "outside the window; sleeping"
     sleep "$IDLE_SLEEP"

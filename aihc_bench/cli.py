@@ -19,7 +19,8 @@ from .git_history import DEFAULT_REMOTE, GitError, clone, clone_directory, commi
 from .machine import load_machine
 from .planner import build_plan, merge_terminal_attempts
 from .process import run_command, utf8_locale
-from .runner import MissingBaseline, MissingCorpus, hackage_index_cache, run_commit, warm_hackage_index
+from .runner import hackage_index_cache, run_commit, warm_hackage_index
+from .toolchain import MachineFault, pin_runner_environment
 from .uploader import UploadError, check_login, refresh_overview, upload_pending
 
 
@@ -44,11 +45,12 @@ def main(argv: Optional[list] = None) -> None:
             _dispatch(arguments, root, config, platform_id, experiments, suite, database, machine)
         finally:
             database.close()
-    except (MissingBaseline, MissingCorpus) as error:
+    except MachineFault as error:
         # A machine fault, not a result: say so and stop rather than filling the
-        # history with commits that have nothing to compare against.
+        # history with what the machine got wrong. Nothing of the commit was
+        # recorded, so the next run measures it again.
         print(f"error: {error}", file=sys.stderr)
-        print("the compiler toolchain on this machine needs fixing; run `doctor`", file=sys.stderr)
+        print("this machine needs fixing before it measures again; run `doctor`", file=sys.stderr)
         raise SystemExit(2) from error
     except (CompareError, ConfigError, GitError, UploadError, ValueError) as error:
         parser.exit(2, f"error: {error}\n")
@@ -335,6 +337,14 @@ def _doctor(
         print(f"corpus:     {variable}={corpus or 'missing (run through the flake so it is built and exported)'}")
         if not corpus or not Path(corpus).is_dir():
             failures.append(variable)
+    # The same check ``run`` makes before every commit, so a machine fault it
+    # stops on can be reproduced and confirmed fixed here.
+    try:
+        pinned = pin_runner_environment(root, float(config["measurement"]["compile_timeout_seconds"]))
+        print(f"tools:      {len(pinned)} store paths rooted and verified")
+    except MachineFault as error:
+        print(f"tools:      {error}")
+        failures.append("runner tools")
     locale_name = utf8_locale()
     print(f"locale:     {locale_name or 'missing (no UTF-8 locale is supported; aihc cannot write its core files)'}")
     if not locale_name:

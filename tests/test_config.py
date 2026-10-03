@@ -257,7 +257,7 @@ class ConfigTests(unittest.TestCase):
             if item["compiler_family"] == "aihc":
                 # aihc build reads the package directory itself; the runner
                 # adds only --store and --build-root.
-                self.assertEqual(item["compile"][:6], ["nix", "run", "{worktree}#aihc", "--", "build", "{source}"])
+                self.assertEqual(item["compile"][:3], ["{aihc}", "build", "{source}"])
                 self.assertEqual(item["compile"][item["compile"].index("--target") + 1], item["aihc_target"])
                 self.assertEqual(item["compile"][item["compile"].index("--gc") + 1], item["gc"])
                 self.assertIn(f"-{item['optimization']}", item["compile"])

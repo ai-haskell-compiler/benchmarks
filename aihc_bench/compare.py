@@ -22,7 +22,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from .git_history import GitError, create_worktree, remove_worktree
 from .measurement import INVOCATION_METRICS, _sample_record
 from .process import ProcessMeasurement, run_measured
-from .runner import Cell, build_cells, build_compiler, compile_cells, _prepare_aihc_store
+from .runner import Cell, build_cells, compile_cells, compiler_root, _prepare_aihc_store
+from .toolchain import CompilerDoesNotBuild, build_compiler
 from .schema import new_run_id, utc_now
 
 BOOTSTRAP_ITERATIONS = 1000
@@ -107,11 +108,12 @@ def prepare_side(
     if side.owned and side.sha:
         create_worktree(aihc_repository, side.worktree, side.sha)
     log(f"[{side.label}] building the compiler")
-    error = build_compiler(side.worktree, root, timeout)
-    if error is not None:
-        raise CompareError(f"[{side.label}] the compiler does not build:\n{error[-2000:]}")
+    try:
+        compiler = build_compiler(side.worktree, platform_id, compiler_root(root, f"compare-{_side_key(side)}"), timeout)
+    except CompilerDoesNotBuild as error:
+        raise CompareError(f"[{side.label}] the compiler does not build:\n{error.detail[-2000:]}") from error
     store = root / ".cache" / "compare-stores" / _side_key(side)
-    setup_errors = _prepare_aihc_store(config, platform_id, side.worktree, root, store, timeout)
+    setup_errors = _prepare_aihc_store(config, platform_id, side.worktree, root, store, timeout, compiler=compiler.program)
     for target, detail in setup_errors.items():
         log(f"[{side.label}] runtime for {target} unavailable: {detail.splitlines()[0]}")
     cells = build_cells(
@@ -123,6 +125,7 @@ def prepare_side(
         {benchmark["id"]: "compare" for benchmark in config["benchmarks"]},
         aihc_store=store,
         aihc_setup_errors=setup_errors,
+        compiler=compiler.program,
     )
     log(f"[{side.label}] compiling {len(cells)} cells")
     compiled = compile_cells(cells, root, timeout)

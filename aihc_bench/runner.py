@@ -4,6 +4,7 @@ import hashlib
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
@@ -20,6 +21,16 @@ from .git_history import GitError, create_worktree, fetch, path_exists, remove_w
 from .measurement import INVOCATION_METRIC_NAMES, MEASURED_STATUSES, compile_metrics, measure_adaptively
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
+from .toolchain import (
+    CompilerDoesNotBuild,
+    MachineFault,
+    build_compiler,
+    codesign_failures,
+    describe_problems,
+    killed_by_hint,
+    pin_runner_environment,
+    signed_mach_o,
+)
 
 
 @dataclass(frozen=True)
@@ -120,16 +131,21 @@ def run_commit(
 
     phases = Phases()
     try:
+        with phases.timing("toolchain_check"):
+            pin_runner_environment(root, compile_timeout)
         with phases.timing("worktree"):
             create_worktree(aihc_repository, worktree, commit["sha"])
         with phases.timing("compiler_build"):
-            build_error = build_compiler(worktree, root, compile_timeout)
-        if build_error is not None:
-            return unavailable("build_failed", build_error)
+            try:
+                compiler = build_compiler(worktree, platform_id, compiler_root(root), compile_timeout)
+            except CompilerDoesNotBuild as error:
+                return unavailable("build_failed", error.detail)
 
         aihc_store = root / ".cache" / "aihc-stores" / suite / platform_id / commit["sha"]
         with phases.timing("aihc_store"):
-            aihc_setup_errors = _prepare_aihc_store(config, platform_id, worktree, root, aihc_store, compile_timeout)
+            aihc_setup_errors = _prepare_aihc_store(
+                config, platform_id, worktree, root, aihc_store, compile_timeout, compiler=compiler.program
+            )
             store_archive = _archive_store(aihc_store)
 
         cells = build_cells(
@@ -142,6 +158,7 @@ def run_commit(
             aihc_store=aihc_store,
             aihc_setup_errors=aihc_setup_errors,
             store_archive=store_archive,
+            compiler=compiler.program,
         )
         reused = reusable_baselines(database, config, experiments, platform_id, environment)
         cells = [cell for cell in cells if (cell.benchmark["id"], cell.configuration["id"]) not in reused]
@@ -176,10 +193,17 @@ def run_commit(
             database.finish_attempt(experiment_id, platform_id, commit["sha"], "complete", envelope)
             envelopes.append(envelope)
         return envelopes
-    except subprocess.TimeoutExpired as error:
-        return unavailable("build_failed", f"compiler build timed out: {error}")
     finally:
         remove_worktree(aihc_repository, worktree)
+
+
+def compiler_root(root: Path, name: str = "aihc") -> Path:
+    """Where the garbage collector root of a built compiler lives.
+
+    One link per purpose, replaced by the next build: the compiler of the
+    commit being measured stays alive for exactly as long as it is needed.
+    """
+    return root / ".cache" / "gcroots" / name
 
 
 #: The derived table and the tarball it is derived from. ``IndexCache.isStale``
@@ -301,15 +325,15 @@ def warm_hackage_index(
         return f"could not resolve {config.get('aihc_ref')}: {error}"
     try:
         create_worktree(aihc_repository, worktree, head)
-        build_error = build_compiler(worktree, root, timeout_seconds)
-        if build_error is not None:
-            return f"the compiler at {head[:12]} does not build:\n{build_error[-2000:]}"
+        try:
+            compiler = build_compiler(worktree, platform_id, compiler_root(root, "aihc-index"), timeout_seconds)
+        except CompilerDoesNotBuild as error:
+            return f"the compiler at {head[:12]} does not build:\n{error.detail[-2000:]}"
+        except MachineFault as error:
+            return f"the compiler at {head[:12]} is not usable on this machine:\n{str(error)[-2000:]}"
         store.mkdir(parents=True, exist_ok=True)
         command = [
-            "nix",
-            "run",
-            f"{worktree}#aihc",
-            "--",
+            str(compiler.program),
             "install",
             package,
             "--store",
@@ -326,20 +350,6 @@ def warm_hackage_index(
         return f"warming the Hackage index timed out: {error}"
     finally:
         remove_worktree(aihc_repository, worktree)
-    return None
-
-
-def build_compiler(worktree: Path, root: Path, timeout_seconds: float) -> Optional[str]:
-    """Build the commit's compiler, returning the build output when it fails.
-
-    The suite tracks the current AIHC command line only, so a commit whose
-    ``aihc`` builds is assumed to offer ``build``, ``install`` and
-    ``prepare-runtime`` with the flags ``benchmark.json`` passes them. Commits
-    older than ``aihc_since`` predate that command line and are never planned.
-    """
-    probe = run_command(["nix", "run", f"{worktree}#aihc", "--", "--help"], root, timeout_seconds)
-    if probe.returncode != 0:
-        return (probe.stderr or probe.stdout)[-8192:]
     return None
 
 
@@ -373,7 +383,7 @@ def first_meaningful_line(text: str) -> str:
     return present[0] if present else ""
 
 
-class MissingBaseline(RuntimeError):
+class MissingBaseline(MachineFault):
     """A benchmark produced no baseline binary, so it cannot be compared."""
 
 
@@ -431,7 +441,13 @@ def build_cells(
     aihc_store: Optional[Path] = None,
     aihc_setup_errors: Optional[Dict[str, str]] = None,
     store_archive: Optional[Path] = None,
+    compiler: Optional[Path] = None,
 ) -> List[Cell]:
+    """One cell per benchmark and configuration.
+
+    ``compiler`` is the built ``aihc`` that ``{aihc}`` in a compile command
+    names; see ``toolchain.build_compiler``.
+    """
     aihc_setup_errors = aihc_setup_errors or {}
     platform_values = config["platforms"][platform_id]
     toolchains = os.environ.get("AIHC_BENCH_TOOLCHAINS", "")
@@ -462,6 +478,7 @@ def build_cells(
             values = {
                 "root": str(root),
                 "worktree": str(worktree),
+                "aihc": str(compiler) if compiler else "aihc",
                 "source": str(source),
                 "corpus": corpus,
                 "main_file": str(source / "Main.hs"),
@@ -665,7 +682,7 @@ def _without_gc_option(command: List[str]) -> List[str]:
     return trimmed
 
 
-class MissingCorpus(RuntimeError):
+class MissingCorpus(MachineFault):
     """A benchmark reads a corpus that this environment does not provide."""
 
 
@@ -768,6 +785,14 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
         except subprocess.TimeoutExpired:
             return cell, {"status": "compile_timed_out"}
         wall_time_ns = time.perf_counter_ns() - start
+        if process.returncode == -signal.SIGKILL:
+            # Nothing a compiler does ends in SIGKILL: the runner's own
+            # timeout is reported above, so this is the kernel -- memory, or
+            # on macOS a code signature -- and a property of the machine.
+            raise MachineFault(
+                f"{cell.benchmark['id']} / {cell.configuration['id']}: the compiler was killed "
+                f"({killed_by_hint(process.returncode)}):\n{process.stderr[-2000:]}"
+            )
         if process.returncode != 0:
             return cell, {
                 "status": "compile_failed",
@@ -777,9 +802,21 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
             }
         if not cell.artifact.exists():
             return cell, {"status": "compile_failed", "stderr": "compiler did not create the requested artifact"}
+        unsigned = signature_failures(cell.artifact, timeout_seconds)
+        if unsigned:
+            # The compiler's own linker wrote it: a program macOS refuses to
+            # run is the compiler's result, like any other broken artifact.
+            return cell, {
+                "status": "compile_failed",
+                "wall_time_ns": wall_time_ns,
+                "stderr": f"the compiler wrote a program with an invalid code signature:\n{describe_problems(unsigned)}",
+            }
         strip_error = strip_artifact(cell.artifact, root, timeout_seconds)
         if strip_error:
             return cell, {"status": "compile_failed", "wall_time_ns": wall_time_ns, "stderr": strip_error[-8192:]}
+        unsigned = signature_failures(cell.artifact, timeout_seconds)
+        if unsigned:
+            raise MachineFault(f"stripping broke the code signature of {cell.artifact}:\n{describe_problems(unsigned)}")
         precompile_error = precompile_artifact(cell, root, timeout_seconds)
         if precompile_error:
             return cell, {"status": "compile_failed", "wall_time_ns": wall_time_ns, "stderr": precompile_error[-8192:]}
@@ -794,6 +831,19 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
     for cell in available:
         outcomes.append(compile_one(cell))
     return outcomes
+
+
+def signature_failures(artifact: Path, timeout_seconds: float) -> Dict[str, str]:
+    """Why macOS would refuse to run ``artifact``; empty when it would run, or off macOS.
+
+    The kernel checks a signature page by page as the program touches its
+    pages, so a bad one need not show until well into a measurement --
+    which is how one bad page in the M1's compiler passed for a working
+    compiler on the small benchmarks and killed it on the large ones.
+    """
+    if sys.platform != "darwin" or not signed_mach_o(artifact):
+        return {}
+    return codesign_failures([str(artifact)], timeout_seconds)
 
 
 def _archive_store(store: Path) -> Optional[Path]:
@@ -1056,8 +1106,10 @@ def _prepare_aihc_store(
     root: Path,
     store: Path,
     timeout_seconds: float,
+    *,
+    compiler: Path,
 ) -> Dict[str, str]:
-    """Prepare runtimes and install ``aihc-base`` per target.
+    """Prepare runtimes and install ``aihc-base`` per target, with ``compiler``.
 
     ``aihc build`` resolves and installs the dependencies of a benchmark's
     Cabal package itself, inside the timed compile, and that is where they
@@ -1077,7 +1129,7 @@ def _prepare_aihc_store(
         return errors
 
     store.mkdir(parents=True, exist_ok=True)
-    base_command = ["nix", "run", f"{worktree}#aihc", "--"]
+    base_command = [str(compiler)]
     runtimes: List[Tuple[str, str, Dict[str, str]]] = []
     for target, garbage_collector, _, environment in builds:
         if (target, garbage_collector) not in [(name, gc) for name, gc, _ in runtimes]:
@@ -1179,5 +1231,7 @@ def _run_setup_command(
         return f"AIHC {stage} timed out: {error}"
     if process.returncode == 0:
         return None
+    if process.returncode == -signal.SIGKILL:
+        raise MachineFault(f"AIHC {stage} was killed ({killed_by_hint(process.returncode)})")
     detail = (process.stderr or process.stdout)[-8192:]
     return f"AIHC {stage} failed with exit code {process.returncode}:\n{detail}"
