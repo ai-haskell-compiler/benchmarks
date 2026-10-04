@@ -203,6 +203,28 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(wasm.run_command[-1], "O2")
         self.assertEqual(wasm.run_command[-2], str(wasm.precompiled))
 
+    def test_unsupported_backends_leave_only_those_cells_unavailable(self):
+        self.config["benchmarks"].append(
+            {"id": "native-only", "package": "native-only", "source": "example.hs", "expected_stdout": "ok\n", "unsupported_backends": ["wasm"]}
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
+            with patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": "/toolchains"}):
+                cells = build_cells(
+                    self.config, "test-platform", {"sha": "abc123"}, root / "worktree", root,
+                    {"example": "example-experiment", "native-only": "native-only-experiment"},
+                )
+        by_cell = {(cell.benchmark["id"], cell.configuration["id"]): cell for cell in cells}
+        excluded = by_cell[("native-only", "aihc-wasm-O2")]
+        self.assertIsNone(excluded.compile_command)
+        self.assertIsNone(excluded.run_command)
+        self.assertEqual(excluded.unavailable_reason, "unsupported_backend")
+        self.assertIsNotNone(by_cell[("native-only", "aihc-native-O2")].compile_command)
+        self.assertIsNotNone(by_cell[("native-only", "ghc-native-O2")].compile_command)
+        # Another benchmark still measures the backend.
+        self.assertIsNotNone(by_cell[("example", "aihc-wasm-O2")].compile_command)
+
     def test_a_missing_corpus_stops_the_run_before_measuring(self):
         self.config["benchmarks"][0]["corpus_env"] = "SWEEP_CORPUS"
         with tempfile.TemporaryDirectory() as directory:

@@ -234,6 +234,20 @@ class ConfigTests(unittest.TestCase):
             config_path.write_text(json.dumps(document), encoding="utf-8")
             self.assertTrue(load_config(config_path)["benchmarks"][0]["profile_argument"])
 
+    def test_unsupported_backends_are_validated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = write_config(root, BASE)
+            document = json.loads(config_path.read_text(encoding="utf-8"))
+            for invalid in ("native", [], [""], ["wasm"]):
+                document["benchmarks"][0]["unsupported_backends"] = invalid
+                config_path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(ConfigError, msg=repr(invalid)):
+                    load_config(config_path)
+            document["benchmarks"][0]["unsupported_backends"] = ["native"]
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            self.assertEqual(load_config(config_path)["benchmarks"][0]["unsupported_backends"], ["native"])
+
     def test_repository_configuration_loads(self):
         config = load_config(Path(__file__).resolve().parents[1] / "benchmark.json")
         profiles = {(item["compiler_family"], item["optimization"]) for item in config["configurations"]}

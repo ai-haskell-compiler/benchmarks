@@ -74,6 +74,16 @@
       "corpus_sources": ["corpus/parser", "corpus/stackage"],
       "expected_stdout": "modules=9 ok=9 errored=0 imports=63 decls=124\n",
       "process_timeout_seconds": 120
+    },
+    {
+      "id": "microhs-self-compile-v1",
+      "package": "microhs-self-compile",
+      "source": "benchmarks/microhs-self-compile",
+      "corpus_env": "AIHC_BENCH_MICROHS_CORPUS",
+      "corpus_sources": ["corpus/microhs"],
+      "expected_stdout": "bytes=2046030 fnv1a=076b875085ec04f0\n",
+      "process_timeout_seconds": 300,
+      "unsupported_backends": ["wasm"]
     }
   ],
   "configurations": [
