@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from aihc_bench.freeze import parse_build_depends, parse_freeze
+from aihc_bench.freeze import parse_build_depends, parse_freeze, parse_freeze_flags
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,6 +16,14 @@ class FreezeTests(unittest.TestCase):
 
         depends = parse_build_depends(source / "snappy-roundtrip.cabal")
         self.assertEqual(depends, ["base", "bytestring", "snappy-hs"])
+
+    def test_parses_flag_constraints(self):
+        flags = parse_freeze_flags(REPO_ROOT / "benchmarks" / "aihc-parser-stackage" / "cabal.project.freeze")
+        self.assertEqual(flags["hashable"], "-arch-native -random-initial-seed")
+        self.assertEqual(flags["integer-logarithms"], "-check-bounds +integer-gmp")
+        # Version pins are not flags.
+        self.assertNotIn("text", flags)
+        self.assertEqual(parse_freeze_flags(REPO_ROOT / "benchmarks" / "sha-digest" / "cabal.project.freeze")["SHA"], "-exe")
 
     def test_base_only_benchmark_depends_on_base_alone(self):
         source = REPO_ROOT / "benchmarks" / "integer-factorial"

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Dict, List
 
 _CONSTRAINT = re.compile(r"any\.([A-Za-z0-9][A-Za-z0-9-]*)\s*==\s*([0-9][0-9A-Za-z.]*)")
+_FLAG_CONSTRAINT = re.compile(r"(?m)^(?:constraints:)?[ \t]*([A-Za-z0-9][A-Za-z0-9-]*)((?:[ \t]+[+-][A-Za-z0-9_-]+)+)[ \t]*,?[ \t]*$")
 _BUILD_DEPENDS_FIELD = re.compile(r"(?im)^\s*build-depends\s*:\s*(.*)$")
 _CONTINUATION_LINE = re.compile(r"^\s+\S")
 
@@ -23,6 +24,13 @@ def parse_freeze(path: Path) -> Dict[str, str]:
     """Return ``{package_name: version}`` for every pinned constraint."""
     text = path.read_text(encoding="utf-8")
     return {name: version for name, version in _CONSTRAINT.findall(text)}
+
+
+def parse_freeze_flags(path: Path) -> Dict[str, str]:
+    """Return ``{package_name: flags}`` for every flag constraint, such as
+    ``{"haskeline": "-terminfo"}``."""
+    text = path.read_text(encoding="utf-8")
+    return {name: " ".join(flags.split()) for name, flags in _FLAG_CONSTRAINT.findall(text)}
 
 
 def parse_build_depends(cabal_path: Path) -> List[str]:
