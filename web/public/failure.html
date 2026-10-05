@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Failure · AIHC benchmarks</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151318" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<header class="site-header"></header>
+<main>
+  <h1 id="title">Failure</h1>
+  <p class="lede" id="subtitle"></p>
+  <p class="status-line" id="status-line">Loading…</p>
+  <div id="detail"></div>
+</main>
+<script type="module">
+import { api, el, replaceChildren, formatDate, setStatus, renderHeader, commitLink, describeConfiguration, failureLabel, GITHUB, shortSha } from "./site.js";
+
+renderHeader();
+const params = new URLSearchParams(location.search);
+const key = params.get("key") ?? "";
+const configuration = params.get("configuration") ?? "";
+
+/** The output that says what went wrong: the compiler's for a failed compile, the program's for a failed run. */
+function failureOf(result) {
+  const compile = result.compile ?? {};
+  if (compile.status && compile.status !== "compiled") return { stage: "compile", status: compile.status, exit_code: compile.exit_code, output: compile.stderr };
+  const measurement = result.measurement ?? {};
+  return { stage: "run", status: measurement.status, exit_code: measurement.exit_code, output: measurement.stderr };
+}
+
+/** The last line printed: compilers and runtimes report the error after their progress output. */
+function lastLine(output) {
+  const lines = (output ?? "").split("\n").map((line) => line.trim()).filter((line) => line && line !== "|");
+  return lines.at(-1) ?? "";
+}
+
+function exitDescription(code) {
+  if (code === undefined || code === null) return "—";
+  return code < 0 ? `killed by signal ${-code}` : String(code);
+}
+
+async function start() {
+  if (!key.startsWith("raw/") || !configuration) {
+    setStatus("Open this page from a failed configuration on the overview or a commit page.", true);
+    return;
+  }
+  try {
+    const envelope = await api(`/api/${key}`);
+    const result = (envelope.results ?? []).find((item) => item.configuration === configuration);
+    if (!result) throw new Error(`the run has no result for ${configuration}`);
+    const failure = failureOf(result);
+    const commit = envelope.aihc_commit ?? {};
+    document.title = `${envelope.benchmark} · ${configuration} · AIHC benchmarks`;
+    replaceChildren(document.getElementById("title"), `${envelope.benchmark}: ${failureLabel(failure)}`);
+    replaceChildren(document.getElementById("subtitle"), describeConfiguration(result), " ", el("span", { class: "mono muted" }, configuration));
+    setStatus(failure.stage === "compile" ? "The program was never built, so this configuration has no measurements." : "The program was built but did not run to completion, so this configuration has no measurements.");
+    const output = (failure.output ?? "").trim();
+    const log = output ? el("pre", { class: "log" }, output) : el("p", { class: "muted" }, "Nothing was printed to standard error.");
+    replaceChildren(document.getElementById("detail"),
+      el("dl", { class: "facts" },
+        el("dt", {}, "Commit"), el("dd", {}, commit.sha ? [commitLink(commit), " ", commit.subject ?? "", " · ", el("a", { href: `${GITHUB}/commit/${commit.sha}` }, "GitHub")] : "—"),
+        el("dt", {}, "Machine"), el("dd", {}, envelope.machine_id ?? "—"),
+        el("dt", {}, "Stage"), el("dd", {}, failure.stage),
+        el("dt", {}, "Status"), el("dd", { class: "worse" }, failure.status ?? "—"),
+        el("dt", {}, "Exit"), el("dd", {}, exitDescription(failure.exit_code)),
+        el("dt", {}, "Measured"), el("dd", {}, formatDate(envelope.created_at)),
+      ),
+      output ? el("p", { class: "error-line" }, lastLine(output)) : null,
+      el("h2", {}, failure.stage === "compile" ? "Compiler output" : "Program output"),
+      log,
+      el("p", { class: "muted" }, "Output is the last 8 KiB the runner kept. ", el("a", { href: `/api/${key}` }, "Raw envelope"), " · run ", el("span", { class: "mono" }, shortSha(envelope.run_id ?? ""))),
+    );
+    // The error is at the end; start the log there.
+    log.scrollTop = log.scrollHeight;
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+start();
+</script>
+</body>
+</html>

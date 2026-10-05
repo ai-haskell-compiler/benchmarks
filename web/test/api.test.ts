@@ -102,7 +102,10 @@ describe("perf.aihc.app API", () => {
     const raw = await SELF.fetch(`https://perf.aihc.app/api/${envelopeKey}`);
     expect(raw.status).toBe(200);
     expect(raw.headers.get("content-encoding")).toBe("gzip");
-    const decoded = (await new Response(raw.body!.pipeThrough(new DecompressionStream("gzip"))).json()) as { run_id: string };
+    // One layer of gzip, which the client undoes, as a browser does. This
+    // test used to decompress a second layer by hand: the runtime compressed
+    // the already-gzipped object again, and browsers could not read it.
+    const decoded = (await raw.json()) as { run_id: string };
     expect(decoded.run_id).toBe("run-1");
     expect((await SELF.fetch("https://perf.aihc.app/api/raw/v2/nothing")).status).toBe(404);
   });
@@ -181,6 +184,48 @@ describe("perf.aihc.app API", () => {
     expect((await get("/api/overview?refresh=1")).body.suite).toBe("stale");
     expect((await get(`/api/overview?suite=${SUITE}`)).body.suite).toBe(SUITE);
     await env.RAW.delete("cache/overview/v2.json");
+  });
+
+  it("links every configuration that produced no measurement to its error", async () => {
+    // D1 has no row for a failed cell; the envelope in R2 says what happened.
+    const key = `raw/v2/${MACHINE}/${sha(4)}/run-ack-4.json.gz`;
+    const original = await (await env.RAW.get(key))!.arrayBuffer();
+    const envelope = {
+      run_id: "run-ack-4",
+      aihc_commit: { sha: sha(4) },
+      results: [
+        { benchmark: "ack", configuration: "aihc-native-semispace-O2", compiler_family: "aihc", backend: "native", optimization: "O2", compile: { status: "compiled" }, measurement: { status: "converged", metrics: [] } },
+        {
+          benchmark: "ack", configuration: "aihc-llvm-semispace-O2", compiler_family: "aihc", backend: "llvm", optimization: "O2",
+          compile: { status: "compile_failed", exit_code: 1, stderr: "build  ack (executable)\naihc: user error (non-direct expression remained in a CPS bind)\n" },
+          measurement: { status: "unavailable", reason: "compile_failed" },
+        },
+        {
+          benchmark: "ack", configuration: "aihc-wasm-semispace-O2", compiler_family: "aihc", backend: "wasm", optimization: "O2",
+          compile: { status: "compiled" }, measurement: { status: "run_failed", exit_code: -11, stderr: "" },
+        },
+        { benchmark: "ack", configuration: "aihc-native-semispace-O1", compiler_family: "aihc", backend: "native", optimization: "O1", compile: { status: "compiled" }, measurement: { status: "timed_out" } },
+        { benchmark: "ack", configuration: "ghc-9.14.1-wasm-O2", compiler_family: "ghc", backend: "wasm", optimization: "O2", compile: { status: "unavailable", reason: "unsupported_configuration" }, measurement: { status: "unavailable" } },
+      ],
+    };
+    const body = new Blob([JSON.stringify(envelope)]).stream().pipeThrough(new CompressionStream("gzip"));
+    await env.RAW.put(key, await new Response(body).arrayBuffer(), { httpMetadata: { contentType: "application/json", contentEncoding: "gzip" } });
+
+    const expected = [
+      expect.objectContaining({ configuration: "aihc-llvm-semispace-O2", stage: "compile", status: "compile_failed", message: "aihc: user error (non-direct expression remained in a CPS bind)", envelope_key: key, run_id: "run-ack-4" }),
+      expect.objectContaining({ configuration: "aihc-wasm-semispace-O2", stage: "run", status: "run_failed", message: "killed by signal 11", backend: "wasm" }),
+      expect.objectContaining({ configuration: "aihc-native-semispace-O1", stage: "run", status: "timed_out", message: "timed out" }),
+    ];
+    const machine = (await get(`/api/overview?suite=${SUITE}`)).body.machines[0];
+    expect(machine.failures).toHaveLength(3);
+    expect(machine.failures).toEqual(expect.arrayContaining(expected));
+    const commit = (await get(`/api/commit/${sha(4)}`)).body;
+    expect(commit.failures).toHaveLength(3);
+    expect(commit.failures).toEqual(expect.arrayContaining(expected));
+    // An envelope without results, or one that is missing, is no failure.
+    expect((await get(`/api/commit/${sha(1)}`)).body.failures).toEqual([]);
+
+    await env.RAW.put(key, original, { httpMetadata: { contentType: "application/json", contentEncoding: "gzip" } });
   });
 
   it("serves series with inherited points and profile filtering", async () => {

@@ -232,3 +232,22 @@ export function changeCell(ratio) {
   const cls = Math.abs(percent) < 2 ? "num muted" : percent < 0 ? "num better" : "num worse";
   return el("td", { class: cls }, text);
 }
+
+/** A short name for what went wrong with a configuration that has no measurement. */
+export function failureLabel(failure) {
+  if (failure.stage === "compile") return failure.status === "compile_timed_out" ? "compile timed out" : "compile failed";
+  if (failure.status === "timed_out") return "timed out";
+  if (failure.status === "validation_failed") return "wrong output";
+  if (failure.status === "run_failed") return "crashed";
+  return failure.status.replaceAll("_", " ");
+}
+
+/** Link to the page that shows a failed configuration's full error output. */
+export function failureHref(failure) {
+  const params = new URLSearchParams({ key: failure.envelope_key, configuration: failure.configuration });
+  return `/failure.html?${params}`;
+}
+
+export function failureLink(failure, text) {
+  return el("a", { class: "worse", href: failureHref(failure), title: failure.message }, text ?? failureLabel(failure));
+}

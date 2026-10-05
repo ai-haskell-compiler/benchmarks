@@ -27,7 +27,7 @@
   <p class="lede">Every machine measures every configuration itself, so ratios are comparable across machines even though absolute times are not. Artifact size at <code>-Os</code> and runtime at <code>-O1</code> stay blank until AIHC grows those profiles. Commits that leave the compiler untouched inherit their neighbour's result and count toward coverage. The <a href="/timeline.html">timeline</a> shows how each ratio moved over the commit history, the <a href="/coverage.html">coverage</a> page shows which commits have been measured, and every number links to its commit.</p>
 </main>
 <script type="module">
-import { api, el, replaceChildren, formatRatio, formatValue, formatDate, machineLabel, commitLink, setStatus, renderHeader, queryState, pushQuery, suiteLabel, GITHUB } from "./site.js";
+import { api, el, replaceChildren, formatRatio, formatValue, formatDate, machineLabel, commitLink, setStatus, renderHeader, queryState, pushQuery, suiteLabel, failureLink, GITHUB } from "./site.js";
 
 renderHeader();
 
@@ -64,34 +64,58 @@ function select(machine, backend, profile, metric) {
   return machine.ratios.filter((row) => row.backend === backend && row.optimization === profile && row.metric === metric);
 }
 
+/** AIHC configurations that produced no measurement on the machine's headline commit. */
+function failuresFor(machine, backend, profile) {
+  return (machine.failures ?? []).filter((failure) => failure.compiler_family === "aihc" && failure.backend === backend && failure.optimization === profile);
+}
+
+function failedNote(failures) {
+  const benchmarks = new Set(failures.map((failure) => failure.benchmark));
+  return benchmarks.size === 1 ? "1 benchmark failed" : `${benchmarks.size} benchmarks failed`;
+}
+
 function tile(machine, backend, headline) {
   const rows = select(machine, backend, headline.profile, headline.metric);
   const withBaseline = rows.filter((row) => row.ratio);
   const mean = geomean(withBaseline.map((row) => row.ratio));
+  const failures = failuresFor(machine, backend, headline.profile).filter((failure) => !rows.some((row) => row.benchmark === failure.benchmark));
   const label = el("span", { class: "label" }, headline.label, el("code", {}, headline.flag));
   if (!mean) {
-    const note = rows.length ? "no GHC baseline" : "not measured yet";
-    return el("div", { class: "tile empty" }, label, el("span", { class: "value" }, "—"), el("span", { class: "note" }, note));
+    const note = failures.length ? el("span", { class: "note worse" }, `${failedNote(failures)}; see per-benchmark ratios`) : el("span", { class: "note" }, rows.length ? "no GHC baseline" : "not measured yet");
+    return el("div", { class: "tile empty" }, label, el("span", { class: "value" }, "—"), note);
   }
   const benchmarks = withBaseline.map((row) => row.benchmark).sort();
   const href = `/timeline.html?machine=${encodeURIComponent(machine.machine_id)}&profile=${headline.profile}&metric=${headline.metric}&benchmark=${encodeURIComponent(benchmarks[0])}`;
-  const title = withBaseline.map((row) => `${row.benchmark}: ${formatValue(row.value, headline.metric)} vs ${formatValue(row.baseline_value, headline.metric)}`).join("\n");
+  const title = [
+    ...withBaseline.map((row) => `${row.benchmark}: ${formatValue(row.value, headline.metric)} vs ${formatValue(row.baseline_value, headline.metric)}`),
+    ...failures.map((failure) => `${failure.benchmark}: ${failure.message}`),
+  ].join("\n");
   return el("a", { class: "tile", href, title },
     label,
     el("span", { class: "value" }, formatRatio(mean)),
     el("span", { class: "note" }, withBaseline.length === 1 ? "1 benchmark" : `geometric mean of ${withBaseline.length} benchmarks`),
+    failures.length ? el("span", { class: "note worse" }, failedNote(failures)) : null,
   );
 }
 
 function detailTable(machine, backend, profile) {
   const rows = machine.ratios.filter((row) => row.backend === backend && row.optimization === profile);
-  if (!rows.length) return el("p", { class: "muted" }, `No ${profile} measurements yet.`);
-  const benchmarks = [...new Set(rows.map((row) => row.benchmark))].sort();
-  const metrics = ["wall_time", "compile_time", "artifact_size"].filter((metric) => rows.some((row) => row.metric === metric));
+  const failures = failuresFor(machine, backend, profile);
+  if (!rows.length && !failures.length) return el("p", { class: "muted" }, `No ${profile} measurements yet.`);
+  const benchmarks = [...new Set([...rows, ...failures].map((row) => row.benchmark))].sort();
+  const allMetrics = ["wall_time", "compile_time", "artifact_size"];
+  const metrics = rows.length ? allMetrics.filter((metric) => rows.some((row) => row.metric === metric)) : allMetrics;
   const query = `machine=${encodeURIComponent(machine.machine_id)}&profile=${profile}`;
+  const failureRow = (benchmark, failure) => el("tr", {},
+    el("td", {}, benchmark),
+    el("td", { class: "failure", colspan: metrics.length }, failureLink(failure), " ", el("span", { class: "message", title: failure.message }, failure.message)),
+  );
   const cell = (benchmark, metric) => {
     const row = rows.find((item) => item.benchmark === benchmark && item.metric === metric);
-    if (!row) return el("td", { class: "num muted" }, "—");
+    if (!row) {
+      const failure = failures.find((item) => item.benchmark === benchmark);
+      return failure ? el("td", { class: "num" }, failureLink(failure)) : el("td", { class: "num muted" }, "—");
+    }
     if (!row.ratio) return el("td", { class: "num muted", title: "AIHC value; GHC has no baseline for this metric" }, formatValue(row.value, metric));
     return el("td", { class: "num", title: `${formatValue(row.value, metric)} vs ${formatValue(row.baseline_value, metric)}` }, formatRatio(row.ratio));
   };
@@ -99,10 +123,14 @@ function detailTable(machine, backend, profile) {
     el("table", { class: "data" },
       el("thead", {}, el("tr", {}, el("th", {}, "Benchmark"), ...metrics.map((metric) => el("th", { class: "num" }, METRIC_TITLES[metric])))),
       el("tbody", {},
-        ...benchmarks.map((benchmark) => el("tr", {},
-          el("td", {}, el("a", { href: `/timeline.html?${query}&benchmark=${encodeURIComponent(benchmark)}` }, benchmark)),
-          ...metrics.map((metric) => cell(benchmark, metric)),
-        )),
+        ...benchmarks.map((benchmark) => {
+          const failure = failures.find((item) => item.benchmark === benchmark);
+          if (failure && !rows.some((row) => row.benchmark === benchmark)) return failureRow(benchmark, failure);
+          return el("tr", {},
+            el("td", {}, el("a", { href: `/timeline.html?${query}&benchmark=${encodeURIComponent(benchmark)}` }, benchmark)),
+            ...metrics.map((metric) => cell(benchmark, metric)),
+          );
+        }),
         el("tr", {}, el("td", {}, el("strong", {}, "Geometric mean")),
           ...metrics.map((metric) => el("td", { class: "num" }, el("strong", {}, formatRatio(geomean(rows.filter((row) => row.metric === metric && row.ratio).map((row) => row.ratio))))))),
       ),
