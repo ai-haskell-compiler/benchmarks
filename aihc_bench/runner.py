@@ -495,6 +495,11 @@ def build_cells(
             }
             available = configuration.get("available", True)
             reason: Optional[str] = None if available else configuration.get("unavailable_reason", "unsupported_configuration")
+            # A benchmark may rule out a backend its program cannot run on;
+            # those cells are recorded unavailable rather than compiled.
+            if available and configuration["backend"] in benchmark.get("unsupported_backends", []):
+                available = False
+                reason = "unsupported_backend"
             compile_command = expand_command(configuration["compile"], values) if available else None
             if compile_command and family == "aihc":
                 if runtime_packaged:

@@ -1,0 +1,95 @@
+module MicroHs.Flags(
+  Flags(..), verbosityGT, defaultFlags,
+  DumpFlag(..), dumpIf,
+  wantGMP) where
+import qualified Prelude(); import MHSPrelude
+import MicroHs.Config
+
+data Flags = Flags {
+  verbose    :: Int,        -- verbosity level
+  runIt      :: Bool,       -- run instead of compile
+  mhsdir     :: FilePath,   -- where MHS files live
+  srcPaths   :: [FilePath], -- module search path
+  output     :: String,     -- output file
+  loading    :: Bool,       -- show loading message
+  speed      :: Bool,       -- show lines/s
+  readCache  :: Bool,       -- read and use cache
+  writeCache :: Bool,       -- generate cache
+  useTicks   :: Bool,       -- emit ticks
+  doCPP      :: Bool,       -- run ccphs on input files
+  cppArgs    :: [String],   -- flags for CPP
+  cArgs      :: [String],   -- arguments for C compiler
+  lArgs      :: [String],   -- arguments for C linker
+  compress   :: Bool,       -- compress generated combinators
+  base64     :: Bool,       -- base64 encode generated combinators
+  buildPkg   :: Maybe FilePath, -- build a package
+  listPkg    :: Maybe FilePath, -- list package contents
+  pkgPaths   :: [FilePath], -- package search path
+  installPkg :: Bool,       -- install a package
+  preload    :: [String],   -- packages to preload
+  target     :: String,     -- Compile target defined in target.conf
+  dumpFlags  :: [DumpFlag], -- For debugging,
+  useStdin   :: Bool,       -- Use stdin in interactive system
+  noLink     :: Bool,       -- Just generate an unlinked object file
+  fPgm       :: Maybe String, -- preprocessor for -F
+  fArgs      :: [String],   -- arguments for preprocessor
+  doF        :: Bool,       -- run preprocessor
+  interactive:: Bool,       -- enter interactive mode
+  evalArg    :: Maybe String, -- evaluate an expression
+  editor     :: Maybe String, -- Hugs-like flag to invoke the editor.
+  iPrint     :: Maybe String, -- interactive print function
+  config     :: Config,       -- from mhs.config file
+  embedFFIs  :: [String],     -- embed FFI stubs from these packages
+  embedPkgs  :: [String]      -- embed these packages
+  }
+  deriving (Show)
+
+verbosityGT :: Flags -> Int -> Bool
+verbosityGT flags v = verbose flags > v
+
+defaultFlags :: Flags
+defaultFlags = Flags {
+  verbose    = 0,
+  runIt      = False,
+  mhsdir     = ".",
+  srcPaths   = [],
+  output     = "out.comb",
+  loading    = False,
+  speed      = False,
+  readCache  = False,
+  writeCache = False,
+  useTicks   = False,
+  doCPP      = False,
+  cppArgs    = [],
+  cArgs      = [],
+  lArgs      = [],
+  compress   = False,
+  base64     = False,
+  buildPkg   = Nothing,
+  listPkg    = Nothing,
+  pkgPaths   = [],
+  installPkg = False,
+  preload    = [],
+  target     = if _isWindows then "windows" else "unix",
+  dumpFlags  = [],
+  useStdin   = False,
+  noLink     = False,
+  fPgm       = Nothing,
+  fArgs      = [],
+  doF        = False,
+  interactive = False,
+  evalArg     = Nothing,
+  editor      = Nothing,
+  iPrint      = Nothing,
+  config      = [],
+  embedFFIs   = [],
+  embedPkgs   = []
+  }
+
+data DumpFlag = Dpreproc | Dparse | Dderive | DexpandInst | Dtypecheck | Ddesugar | Dlinked | Dtoplevel | Dcombinator | Dall
+  deriving (Eq, Show, Enum, Bounded)
+
+dumpIf :: Monad m => Flags -> DumpFlag -> m () -> m ()
+dumpIf flags df act | df `elem` dfs || Dall `elem` dfs = act
+                    | otherwise = return ()
+  where dfs = dumpFlags flags

@@ -96,7 +96,12 @@ declare still decide: GHC 9.14.1 ships `time-1.15` while `snappy-hs` requires
 The freeze file's `index-state` is what keeps the choice deterministic.
 `base`, `ghc-prim`, `ghc-internal`, `ghc-bignum`, `rts`, `template-haskell`
 and what they depend on are wired into the compiler and stay as shipped, so a
-benchmark that only uses `base` is unaffected.
+benchmark that only uses `base` is unaffected. A rebuilt boot library may
+predate the `base` it is rebuilt against (`array-0.5.8.0` caps `base <4.22`),
+so its bounds on those wired-in packages are relaxed -- and only those. Its
+bounds on other boot libraries still hold: relaxing every bound let the
+solver keep `unix`'s `os-string` flag off, the branch that wants
+`filepath <1.5`, while choosing `filepath-1.5`, and `unix` failed to compile.
 
 Both compilers are timed installing every dependency a benchmark has,
 `text` included. The only libraries prepared beforehand are the compiler's
@@ -122,7 +127,10 @@ benchmark's Cabal package with `cabal build` against the flake's toolchain
 configuration, so Hackage dependencies are resolved and compiled inside the
 timed step for every configuration rather than only the first; a benchmark's
 `cabal.project.freeze` pins those dependencies while boot libraries come from
-whichever GHC is under test.
+whichever GHC is under test. The freeze file's flag assignments reach every
+package that is built, a rebuilt boot library included; `cabal freeze` writes
+none for a boot library, so a benchmark that needs one adds the line by hand
+(`microhs-self-compile` turns off `haskeline`'s `terminfo`).
 
 AIHC builds the same package directory with `aihc build`, which reads the
 `.cabal` file and resolves its dependencies itself rather than the freeze
@@ -276,6 +284,50 @@ historical compiler is terminal until its record is deliberately removed:
 ```console
 nix run . -- forget <commit>
 ```
+
+## MicroHs compiling itself
+
+`microhs-self-compile` builds [MicroHs](https://github.com/augustss/MicroHs),
+a Haskell compiler written in Haskell, and runs it on its own sources: what
+MicroHs's `Makefile` does to regenerate `generated/mhs.c`. Every module of
+the compiler and of its own Prelude and base library is parsed,
+type-checked, desugared and translated to combinators, and the combinators
+are written out as one C array. The compiler is the `MicroHs-0.16.0.0`
+release, its `ghc/` and `src/` directories vendored verbatim under
+`benchmarks/microhs-self-compile/microhs` (Apache-2.0); the input is the same
+release's `lib`, `mhs` and `src`, built by the flake from the Hackage tarball:
+
+```console
+nix build .#microhs-corpus
+```
+
+`Main.hs` runs MicroHs's own `main` from inside the corpus, naming the
+sources relatively as the `Makefile` does, since MicroHs records source
+locations in what it generates. It prints the size and the FNV-1a hash of the
+generated C, which is the benchmark's expected output; every native and LLVM
+build prints the same line. A GHC `-O1` build takes about 1.7 seconds, and
+AIHC `-O0` builds take about 24 natively and 55 through LLVM, so the
+benchmark has its own `process_timeout_seconds`.
+
+MicroHs depends on `haskeline` for its REPL, which the benchmark never
+starts, and `haskeline` reaches for `terminfo`, which needs a curses library
+the toolchain environment does not have. Both toolchains build `haskeline`
+without it: the freeze file carries `haskeline -terminfo` for GHC, and
+`aihc.lock` records the same flag for AIHC.
+
+The benchmark is not measured on Wasm: `unsupported_backends` lists `wasm`,
+and those cells are recorded unavailable (`unsupported_backend`) without
+being compiled. AIHC's `wasm32-wasip3` runtime reaches the host through WASI
+preview 3 only and refuses a program that imports preview 1, which the C code
+of `unix`, `directory`, `file-io` and `time` needs. GHC's Wasm build does
+run, but its `Int` is 32 bits, so MicroHs writes six of its literals wrapped
+and the output no longer matches the native one.
+
+To move to another release, change `version` and the tarball hash in
+`corpus/microhs/corpus.nix`, replace the vendored directories with the
+release's `ghc/`, `src/MicroHs`, `src/Text` and `src/runtime/MachDeps.h`,
+update the module list in the `.cabal` file from the release's, and
+regenerate the freeze file, `aihc.lock` and the expected output.
 
 ## Comparing two builds
 

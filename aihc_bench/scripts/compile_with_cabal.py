@@ -27,7 +27,8 @@ other GHC ships different versions of those, and the Wasm cross-compiler
 ships its own again, so the generated project only carries the freeze
 constraints for packages the chosen GHC does not already provide: the
 Hackage dependencies stay pinned to the same version for every toolchain
-while the boot library versions come from the compiler under test.
+while the boot library versions come from the compiler under test. Its flag
+assignments are carried for every package that is built (``flag_constraints``).
 
 Those boot libraries are then rebuilt from source rather than taken as GHC
 shipped them, at the profile's optimization level
@@ -64,7 +65,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from aihc_bench.freeze import parse_freeze  # noqa: E402
+from aihc_bench.freeze import parse_freeze, parse_freeze_flags  # noqa: E402
 
 #: Run GHC itself with every core available.  ``-N`` alone needs the threaded
 #: RTS, which every GHC the suite measures is built with.
@@ -224,7 +225,7 @@ def boot_constraints(boot_libraries: dict[str, str]) -> list[str]:
     return [f"any.{name} source" for name in sorted(boot_libraries)]
 
 
-def boot_allow_newer(boot_libraries: dict[str, str]) -> str:
+def boot_allow_newer(boot_libraries: dict[str, str], bound: set[str]) -> str:
     """Let the boot libraries build against the compiler's own core packages.
 
     GHC 9.14.1 ships ``base-4.22.1.0`` and ``array-0.5.8.0``, but the
@@ -234,18 +235,35 @@ def boot_allow_newer(boot_libraries: dict[str, str]) -> str:
     from source means taking the bounds from the release, so a rebuild of
     ``array`` is rejected outright without this.
 
-    The relaxation is scoped to the bounds the boot libraries themselves
-    impose, so the benchmark's own Hackage dependencies still have their
-    bounds enforced -- and so does any bound placed *on* a boot library, which
-    is what lets ``snappy-hs`` hold ``time`` below ``1.15``.
+    The relaxation is scoped to the bounds the boot libraries place on the
+    packages that cannot move (``bound``), so the benchmark's own Hackage
+    dependencies still have their bounds enforced -- and so does any bound
+    placed *on* a boot library, which is what lets ``snappy-hs`` hold ``time``
+    below ``1.15``. So are the bounds between boot libraries: relaxing all of
+    a library's bounds let the solver keep ``unix``'s ``os-string`` flag off,
+    the branch that wants ``filepath < 1.5``, while choosing ``filepath-1.5``,
+    and ``unix`` then failed to compile.
     """
-    return ", ".join(f"{name}:*" for name in sorted(boot_libraries))
+    return ", ".join(f"{name}:{core}" for name in sorted(boot_libraries) for core in sorted(bound))
 
 
 def project_constraints(freeze_file: Path, provided: set[str]) -> list[str]:
     """Freeze constraints for the packages the compiler does not provide itself."""
     pinned = parse_freeze(freeze_file)
     return [f"any.{name} =={version}" for name, version in sorted(pinned.items()) if name not in provided]
+
+
+def flag_constraints(freeze_file: Path, bound: set[str]) -> list[str]:
+    """The freeze file's flag assignments, for every package that is built.
+
+    A flag the benchmark sets reaches its dependency whichever toolchain
+    builds it: ``microhs-self-compile`` turns off ``haskeline``'s ``terminfo``
+    flag, which needs a curses library the toolchain environment does not
+    have. A rebuilt boot library takes its flags like any other package; only
+    the packages that stay as the compiler shipped them have none to set.
+    """
+    flags = parse_freeze_flags(freeze_file)
+    return [f"{name} {assignment}" for name, assignment in sorted(flags.items()) if name not in bound]
 
 
 def package_stanza(ghc_level: str, ghc_options: list[str]) -> str:
@@ -271,15 +289,17 @@ def project_body(args: argparse.Namespace) -> str:
     freeze_file = args.source / "cabal.project.freeze"
     contents = []
     boot_libraries = boot_library_packages(args.ghc_pkg)
+    bound = compiler_bound_packages(global_packages(args.ghc_pkg))
     constraints = boot_constraints(boot_libraries)
     index_state = None
     if freeze_file.is_file():
         constraints += project_constraints(freeze_file, installed_packages(args.ghc_pkg))
+        constraints += flag_constraints(freeze_file, bound)
         index_state = _INDEX_STATE.search(freeze_file.read_text(encoding="utf-8"))
     if constraints:
         contents.append("constraints: " + ",\n             ".join(constraints) + "\n")
     if boot_libraries:
-        contents.append(f"allow-newer: {boot_allow_newer(boot_libraries)}\n")
+        contents.append(f"allow-newer: {boot_allow_newer(boot_libraries, bound)}\n")
     if index_state:
         contents.append(f"index-state: {index_state.group(1)}\n")
     # Last: a ``package`` stanza is indentation-delimited, so anything written

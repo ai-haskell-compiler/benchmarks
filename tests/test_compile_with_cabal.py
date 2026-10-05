@@ -11,6 +11,7 @@ from aihc_bench.scripts.compile_with_cabal import (
     cabal_command,
     cabal_environment,
     compiler_bound_packages,
+    flag_constraints,
     generate_project_file,
     global_packages,
     package_stanza,
@@ -135,7 +136,13 @@ class CompileWithCabalTests(unittest.TestCase):
                 "constraints: any.bytestring source,\n"
                 "             any.text source,\n"
                 "             any.snappy-hs ==0.1.2.0\n"
-                "allow-newer: bytestring:*, text:*\n"
+                "allow-newer: "
+                + ", ".join(
+                    f"{library}:{core}"
+                    for library in ("bytestring", "text")
+                    for core in ("base", "deepseq", "ghc", "ghc-boot-th", "ghc-internal", "ghc-prim", "pretty", "template-haskell")
+                )
+                + "\n"
                 "index-state: hackage.haskell.org 2026-09-10T11:00:24Z\n"
                 f"package *\n  optimization: 1\n  ghc-options: {RTS_OPTIONS}\n",
             )
@@ -193,7 +200,38 @@ class CompileWithCabalTests(unittest.TestCase):
         itself imposes are relaxed, so a bound placed on one still counts --
         snappy-hs holding time below 1.15 -- and the benchmark's own Hackage
         dependencies keep theirs."""
-        self.assertEqual(boot_allow_newer({"text": "2.1.4", "array": "0.5.8.0"}), "array:*, text:*")
+        self.assertEqual(
+            boot_allow_newer({"text": "2.1.4", "array": "0.5.8.0"}, {"base", "ghc-prim"}),
+            "array:base, array:ghc-prim, text:base, text:ghc-prim",
+        )
+
+    def test_boot_libraries_keep_their_bounds_on_each_other(self):
+        """Relaxing every bound unix declares let the solver keep its
+        os-string flag off -- the branch that wants filepath < 1.5 -- while
+        choosing filepath-1.5, and unix then failed to compile. Only bounds on
+        the packages that cannot move are relaxed."""
+        relaxed = boot_allow_newer({"unix": "2.8.8.0", "filepath": "1.5.4.0"}, {"base"})
+        self.assertEqual(relaxed, "filepath:base, unix:base")
+        self.assertNotIn("unix:*", relaxed)
+
+    def test_the_freeze_files_flags_reach_every_built_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            freeze = Path(directory) / "cabal.project.freeze"
+            freeze.write_text(
+                "constraints: any.base ==4.22.0.0,\n"
+                "             base +fake,\n"
+                "             any.haskeline ==0.8.3.0,\n"
+                "             haskeline -terminfo,\n"
+                "             hashable -arch-native -random-initial-seed\n"
+                "index-state: hackage.haskell.org 2026-10-03T14:53:23Z\n",
+                encoding="utf-8",
+            )
+            # haskeline is a boot library the build rebuilds, so its flag
+            # applies; base stays as the compiler shipped it.
+            self.assertEqual(
+                flag_constraints(freeze, {"base"}),
+                ["hashable -arch-native -random-initial-seed", "haskeline -terminfo"],
+            )
 
     def test_the_profile_level_reaches_every_package(self):
         """cabal's command-line -O covers local packages only.

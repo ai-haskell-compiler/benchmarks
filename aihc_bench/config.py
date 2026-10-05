@@ -72,6 +72,14 @@ def load_config(path: Path) -> Dict[str, Any]:
                     raise ConfigError(f"benchmark {benchmark['id']}: corpus source is not a directory: {path.parent / item}")
         if corpus_env:
             corpus_hashes[benchmark["id"]] = _hash_directories(path.parent, corpus_sources or ["corpus"])
+        unsupported_backends = benchmark.get("unsupported_backends")
+        if unsupported_backends is not None:
+            backends = {configuration["backend"] for configuration in config["configurations"]}
+            if not isinstance(unsupported_backends, list) or not unsupported_backends or not all(isinstance(item, str) for item in unsupported_backends):
+                raise ConfigError(f"benchmark {benchmark['id']}: unsupported_backends must list backend names")
+            unknown = sorted(set(unsupported_backends) - backends)
+            if unknown:
+                raise ConfigError(f"benchmark {benchmark['id']}: unsupported_backends names backends no configuration has: {', '.join(unknown)}")
     config["_corpus_sha256"] = corpus_hashes
     toolchain_hasher = hashlib.sha256()
     for toolchain_file in (path.parent / "flake.nix", path.parent / "flake.lock"):

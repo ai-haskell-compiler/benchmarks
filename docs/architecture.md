@@ -208,7 +208,8 @@ same way AIHC's own flake does.
 A benchmark with `corpus_env` reads a directory that the flake builds and
 exports under that variable (`AIHC_BENCH_CPP_CORPUS` for
 `corpus/cpp/corpus.nix`, `AIHC_BENCH_PARSER_CORPUS` for
-`corpus/parser/corpus.nix`). The runner refuses to build cells without it and
+`corpus/parser/corpus.nix`, `AIHC_BENCH_MICROHS_CORPUS` for
+`corpus/microhs/corpus.nix`). The runner refuses to build cells without it and
 `doctor` reports it. The directory is the program's last argument; a
 configuration whose program runs under a sandbox lists in `corpus_options`
 the host options that expose it (`--dir {corpus}` for Wasmtime), inserted in
@@ -220,7 +221,11 @@ history of the benchmarks that read it and no other. A benchmark without
 `corpus_sources` hashes all of `corpus/`.
 A benchmark may also carry its own `process_timeout_seconds`, overriding the
 suite-wide one for a sweep that legitimately runs for seconds; being part of
-the benchmark definition, it too affects only that benchmark's identity.
+the benchmark definition, it too affects only that benchmark's identity. The
+same holds for `unsupported_backends`, the backends a benchmark's program
+cannot run on: its cells for those backends are recorded unavailable with
+the reason `unsupported_backend` and never compiled, while every other
+benchmark still measures them.
 
 ## Result envelope
 
