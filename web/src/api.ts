@@ -153,7 +153,12 @@ async function serveRaw(env: Bindings, key: string): Promise<Response> {
   if (!key.startsWith("raw/")) throw new HttpError(404, "not found");
   const object = await env.RAW.get(key);
   if (!object) throw new HttpError(404, "not found");
+  // The object is stored gzipped. Without `encodeBody: "manual"` the runtime
+  // takes the content-encoding header as a request to compress the body,
+  // and browsers received gzip inside gzip: the "raw envelope" links on the
+  // commit page showed binary, and nothing could read an envelope by fetch.
   return new Response(object.body, {
+    encodeBody: "manual",
     headers: {
       "content-type": "application/json",
       "content-encoding": "gzip",
@@ -289,14 +294,23 @@ async function overview(env: Bindings, suite: Suite): Promise<Record<string, unk
         ]),
       )
     : [];
+  const runStatement = env.DB.prepare(
+    `SELECT run_id, machine_id, envelope_key FROM runs WHERE machine_id = ? AND commit_ordinal = ? AND experiment_id IN (${experimentList(suite)})`,
+  );
+  const runResults = measured.length
+    ? await env.DB.batch(measured.map((machine) => runStatement.bind(machine.machine_id, latestOrdinal(machine.machine_id), ...suite.experiments)))
+    : [];
+  const failures = await Promise.all(runResults.map((result) => runFailures(env, result.results as RunRef[])));
   const cards = [];
   for (const machine of machines.results) {
     let ratios: unknown[] = [];
     let latest: unknown = null;
+    let failed: Failure[] = [];
     const index = measured.indexOf(machine);
     if (index >= 0) {
       latest = results[2 * index].results[0] ?? null;
       ratios = ratioTable(results[2 * index + 1].results as RatioRow[]);
+      failed = failures[index];
     }
     const summary = summaries.get(machine.machine_id)!;
     cards.push({
@@ -313,6 +327,7 @@ async function overview(env: Bindings, suite: Suite): Promise<Record<string, unk
       total_commits: window.total,
       latest,
       ratios,
+      failures: failed,
     });
   }
   return { ...suiteFields(suite), first_ordinal: window.first, head_ordinal: window.head, total_commits: window.total, machines: cards };
@@ -419,7 +434,8 @@ async function commitDetail(env: Bindings, sha: string, url: URL): Promise<unkno
       `FROM runs WHERE commit_sha = ? AND experiment_id IN (${experimentList(suite)}) ORDER BY machine_id, experiment_id`,
   )
     .bind(commit.sha, ...suite.experiments)
-    .all();
+    .all<RunRef>();
+  const failures = await runFailures(env, runs.results);
   const rows = await env.DB.prepare(
     "SELECT machine_id, benchmark, configuration, compiler_family, backend, optimization, metric, unit, status, estimate, commit_ordinal " +
       `FROM measurements WHERE commit_ordinal IN (?, ?) AND experiment_id IN (${experimentList(suite)}) ORDER BY machine_id, benchmark, configuration, metric`,
@@ -437,7 +453,7 @@ async function commitDetail(env: Bindings, sha: string, url: URL): Promise<unkno
       const { commit_ordinal: _ordinal, ...rest } = row;
       return { ...rest, parent_estimate: parent, ratio_to_parent: parent && row.estimate ? row.estimate / parent : null };
     });
-  return { ...suiteFields(suite), commit, runs: runs.results, measurements };
+  return { ...suiteFields(suite), commit, runs: runs.results, measurements, failures };
 }
 
 /**
@@ -470,4 +486,109 @@ async function coverage(env: Bindings, url: URL): Promise<unknown> {
     else cells[index] = "M";
   }
   return { ...suiteFields(suite), machine, first, total, statuses: cells.join("") };
+}
+
+// ---------------------------------------------------------------------------
+// Failures
+
+interface RunRef {
+  run_id: string;
+  machine_id: string;
+  envelope_key: string;
+}
+
+/**
+ * A configuration that produced no measurement, and why. D1 holds estimates
+ * only, so a cell whose compile or run failed leaves no row behind at all;
+ * what went wrong is in the run's envelope, which this reads from R2.
+ */
+export interface Failure {
+  machine_id: string;
+  run_id: string;
+  envelope_key: string;
+  benchmark: string;
+  configuration: string;
+  compiler_family: string;
+  backend: string;
+  optimization: string;
+  /** "compile" when the program was never built, "run" when it was built but not measured. */
+  stage: "compile" | "run";
+  status: string;
+  message: string;
+}
+
+/** Measurement statuses that carry numbers; anything else after a successful compile is a failure. */
+const MEASURED_STATUSES = new Set(["converged", "nonconverged", "budget"]);
+const MESSAGE_LENGTH = 300;
+
+interface EnvelopeResult {
+  benchmark?: string;
+  configuration?: string;
+  compiler_family?: string;
+  backend?: string;
+  optimization?: string;
+  compile?: { status?: string; exit_code?: number; stderr?: string };
+  measurement?: { status?: string; exit_code?: number; stderr?: string; reason?: string };
+}
+
+async function runFailures(env: Bindings, runs: RunRef[]): Promise<Failure[]> {
+  const lists = await Promise.all(runs.map((run) => envelopeFailures(env, run)));
+  return lists.flat();
+}
+
+async function envelopeFailures(env: Bindings, run: RunRef): Promise<Failure[]> {
+  let envelope: { results?: EnvelopeResult[] };
+  try {
+    const object = await env.RAW.get(run.envelope_key);
+    if (!object) return [];
+    envelope = await new Response(object.body.pipeThrough(new DecompressionStream("gzip"))).json();
+  } catch (error) {
+    console.error("cannot read envelope", run.envelope_key, error);
+    return [];
+  }
+  const failures: Failure[] = [];
+  for (const result of envelope.results ?? []) {
+    const failure = describeFailure(result);
+    if (!failure) continue;
+    failures.push({
+      machine_id: run.machine_id,
+      run_id: run.run_id,
+      envelope_key: run.envelope_key,
+      benchmark: result.benchmark ?? "",
+      configuration: result.configuration ?? "",
+      compiler_family: result.compiler_family ?? "",
+      backend: result.backend ?? "",
+      optimization: result.optimization ?? "",
+      ...failure,
+    });
+  }
+  return failures;
+}
+
+/** Stage, status and a one-line message for a result that has no measurement; null when it was measured or never configured. */
+export function describeFailure(result: EnvelopeResult): Pick<Failure, "stage" | "status" | "message"> | null {
+  const compile = result.compile ?? {};
+  if (compile.status && compile.status !== "compiled") {
+    // A configuration this platform does not offer is not a failure.
+    if (compile.status === "unavailable") return null;
+    return { stage: "compile", status: compile.status, message: summarize(compile.stderr, compile.exit_code, compile.status) };
+  }
+  const measurement = result.measurement ?? {};
+  if (!measurement.status || MEASURED_STATUSES.has(measurement.status)) return null;
+  return { stage: "run", status: measurement.status, message: summarize(measurement.stderr, measurement.exit_code, measurement.status) };
+}
+
+/**
+ * The line that says what went wrong. Compilers and runtimes print the error
+ * last, after progress output, so that is the line taken; with nothing
+ * printed, the exit code is all there is.
+ */
+function summarize(stderr: string | undefined, exitCode: number | undefined, status: string): string {
+  const lines = (stderr ?? "").split("\n").map((line) => line.trim()).filter((line) => line && line !== "|");
+  const last = lines.at(-1);
+  if (last) return last.length > MESSAGE_LENGTH ? `${last.slice(0, MESSAGE_LENGTH - 1)}…` : last;
+  if (status === "timed_out" || status === "compile_timed_out") return "timed out";
+  if (status === "validation_failed") return "printed something other than the expected output";
+  if (exitCode !== undefined && exitCode !== null) return exitCode < 0 ? `killed by signal ${-exitCode}` : `exited with code ${exitCode}`;
+  return status.replaceAll("_", " ");
 }

@@ -23,7 +23,7 @@
   <div id="tables"></div>
 </main>
 <script type="module">
-import { api, el, replaceChildren, formatValue, formatDate, queryState, pushQuery, fillSelect, setStatus, renderHeader, commitIndex, seriesColor, suiteLabel, METRIC_LABELS, describeConfiguration, changeCell, GITHUB, shortSha } from "./site.js";
+import { api, el, replaceChildren, formatValue, formatDate, queryState, pushQuery, fillSelect, setStatus, renderHeader, commitIndex, seriesColor, suiteLabel, METRIC_LABELS, describeConfiguration, changeCell, failureLink, GITHUB, shortSha } from "./site.js";
 
 renderHeader();
 const defaults = { sha: "", metric: "wall_time", profile: "all" };
@@ -73,6 +73,7 @@ function renderRuns(data) {
       el("strong", {}, benchmarkOf.get(run.experiment_id) ?? run.experiment_id), " · ",
       run.inherited_from ? ["inherited from ", el("a", { href: `/commit.html?sha=${run.inherited_from}`, class: "mono" }, shortSha(run.inherited_from)), " · "] : "measured · ",
       `compiler ${run.compiler_status}${run.unavailable_reason ? ` (${run.unavailable_reason})` : ""} · run ${formatDate(run.created_at)} · `,
+      failedCount(data, run),
       el("a", { href: `/api/${run.envelope_key}` }, "raw envelope"),
     )),
   )));
@@ -80,20 +81,39 @@ function renderRuns(data) {
   else setStatus(`${suiteLabel(data)} · ${machines.length} machine${machines.length === 1 ? "" : "s"}. Deltas compare against the first parent on the same machine.`);
 }
 
+function failedCount(data, run) {
+  const count = (data.failures ?? []).filter((failure) => failure.run_id === run.run_id).length;
+  return count ? [el("span", { class: "worse" }, `${count} configuration${count === 1 ? "" : "s"} failed`), " · "] : null;
+}
+
+/** A configuration with no measurement, in place of its row: what failed and a link to the output. */
+function failureRow(failure) {
+  return el("tr", {},
+    el("td", {}, el("i", { class: "swatch", style: `background:${seriesColor(failure)}` }), describeConfiguration(failure), " ", el("span", { class: "mono muted" }, failure.configuration)),
+    el("td", { class: "failure", colspan: 3 }, failureLink(failure), " ", el("span", { class: "message", title: failure.message }, failure.message)),
+    el("td", { class: "worse" }, failure.status),
+  );
+}
+
 function renderTables() {
   pushQuery(state, defaults);
   const rows = detail.measurements.filter((row) => row.metric === state.metric && (state.profile === "all" || row.optimization === state.profile));
-  const machines = [...new Set(rows.map((row) => row.machine_id))].sort();
+  const failures = (detail.failures ?? []).filter((failure) => state.profile === "all" || failure.optimization === state.profile);
+  const machines = [...new Set([...rows, ...failures].map((row) => row.machine_id))].sort();
   replaceChildren(document.getElementById("tables"), ...machines.map((machine) => {
     const mine = rows.filter((row) => row.machine_id === machine);
-    const benchmarks = [...new Set(mine.map((row) => row.benchmark))].sort();
+    const failed = failures.filter((failure) => failure.machine_id === machine);
+    const benchmarks = [...new Set([...mine, ...failed].map((row) => row.benchmark))].sort();
     return el("section", {},
       el("h2", {}, `${machine} · ${METRIC_LABELS[state.metric] ?? state.metric}`),
       ...benchmarks.map((benchmark) => el("div", { class: "table-wrap" },
         el("h3", {}, benchmark),
         el("table", { class: "data" },
           el("thead", {}, el("tr", {}, el("th", {}, "Configuration"), el("th", { class: "num" }, "Value"), el("th", { class: "num" }, "Parent"), el("th", { class: "num" }, "Change"), el("th", {}, "Status"))),
-          el("tbody", {}, ...mine.filter((row) => row.benchmark === benchmark).sort((a, b) => a.configuration.localeCompare(b.configuration)).map((row) => el("tr", {},
+          el("tbody", {}, ...[
+            ...mine.filter((row) => row.benchmark === benchmark),
+            ...failed.filter((failure) => failure.benchmark === benchmark),
+          ].sort((a, b) => a.configuration.localeCompare(b.configuration)).map((row) => row.stage ? failureRow(row) : el("tr", {},
             el("td", {}, el("i", { class: "swatch", style: `background:${seriesColor(row)}` }), describeConfiguration(row), " ", el("span", { class: "mono muted" }, row.configuration)),
             el("td", { class: "num" }, formatValue(row.estimate, row.metric)),
             el("td", { class: "num muted" }, formatValue(row.parent_estimate, row.metric)),
@@ -104,7 +124,7 @@ function renderTables() {
       )),
     );
   }));
-  if (!rows.length) replaceChildren(document.getElementById("tables"), el("p", { class: "muted" }, "No measurements for this metric and profile."));
+  if (!rows.length && !failures.length) replaceChildren(document.getElementById("tables"), el("p", { class: "muted" }, "No measurements for this metric and profile."));
 }
 
 start();

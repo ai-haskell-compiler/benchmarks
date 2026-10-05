@@ -249,3 +249,40 @@ table.data tr:hover td { background: var(--surface-2); }
   .toolbar .status-line { flex-basis: 100%; }
   .filters select, .filters input { min-width: 7rem; }
 }
+
+/* Failed configurations: a link to the error in place of a number. */
+td.failure { white-space: nowrap; }
+td.failure .message {
+  display: inline-block;
+  max-width: min(60ch, 50vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+pre.log {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 70vh;
+}
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0 0 16px; }
+dl.facts dt { color: var(--text-secondary); }
+dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+p.error-line {
+  color: var(--status-critical);
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+  border-left: 3px solid var(--status-critical);
+  padding-left: 10px;
+}
