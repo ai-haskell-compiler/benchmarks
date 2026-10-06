@@ -174,7 +174,12 @@ The executables land in `{artifact_dir}` under the names their stanzas carry
 (plus `.wasm` for the WebAssembly target), which is why an AIHC artifact is
 named after the benchmark's `package`. The runner appends `--store` and
 `--build-root`; the latter gives every cell its own build directory so
-parallel compilations do not share the worktree's `.aihc-target`.
+parallel compilations do not share the worktree's `.aihc-target`. It also
+sets `AIHC_HSC2HS`, unless the environment already does, to the native
+GHC's `hsc2hs-<version>` under `AIHC_BENCH_TOOLCHAINS`: `aihc build`
+otherwise looks for a bare `hsc2hs` on `PATH`, which the runner's environment
+does not have, and dependencies such as `unix`, `directory` and `time` are
+`.hsc` packages.
 
 The native and LLVM GHC configurations use the default GMP `ghc-bignum`
 backend. The Wasm GHC is `native-bignum` by construction, since there is no
