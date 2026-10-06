@@ -1068,16 +1068,41 @@ def contention_note(samples: Optional[List[Tuple[float, float]]]) -> Optional[st
 
 
 def _compile_environment(configuration: Dict[str, Any]) -> Dict[str, str]:
+    environment: Dict[str, str] = {}
+    if configuration["compiler_family"] == "aihc":
+        hsc2hs = _toolchain_hsc2hs()
+        if hsc2hs and "AIHC_HSC2HS" not in os.environ:
+            environment["AIHC_HSC2HS"] = hsc2hs
     path_variable = configuration.get("compile_path_env")
-    if not path_variable:
-        return {}
-    prefix = os.environ.get(path_variable)
+    prefix = os.environ.get(path_variable) if path_variable else None
     if not prefix:
-        return {}
-    environment = {"PATH": f"{prefix}{os.pathsep}{os.environ.get('PATH', '')}"}
+        return environment
+    environment["PATH"] = f"{prefix}{os.pathsep}{os.environ.get('PATH', '')}"
     if configuration["compiler_family"] == "aihc" and configuration["backend"] == "wasm":
         environment["AIHC_WASM_CLANG"] = str(Path(prefix) / "clang")
     return environment
+
+
+def _toolchain_hsc2hs() -> Optional[str]:
+    """The ``hsc2hs`` AIHC runs on a dependency's ``.hsc`` files.
+
+    ``aihc build`` looks for a bare ``hsc2hs`` on ``PATH``, and the runner's
+    environment has none: the flake ships each GHC's tools only under the
+    release's suffix. ``unix``, ``directory`` and ``time`` are all ``.hsc``
+    packages, so ``microhs-self-compile`` failed on the worker before a line
+    of it was compiled. AIHC is pointed at a native GHC's tool from the pinned
+    toolchains (``hsc2hs-9.14.1``, not the Wasm cross-compiler's
+    ``hsc2hs-9.14.1-wasm``); hsc2hs only drives the C compiler AIHC names, so
+    the GHC it came with does not matter. It is found by name rather than
+    through the GHC configurations, which ``compare --config`` leaves out.
+    """
+    toolchains = os.environ.get("AIHC_BENCH_TOOLCHAINS")
+    if not toolchains:
+        return None
+    candidates = sorted(
+        path for path in (Path(toolchains) / "bin").glob("hsc2hs-*") if re.fullmatch(r"hsc2hs-[0-9.]+", path.name)
+    )
+    return str(candidates[-1]) if candidates else None
 
 
 def _configured_aihc_builds(config: Dict[str, Any], platform_id: str) -> List[Tuple[str, str, str, Dict[str, str]]]:

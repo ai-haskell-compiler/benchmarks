@@ -275,6 +275,38 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertEqual(builds[1][3]["AIHC_WASM_CLANG"], "/toolchain/bin/clang")
 
+    def test_aihc_compiles_with_the_toolchains_hsc2hs(self):
+        """aihc build looks for a bare hsc2hs, which the runner's environment
+        lacks; the flake ships it only under the GHC release's suffix."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            toolchains = root / "toolchains"
+            (toolchains / "bin").mkdir(parents=True)
+            for tool in ("ghc-9.14.1", "hsc2hs-9.14.1", "hsc2hs-9.14.1-wasm"):
+                (toolchains / "bin" / tool).touch()
+            hsc2hs = str(toolchains / "bin" / "hsc2hs-9.14.1")
+            (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
+            # compare --config keeps only the AIHC configurations it was given,
+            # so the tool cannot be looked up through a GHC configuration.
+            aihc_only = {**self.config, "configurations": [c for c in self.config["configurations"] if c["compiler_family"] == "aihc"]}
+            with patch.dict(os.environ, {"AIHC_BENCH_TOOLCHAINS": str(toolchains)}):
+                cells = {
+                    cell.configuration["id"]: cell
+                    for cell in build_cells(self.config, "test-platform", {"sha": "abc123"}, root / "worktree", root, {"example": "example-experiment"})
+                }
+                compared = build_cells(aihc_only, "test-platform", {"sha": "abc123"}, root / "worktree", root, {"example": "example-experiment"})
+                builds = _configured_aihc_builds(self.config, "test-platform")
+                with patch.dict(os.environ, {"AIHC_HSC2HS": "/opt/hsc2hs"}):
+                    overridden = build_cells(aihc_only, "test-platform", {"sha": "abc123"}, root / "worktree", root, {"example": "example-experiment"})
+        for name in ("aihc-native-O2", "aihc-wasm-O2", "aihc-llvm-O2"):
+            self.assertEqual(cells[name].compile_environment["AIHC_HSC2HS"], hsc2hs)
+        self.assertNotIn("AIHC_HSC2HS", cells["ghc-native-O2"].compile_environment)
+        self.assertTrue(all(cell.compile_environment["AIHC_HSC2HS"] == hsc2hs for cell in compared))
+        # Store preparation installs packages too, and needs the same tool.
+        self.assertTrue(all(environment["AIHC_HSC2HS"] == hsc2hs for *_, environment in builds))
+        # An operator's own choice is left alone.
+        self.assertTrue(all("AIHC_HSC2HS" not in cell.compile_environment for cell in overridden))
+
     def test_store_is_added_only_to_aihc_compile_commands(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
