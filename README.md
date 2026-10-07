@@ -171,11 +171,17 @@ every machine failed to compile from that commit on. The runner fetches the
 two wasi-sdk release assets once, pinned by hash as the compiler's own
 `scripts/nix/wasi-sysroot.nix` pins them, cuts them down to the one target
 under `.cache/wasi-sysroot-34.0`, and points `AIHC_WASM_SYSROOT` there for
-every commit that contains e8f97b72. Earlier commits keep the flake's. It is
-fetched by the runner rather than added to `flake.nix` because the
-experiment ids hash that file, and a change to it restarts every history. A
-fetch that fails is reported and the Wasm cells fail with the compiler's own
-message, as before; the commit is still measured on the other backends.
+every commit that contains e8f97b72. Earlier commits keep the flake's. The
+same commits also link with `wasm-component-ld`, which the flake does not
+carry; the runner builds it from the nixpkgs the flake locks (the root
+flake's, not `ghc-wasm-meta`'s) and roots it under `.cache/gcroots`, and
+puts it on `PATH` for the commit. Both are provided by the runner rather
+than added to `flake.nix` because the experiment ids hash that file, and a
+change to it restarts every history. A fetch or build that fails is
+reported and the Wasm cells fail with the compiler's own message, as
+before; the commit is still measured on the other backends. The two come
+together or not at all: a sysroot without the linker only moves the failure
+from preparing the store to the end of every cell's compile.
 
 ## The CPP corpus
 

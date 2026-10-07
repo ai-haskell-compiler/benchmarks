@@ -20,6 +20,7 @@ archive beside the libc where the compiler looks for it.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -27,9 +28,10 @@ import tarfile
 import tempfile
 import urllib.request
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from .git_history import GitError
+from .process import run_command
 
 #: The first compiler commit that links the wasi-sdk 34 libc.
 WASIP3_LIBC_COMMIT = "e8f97b72e076ac9afcba9323c0001d1d854ed100"
@@ -150,3 +152,65 @@ def sysroot_for_commit(repository: Path, sha: str, root: Path) -> Optional[Path]
     except (OSError, ValueError, tarfile.TarError, GitError) as error:
         print(f"warning: could not fetch the wasi-sdk {WASI_SDK_VERSION} sysroot, Wasm cells will use the flake's: {error}")
         return None
+
+
+#: The linker the target needs beside the sysroot: it links the core module
+#: and the libc into the component the compiler emits. The flake does not
+#: carry it, and adding it there would change ``flake.nix``, which the
+#: experiment ids hash. It is built from the very nixpkgs the flake locks,
+#: so it is as pinned as the rest of the toolchain.
+COMPONENT_LINKER = "wasm-component-ld"
+
+
+def locked_nixpkgs(flake_lock: Path) -> str:
+    """The flake reference of the nixpkgs the root flake locks.
+
+    The lock holds one node per input and the inputs of inputs, so
+    ``ghc-wasm-meta``'s nixpkgs sits beside the root's under a different
+    name; the root node says which one is the root's.
+    """
+    lock = json.loads(flake_lock.read_text(encoding="utf-8"))
+    name = lock["nodes"][lock["root"]]["inputs"]["nixpkgs"]
+    locked = lock["nodes"][name]["locked"]
+    if locked.get("type") != "github":
+        raise ValueError(f"the root nixpkgs is not a GitHub flake: {locked}")
+    return f"github:{locked['owner']}/{locked['repo']}/{locked['rev']}"
+
+
+def component_linker(root: Path, timeout_seconds: float) -> Path:
+    """The directory holding ``wasm-component-ld``, built and rooted once.
+
+    Raises when nix cannot provide it.
+    """
+    link = root / ".cache" / "gcroots" / COMPONENT_LINKER
+    binary = link / "bin" / COMPONENT_LINKER
+    if binary.is_file():
+        return binary.parent
+    reference = locked_nixpkgs(root / "flake.lock")
+    process = run_command(["nix", "build", f"{reference}#{COMPONENT_LINKER}", "--out-link", str(link)], root, timeout_seconds)
+    if process.returncode != 0:
+        raise ValueError(f"nix build of {COMPONENT_LINKER} failed: {(process.stderr or process.stdout)[-2000:]}")
+    if not binary.is_file():
+        raise ValueError(f"nix built {COMPONENT_LINKER} but {binary} is missing")
+    return binary.parent
+
+
+def wasm_environment_for_commit(repository: Path, sha: str, root: Path, timeout_seconds: float) -> Dict[str, str]:
+    """Environment overrides the Wasm backend needs for the compiler at ``sha``.
+
+    Empty for a commit the flake's sysroot serves. Both the sysroot and the
+    linker, or neither: a sysroot without the linker only moves the failure
+    from preparing the store to the end of every cell's compile.
+    """
+    sysroot = sysroot_for_commit(repository, sha, root)
+    if sysroot is None:
+        return {}
+    try:
+        linker = component_linker(root, timeout_seconds)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"warning: could not provide {COMPONENT_LINKER}, Wasm cells will use the flake's sysroot: {error}")
+        return {}
+    return {
+        "AIHC_WASM_SYSROOT": str(sysroot),
+        "PATH": f"{linker}{os.pathsep}{os.environ.get('PATH', '')}",
+    }

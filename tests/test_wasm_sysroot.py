@@ -129,3 +129,65 @@ class SysrootTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LinkerTests(unittest.TestCase):
+    """wasm-component-ld links the component; the flake does not carry it,
+    and flake.nix is hashed into the experiment ids, so it is built from
+    the nixpkgs the flake already locks."""
+
+    LOCK = {
+        "root": "root",
+        "nodes": {
+            "root": {"inputs": {"nixpkgs": "nixpkgs_2", "ghc-wasm-meta": "ghc-wasm-meta"}},
+            "ghc-wasm-meta": {"inputs": {"nixpkgs": "nixpkgs"}},
+            "nixpkgs": {"locked": {"type": "github", "owner": "NixOS", "repo": "nixpkgs", "rev": "a" * 40}},
+            "nixpkgs_2": {"locked": {"type": "github", "owner": "NixOS", "repo": "nixpkgs", "rev": "b" * 40}},
+        },
+    }
+
+    def test_the_root_flakes_nixpkgs_is_chosen_not_an_inputs(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as directory:
+            lock = Path(directory) / "flake.lock"
+            lock.write_text(json.dumps(self.LOCK), encoding="utf-8")
+            self.assertEqual(wasm_sysroot.locked_nixpkgs(lock), f"github:NixOS/nixpkgs/{'b' * 40}")
+
+    def test_the_linker_is_built_once_from_the_locked_nixpkgs(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "flake.lock").write_text(json.dumps(self.LOCK), encoding="utf-8")
+            commands = []
+
+            def run(command, cwd, timeout, *rest):
+                commands.append(list(command))
+                link = Path(command[command.index("--out-link") + 1])
+                (link / "bin").mkdir(parents=True)
+                (link / "bin" / "wasm-component-ld").write_bytes(b"ld")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch.object(wasm_sysroot, "run_command", side_effect=run):
+                first = wasm_sysroot.component_linker(root, 30)
+                second = wasm_sysroot.component_linker(root, 30)
+            self.assertEqual(first, second)
+            self.assertEqual(len(commands), 1)
+            self.assertEqual(commands[0][:3], ["nix", "build", f"github:NixOS/nixpkgs/{'b' * 40}#wasm-component-ld"])
+
+    def test_sysroot_and_linker_come_together_or_not_at_all(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with (
+                patch.object(wasm_sysroot, "sysroot_for_commit", return_value=root / "sysroot"),
+                patch.object(wasm_sysroot, "component_linker", side_effect=ValueError("no nix")),
+            ):
+                self.assertEqual(wasm_sysroot.wasm_environment_for_commit(root, "f" * 40, root, 30), {})
+            with (
+                patch.object(wasm_sysroot, "sysroot_for_commit", return_value=root / "sysroot"),
+                patch.object(wasm_sysroot, "component_linker", return_value=root / "ld" / "bin"),
+            ):
+                environment = wasm_sysroot.wasm_environment_for_commit(root, "f" * 40, root, 30)
+            self.assertEqual(environment["AIHC_WASM_SYSROOT"], str(root / "sysroot"))
+            self.assertTrue(environment["PATH"].startswith(str(root / "ld" / "bin")))

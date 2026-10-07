@@ -21,7 +21,7 @@ from .git_history import GitError, create_worktree, fetch, path_exists, remove_w
 from .measurement import INVOCATION_METRIC_NAMES, MEASURED_STATUSES, compile_metrics, measure_adaptively
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
-from .wasm_sysroot import sysroot_for_commit
+from .wasm_sysroot import wasm_environment_for_commit
 from .toolchain import (
     CompilerDoesNotBuild,
     MachineFault,
@@ -134,19 +134,17 @@ def run_commit(
         return unavailable("no_compiler")
 
     phases = Phases()
-    previous_sysroot = os.environ.get("AIHC_WASM_SYSROOT")
+    previous_environment = {name: os.environ.get(name) for name in ("AIHC_WASM_SYSROOT", "PATH")}
     try:
         with phases.timing("toolchain_check"):
             pin_runner_environment(root, compile_timeout)
         with phases.timing("worktree"):
             create_worktree(aihc_repository, worktree, commit["sha"])
-        # The Wasm backend's sysroot depends on the commit; see wasm_sysroot.
-        # Every aihc invocation of this commit -- preparing the store as much
-        # as the timed compiles -- reads AIHC_WASM_SYSROOT from the process
-        # environment, so it is set here for the commit and restored after.
-        sysroot = sysroot_for_commit(aihc_repository, commit["sha"], root)
-        if sysroot is not None:
-            os.environ["AIHC_WASM_SYSROOT"] = str(sysroot)
+        # The Wasm backend's sysroot and linker depend on the commit; see
+        # wasm_sysroot. Every aihc invocation of this commit -- preparing the
+        # store as much as the timed compiles -- reads them from the process
+        # environment, so they are set here for the commit and restored after.
+        os.environ.update(wasm_environment_for_commit(aihc_repository, commit["sha"], root, compile_timeout))
         with phases.timing("compiler_build"):
             try:
                 compiler = build_compiler(worktree, platform_id, compiler_root(root), compile_timeout)
@@ -206,10 +204,11 @@ def run_commit(
             envelopes.append(envelope)
         return envelopes
     finally:
-        if previous_sysroot is None:
-            os.environ.pop("AIHC_WASM_SYSROOT", None)
-        else:
-            os.environ["AIHC_WASM_SYSROOT"] = previous_sysroot
+        for name, value in previous_environment.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
         remove_worktree(aihc_repository, worktree)
 
 
