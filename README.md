@@ -181,7 +181,11 @@ change to it restarts every history. A fetch or build that fails is
 reported and the Wasm cells fail with the compiler's own message, as
 before; the commit is still measured on the other backends. The two come
 together or not at all: a sysroot without the linker only moves the failure
-from preparing the store to the end of every cell's compile.
+from preparing the store to the end of every cell's compile. The components
+that libc produces import `wasi:http`, so for the same commits the runner
+adds `-S http` to the AIHC Wasm run commands beside the `-S cli` that
+`benchmark.json` carries -- there rather than in the configuration, which
+the experiment ids also hash.
 
 ## The CPP corpus
 

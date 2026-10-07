@@ -191,3 +191,14 @@ class LinkerTests(unittest.TestCase):
                 environment = wasm_sysroot.wasm_environment_for_commit(root, "f" * 40, root, 30)
             self.assertEqual(environment["AIHC_WASM_SYSROOT"], str(root / "sysroot"))
             self.assertTrue(environment["PATH"].startswith(str(root / "ld" / "bin")))
+
+
+class RunCommandTests(unittest.TestCase):
+    def test_wasi_http_is_added_after_the_cli_option(self):
+        from aihc_bench.runner import _with_wasi_http
+
+        self.assertEqual(
+            _with_wasi_http(["wasmtime", "run", "-S", "cli", "--allow-precompiled", "x.cwasm", "O0"]),
+            ["wasmtime", "run", "-S", "cli", "-S", "http", "--allow-precompiled", "x.cwasm", "O0"],
+        )
+        self.assertEqual(_with_wasi_http(["x"]), ["x"])
