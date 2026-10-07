@@ -18,7 +18,7 @@ from .database import Database
 from .git_history import DEFAULT_REMOTE, GitError, clone, clone_directory, commits, fetch, is_remote
 from .machine import load_machine
 from .planner import build_plan, merge_terminal_attempts
-from .process import run_command, utf8_locale
+from .process import raise_open_files_limit, run_command, utf8_locale
 from .cabal_index import index_state_reached, newest_freeze_index_state, package_list, refresh_package_list
 from .runner import hackage_index_cache, run_commit, warm_hackage_index
 from .toolchain import MachineFault, pin_runner_environment
@@ -32,6 +32,9 @@ def main(argv: Optional[list] = None) -> None:
     parser = _parser()
     arguments = parser.parse_args(argv)
     root = Path(arguments.root).resolve()
+    # Before anything is spawned: every compiler and measured program
+    # inherits the limit. See process.OPEN_FILES_LIMIT.
+    raise_open_files_limit()
     try:
         config = load_config((root / arguments.config).resolve())
         platform_id = arguments.platform or detect_platform()

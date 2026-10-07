@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import locale as locale_module
 import os
+import resource
 import signal
 import subprocess
 import sys
@@ -186,6 +187,34 @@ def run_measured(
         cycles=counts[1] if counts else None,
         environment=dict(environment_overrides or {}),
     )
+
+
+#: The soft limit on open files every compiler and program the suite runs
+#: gets, when the hard limit allows it. The systemd user manager on the Linux
+#: workers gives a service 65536; launchd on macOS gives it 256, and the
+#: MicroHs benchmark compiled by AIHC died there with ``openFile: resource
+#: exhausted (Too many open files)`` at O2 and Os while the same program
+#: compiled by GHC ran. Whether a runtime closes a file handle at end of
+#: input or waits for its collector is a property of the compiler, and it
+#: shows up in the measured numbers either way; a limit that differs by
+#: platform would hide it on one machine and fail the cell on another.
+OPEN_FILES_LIMIT = 65536
+
+
+def raise_open_files_limit() -> int:
+    """Raise this process's soft open-file limit, inherited by every child.
+
+    Returns the soft limit in force afterwards.
+    """
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    wanted = OPEN_FILES_LIMIT if hard == resource.RLIM_INFINITY else min(OPEN_FILES_LIMIT, hard)
+    if soft != resource.RLIM_INFINITY and soft < wanted:
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (wanted, hard))
+        except (ValueError, OSError):
+            return soft
+        return wanted
+    return soft
 
 
 def run_command(

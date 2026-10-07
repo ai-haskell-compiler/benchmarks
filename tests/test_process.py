@@ -132,3 +132,24 @@ class LocaleTests(unittest.TestCase):
         program = "import os; print(os.environ['LC_ALL'])"
         result = run_command([sys.executable, "-c", program], Path("."), 30)
         self.assertEqual(result.stdout.strip(), utf8_locale())
+
+
+class OpenFilesLimitTests(unittest.TestCase):
+    def test_a_low_soft_limit_is_raised_within_the_hard_limit(self):
+        """launchd gives a macOS service 256 open files, and MicroHs compiled
+        by AIHC ran out at O2; the Linux services already had 65536."""
+        import resource
+
+        from aihc_bench.process import OPEN_FILES_LIMIT, raise_open_files_limit
+
+        original = resource.getrlimit(resource.RLIMIT_NOFILE)
+        try:
+            soft, hard = original
+            low = min(256, soft)
+            resource.setrlimit(resource.RLIMIT_NOFILE, (low, hard))
+            raised = raise_open_files_limit()
+            expected = OPEN_FILES_LIMIT if hard == resource.RLIM_INFINITY else min(OPEN_FILES_LIMIT, hard)
+            self.assertEqual(raised, expected)
+            self.assertEqual(resource.getrlimit(resource.RLIMIT_NOFILE)[0], expected)
+        finally:
+            resource.setrlimit(resource.RLIMIT_NOFILE, original)
