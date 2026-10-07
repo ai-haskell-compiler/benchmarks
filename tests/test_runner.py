@@ -876,6 +876,7 @@ class HackageIndexWarmingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             derived = Path(directory) / "index.txt"
             derived.write_text("a 1.0\n", encoding="utf-8")
+            (Path(directory) / "01-index.tar").write_bytes(b"tar")
             with (
                 patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
                 patch("aihc_bench.runner.run_command") as run,
@@ -924,12 +925,44 @@ class HackageIndexWarmingTests(unittest.TestCase):
                 )
             run.assert_called_once()
 
+    def test_a_held_table_does_not_hide_an_old_tarball(self):
+        """hold_hackage_index touches the table on every commit, so the
+        table's time says when the last run was, not how old the index is.
+        Judged by the table, one worker's index stayed at 2026-09-18 for three
+        weeks while doctor called it an hour old; the compiler, which also
+        reads the table's time, must be shown the real age or it refreshes
+        nothing either."""
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory) / "index.txt"
+            derived.write_text("a 1.0\n", encoding="utf-8")
+            tarball = Path(directory) / "01-index.tar"
+            tarball.write_bytes(b"tar")
+            old = time.time() - INDEX_WARM_AGE_SECONDS - 60
+            os.utime(tarball, (old, old))
+            with (
+                patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
+                patch("aihc_bench.runner.fetch"),
+                patch("aihc_bench.runner.rev_parse", return_value="f" * 40),
+                patch("aihc_bench.runner.create_worktree"),
+                patch("aihc_bench.runner.remove_worktree"),
+                patch("aihc_bench.runner.build_compiler", return_value=COMPILER),
+                patch(
+                    "aihc_bench.runner.run_command",
+                    return_value=subprocess.CompletedProcess([], 0, "", ""),
+                ) as run,
+            ):
+                self.assertIsNone(warm_hackage_index(self.config, "test-platform", Path("/repo"), Path(directory) / "root", 30))
+            run.assert_called_once()
+            self.assertGreater(time.time() - derived.stat().st_mtime, 365 * 24 * 60 * 60)
+
     def test_a_stale_index_is_refreshed_with_the_current_compiler(self):
         with tempfile.TemporaryDirectory() as directory:
             derived = Path(directory) / "index.txt"
             derived.write_text("a 1.0\n", encoding="utf-8")
+            tarball = Path(directory) / "01-index.tar"
+            tarball.write_bytes(b"tar")
             old = time.time() - INDEX_WARM_AGE_SECONDS - 60
-            os.utime(derived, (old, old))
+            os.utime(tarball, (old, old))
             root = Path(directory) / "root"
             with (
                 patch("aihc_bench.runner.hackage_index_cache", return_value=derived),
@@ -1039,6 +1072,21 @@ class BaselineTests(unittest.TestCase):
         self.assertIn("ghc-9.14.1-native-O2", message)
         self.assertIn("ghc-pkg", message)
         self.assertNotIn("second line", message)
+
+    def test_the_compile_failure_is_reported_over_an_excluded_backend(self):
+        """Unavailable cells are recorded before any compile runs. Reporting
+        the first outcome with a reason blamed MicroHs's excluded Wasm backend
+        for a stop caused by GHC failing on a stale cabal index, on two
+        workers, and sent people to fix the wrong thing."""
+        compiled = [
+            self._pair("example", {"id": "ghc-9.14.1-wasm-O2", "baseline": True}, "unavailable", reason="unsupported_backend"),
+            self._pair("example", self.BASELINE, "compile_failed", stderr="Error: [Cabal-7159]\nLatest known index-state is older"),
+        ]
+        with self.assertRaises(MissingBaseline) as raised:
+            require_baseline(compiled, ["example"])
+        message = str(raised.exception)
+        self.assertIn("ghc-9.14.1-native-O2: Error: [Cabal-7159]", message)
+        self.assertNotIn("unsupported_backend", message)
 
     def test_a_non_baseline_ghc_does_not_substitute(self):
         """Ratios are computed against the baseline, not any GHC at all.

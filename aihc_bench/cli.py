@@ -18,7 +18,8 @@ from .database import Database
 from .git_history import DEFAULT_REMOTE, GitError, clone, clone_directory, commits, fetch, is_remote
 from .machine import load_machine
 from .planner import build_plan, merge_terminal_attempts
-from .process import run_command, utf8_locale
+from .process import raise_open_files_limit, run_command, utf8_locale
+from .cabal_index import index_state_reached, newest_freeze_index_state, package_list, refresh_package_list
 from .runner import hackage_index_cache, run_commit, warm_hackage_index
 from .toolchain import MachineFault, pin_runner_environment
 from .uploader import UploadError, check_login, refresh_overview, upload_pending
@@ -31,6 +32,9 @@ def main(argv: Optional[list] = None) -> None:
     parser = _parser()
     arguments = parser.parse_args(argv)
     root = Path(arguments.root).resolve()
+    # Before anything is spawned: every compiler and measured program
+    # inherits the limit. See process.OPEN_FILES_LIMIT.
+    raise_open_files_limit()
     try:
         config = load_config((root / arguments.config).resolve())
         platform_id = arguments.platform or detect_platform()
@@ -115,8 +119,14 @@ def _dispatch(
         repository = _repository(arguments, root)
         if arguments.upload:
             check_login(config, root)
-        # Refresh the index before any commit is measured, so no measured
-        # commit performs the refresh itself. See warm_hackage_index.
+        # Refresh both package lists before any commit is measured: cabal's,
+        # so a freeze pin newer than the machine's last `cabal update` does
+        # not take out every GHC baseline of a benchmark (see
+        # cabal_index.refresh_package_list), and AIHC's, so no measured
+        # commit performs the refresh itself (see warm_hackage_index).
+        list_error = refresh_package_list(config, root, float(config["measurement"]["compile_timeout_seconds"]))
+        if list_error:
+            print(f"warning: cabal's package list is behind, GHC baselines may not resolve: {list_error.splitlines()[0]}")
         index_error = warm_hackage_index(config, platform_id, repository, root, float(config["measurement"]["compile_timeout_seconds"]))
         if index_error:
             print(f"warning: could not warm the Hackage index, measuring against whatever is cached: {index_error.splitlines()[0]}")
@@ -358,7 +368,7 @@ def _doctor(
         print(f"aihc index: {derived} ({age:.1f}h old)")
     else:
         print(f"aihc index: missing ({derived}); run will fetch it before measuring")
-    index = _hackage_index(root)
+    index = package_list(root)
     if index is None:
         print("hackage:    missing (could not ask cabal for its cache directory)")
         failures.append("hackage index")
@@ -366,8 +376,8 @@ def _doctor(
         print(f"hackage:    missing (no package list at {index}; run 'cabal update')")
         failures.append("hackage index")
     else:
-        wanted, benchmark = _newest_freeze_index_state(config, root)
-        reached = _index_state_reached(index)
+        wanted, benchmark = newest_freeze_index_state(config, root)
+        reached = index_state_reached(index)
         if wanted and reached and reached < wanted:
             print(
                 f"hackage:    {index}\n"
@@ -388,72 +398,6 @@ def _doctor(
         failures.append("wrangler login")
     if failures:
         raise ValueError("doctor found missing requirements: " + ", ".join(failures))
-
-
-#: ``index-state:`` in a benchmark's freeze file.
-_FREEZE_INDEX_STATE = re.compile(r"(?m)^index-state:\s*hackage\.haskell\.org\s+(\S+)")
-
-
-def _newest_freeze_index_state(config: Dict[str, Any], root: Path) -> Tuple[Optional[str], Optional[str]]:
-    """The newest index-state any benchmark pins, and which benchmark pins it.
-
-    A freeze file pins the moment of the Hackage index it was solved against.
-    Cabal refuses to resolve against an index older than that, so a machine
-    whose ``cabal update`` predates the pin cannot build that benchmark at
-    all -- which is how a stale index took out every GHC baseline for
-    aihc-cpp-stackage and stopped a sweep, reported as a deprecation warning.
-    """
-    newest: Optional[str] = None
-    owner: Optional[str] = None
-    for benchmark in config.get("benchmarks", []):
-        freeze = root / benchmark["source"] / "cabal.project.freeze"
-        if not freeze.is_file():
-            continue
-        found = _FREEZE_INDEX_STATE.search(freeze.read_text(encoding="utf-8"))
-        if found and (newest is None or found.group(1) > newest):
-            newest, owner = found.group(1), benchmark["id"]
-    return newest, owner
-
-
-def _index_state_reached(index: Path) -> Optional[str]:
-    """How far the machine's package list reaches, as an index-state.
-
-    Cabal writes the timestamp beside the tarball; its absence is not a
-    failure, since an index that resolves is the thing that matters and the
-    build says so plainly if it does not.
-    """
-    marker = index.with_name("01-index.timestamp")
-    if marker.is_file():
-        try:
-            stamp = int(marker.read_text(encoding="utf-8").strip())
-        except ValueError:
-            return None
-        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stamp))
-    try:
-        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(index.stat().st_mtime))
-    except OSError:
-        return None
-
-
-def _hackage_index(root: Path) -> Optional[Path]:
-    """The Hackage package list ``cabal build`` resolves dependencies against.
-
-    Without it every GHC configuration of a benchmark with a non-boot
-    dependency fails to resolve, so doctor checks for it rather than letting
-    the failure surface once per configuration inside a run.  ``cabal path``
-    is asked rather than assuming ``~/.cache/cabal``, since ``CABAL_DIR`` and
-    the XDG layout both move it.
-    """
-    try:
-        process = run_command(["cabal", "path", "--cache-home"], root, 60.0)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if process.returncode != 0:
-        return None
-    cache_home = process.stdout.strip().splitlines()
-    if not cache_home:
-        return None
-    return Path(cache_home[-1]) / "packages" / "hackage.haskell.org" / "01-index.tar"
 
 
 def _repository(arguments: argparse.Namespace, root: Path) -> Path:

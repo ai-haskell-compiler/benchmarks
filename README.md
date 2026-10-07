@@ -16,9 +16,28 @@ local Hackage package list, which `cabal update` populates. A benchmark's
 freeze file pins the moment of the index it was solved against, and cabal
 refuses to resolve against an index older than that pin, so a machine whose
 `cabal update` predates it cannot build that benchmark at all. `doctor`
-compares the two and says to run `cabal update` when the machine is behind;
-without that check a stale index took out every GHC baseline for
-`aihc-cpp-stackage` and stopped a sweep.
+compares the two and says to run `cabal update` when the machine is behind,
+and `run` refreshes the list itself, before anything is timed, whenever a
+benchmark pins a newer index than the machine has. Without that a stale
+index took out every GHC baseline for `aihc-cpp-stackage` and stopped a
+sweep, and three weeks later the MicroHs benchmark landed with a pin newer
+than every worker's list and stopped all of them -- while `doctor` called
+the lists fine, because cabal writes the word `HEAD` into its timestamp
+file and the check gave up on it silently. The list's own modification time
+is what dates it now.
+
+AIHC keeps a package list of its own, which `run` refreshes with the newest
+compiler on the measured branch once the list is twelve hours old and then
+holds still for the length of the run. The hold works by touching the
+derived table, so the tarball beside it is what says how old the list is: the
+table's time only said when the last run was, and one worker measured against
+a three-week-old index while `doctor` reported it an hour old. The committed
+`aihc.lock` of a benchmark had been solved against a newer index, so that
+worker's compiler judged it stale, solved afresh and rewrote the lock in the
+checkout, and since the experiment id hashes the benchmark directory, every
+commit it measured from then on was filed under a suite nobody was looking
+at. AIHC now compiles a scratch copy of the benchmark directory, so a
+re-solve can never reach the checkout.
 
 ```console
 nix develop --command cabal update

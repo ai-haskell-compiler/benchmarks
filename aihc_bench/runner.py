@@ -59,6 +59,9 @@ class Cell:
     #: that what an earlier cell installed is not already there; see
     #: ``_archive_store``.
     store_archive: Optional[Path] = None
+    #: The benchmark directory an AIHC cell compiles is a scratch copy made
+    #: just before the timed compile (source, copy); see ``compile_cells``.
+    source_copy: Optional[Tuple[Path, Path]] = None
 
 
 def run_commit(
@@ -304,8 +307,20 @@ def warm_hackage_index(
     still resolves, and the run should say so rather than stop.
     """
     derived = hackage_index_cache()
-    if derived.is_file() and time.time() - derived.stat().st_mtime < INDEX_WARM_AGE_SECONDS:
+    tarball = derived.with_name(INDEX_TARBALL_NAME)
+    # The tarball's age, not the table's. ``hold_hackage_index`` touches the
+    # table on every commit so AIHC does not refresh mid-run, which also kept
+    # it looking fresh to this check: one worker measured against an index
+    # three weeks old while ``doctor`` reported it an hour old, and the
+    # committed ``aihc.lock`` -- solved against a newer index -- was judged
+    # stale and silently re-solved.
+    if derived.is_file() and tarball.is_file() and time.time() - tarball.stat().st_mtime < INDEX_WARM_AGE_SECONDS:
         return None
+    if derived.is_file() and tarball.is_file():
+        # The compiler refreshes only what it sees as stale, and it sees the
+        # held table's time; give it back the tarball's age, well past AIHC's
+        # own window, so the install below really fetches.
+        os.utime(derived, (0, 0))
     worktree = root / ".cache" / "aihc-index-worktree"
     store = root / ".cache" / "aihc-index-store"
     package = config.get("aihc_index_probe_package", "bytestring")
@@ -419,8 +434,14 @@ def require_baseline(
         outcomes = baselines.get(benchmark, [])
         if any(outcome.get("status") == "compiled" for _, outcome in outcomes):
             continue
+        # The cell that failed to compile explains the stop; a cell that was
+        # never going to compile does not. Unavailable cells are recorded
+        # before any compile runs, so taking the first outcome with a reason
+        # blamed MicroHs's excluded Wasm backend (``unsupported_backend``)
+        # on two workers whose GHC builds had actually failed on a stale
+        # cabal index, and the message sent people to fix the wrong thing.
         detail = ""
-        for cell, outcome in outcomes:
+        for cell, outcome in sorted(outcomes, key=lambda item: item[1].get("status") == "unavailable"):
             reported = outcome.get("stderr") or outcome.get("reason") or outcome.get("status", "")
             if reported:
                 detail = f"{cell.configuration['id']}: {first_meaningful_line(str(reported))}"
@@ -471,6 +492,15 @@ def build_cells(
             stem = benchmark["package"] if family == "aihc" else "program"
             artifact = artifact_root / identity / f"{stem}{suffix}"
             build_dir = artifact.parent / "build"
+            # ``aihc build`` rewrites the package's ``aihc.lock`` in place
+            # whenever it judges the lock stale and solves afresh. The lock
+            # is part of the benchmark directory, which the experiment id
+            # hashes, so a worker whose compiler re-solved once went on
+            # publishing every later commit under a different experiment --
+            # and ``nix run`` warned about a dirty tree on every run. AIHC
+            # therefore compiles a scratch copy; GHC already builds out of
+            # tree.
+            source_copy = (source, artifact.parent / "source") if family == "aihc" else None
             precompiled = artifact.with_suffix(".cwasm") if configuration.get("precompile") else None
             stats_dir = root / ".cache" / "stats" / experiment_id / platform_id / commit["sha"]
             stats_file = stats_dir / f"{identity}.stats"
@@ -479,9 +509,9 @@ def build_cells(
                 "root": str(root),
                 "worktree": str(worktree),
                 "aihc": str(compiler) if compiler else "aihc",
-                "source": str(source),
+                "source": str(source_copy[1] if source_copy else source),
                 "corpus": corpus,
-                "main_file": str(source / "Main.hs"),
+                "main_file": str((source_copy[1] if source_copy else source) / "Main.hs"),
                 "package": benchmark.get("package", ""),
                 "artifact": str(artifact),
                 "artifact_dir": str(artifact.parent),
@@ -542,6 +572,7 @@ def build_cells(
                     precompile_command=precompile_command,
                     precompiled=precompiled if available else None,
                     store_archive=store_archive if family == "aihc" and available else None,
+                    source_copy=source_copy if available else None,
                 )
             )
     return cells
@@ -779,6 +810,16 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
         cell.artifact.parent.mkdir(parents=True, exist_ok=True)
         if cell.stats_file:
             Path(cell.stats_file).parent.mkdir(parents=True, exist_ok=True)
+        if cell.source_copy:
+            # Before the clock starts: copying the sources is the runner's
+            # work, not the compiler's.
+            original, copy = cell.source_copy
+            shutil.rmtree(copy, ignore_errors=True)
+            copy.unlink(missing_ok=True)
+            if original.is_dir():
+                shutil.copytree(original, copy, symlinks=True)
+            else:
+                shutil.copy2(original, copy)
         start = time.perf_counter_ns()
         try:
             process = run_command(
