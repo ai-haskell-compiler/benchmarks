@@ -21,6 +21,7 @@ from .git_history import GitError, create_worktree, fetch, path_exists, remove_w
 from .measurement import INVOCATION_METRIC_NAMES, MEASURED_STATUSES, compile_metrics, measure_adaptively
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
+from .wasm_sysroot import wasm_environment_for_commit
 from .toolchain import (
     CompilerDoesNotBuild,
     MachineFault,
@@ -133,11 +134,18 @@ def run_commit(
         return unavailable("no_compiler")
 
     phases = Phases()
+    previous_environment = {name: os.environ.get(name) for name in ("AIHC_WASM_SYSROOT", "PATH")}
     try:
         with phases.timing("toolchain_check"):
             pin_runner_environment(root, compile_timeout)
         with phases.timing("worktree"):
             create_worktree(aihc_repository, worktree, commit["sha"])
+        # The Wasm backend's sysroot and linker depend on the commit; see
+        # wasm_sysroot. Every aihc invocation of this commit -- preparing the
+        # store as much as the timed compiles -- reads them from the process
+        # environment, so they are set here for the commit and restored after.
+        wasm_environment = wasm_environment_for_commit(aihc_repository, commit["sha"], root, compile_timeout)
+        os.environ.update(wasm_environment)
         with phases.timing("compiler_build"):
             try:
                 compiler = build_compiler(worktree, platform_id, compiler_root(root), compile_timeout)
@@ -162,6 +170,7 @@ def run_commit(
             aihc_setup_errors=aihc_setup_errors,
             store_archive=store_archive,
             compiler=compiler.program,
+            wasi_http=bool(wasm_environment),
         )
         reused = reusable_baselines(database, config, experiments, platform_id, environment)
         cells = [cell for cell in cells if (cell.benchmark["id"], cell.configuration["id"]) not in reused]
@@ -197,6 +206,11 @@ def run_commit(
             envelopes.append(envelope)
         return envelopes
     finally:
+        for name, value in previous_environment.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
         remove_worktree(aihc_repository, worktree)
 
 
@@ -463,11 +477,16 @@ def build_cells(
     aihc_setup_errors: Optional[Dict[str, str]] = None,
     store_archive: Optional[Path] = None,
     compiler: Optional[Path] = None,
+    wasi_http: bool = False,
 ) -> List[Cell]:
     """One cell per benchmark and configuration.
 
     ``compiler`` is the built ``aihc`` that ``{aihc}`` in a compile command
-    names; see ``toolchain.build_compiler``.
+    names; see ``toolchain.build_compiler``. ``wasi_http`` says the commit's
+    Wasm components import ``wasi:http`` (see ``wasm_sysroot``), which the
+    host must then provide; the AIHC Wasm run commands get ``-S http``
+    beside the ``-S cli`` they carry, here rather than in ``benchmark.json``,
+    whose configurations the experiment ids hash.
     """
     aihc_setup_errors = aihc_setup_errors or {}
     platform_values = config["platforms"][platform_id]
@@ -553,6 +572,8 @@ def build_cells(
                 run_command = _with_corpus(run_command, configuration, values)
             if run_command is not None and benchmark.get("profile_argument"):
                 run_command = _with_profile(run_command, configuration)
+            if run_command is not None and wasi_http and family == "aihc" and configuration["backend"] == "wasm":
+                run_command = _with_wasi_http(run_command)
             cells.append(
                 Cell(
                     benchmark=benchmark,
@@ -756,6 +777,20 @@ def _with_corpus(run_command: List[str], configuration: Dict[str, Any], values: 
     except ValueError:
         position = len(run_command)
     return run_command[:position] + options + run_command[position:] + [values["corpus"]]
+
+
+def _with_wasi_http(run_command: List[str]) -> List[str]:
+    """Let wasmtime provide ``wasi:http`` to a component that imports it.
+
+    The WASI 0.3 libc's world imports ``wasi:http/types@0.3.0``, and without
+    ``-S http`` wasmtime refuses the component before it runs: "a matching
+    implementation was not found in the linker". Added after the ``-S cli``
+    the configuration carries, so a run command without one is left alone.
+    """
+    for index in range(len(run_command) - 1):
+        if run_command[index] == "-S" and run_command[index + 1] == "cli":
+            return [*run_command[: index + 2], "-S", "http", *run_command[index + 2 :]]
+    return run_command
 
 
 def _with_profile(run_command: List[str], configuration: Dict[str, Any]) -> List[str]:
