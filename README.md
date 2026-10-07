@@ -160,6 +160,23 @@ unbounded: GHC ships its own and the versions differ per release, so pinning
 them in the `.cabal` would break every toolchain but the one the freeze file
 was written under.
 
+## The Wasm sysroot
+
+Since [ai-haskell-compiler/aihc@e8f97b72](https://github.com/ai-haskell-compiler/aihc/commit/e8f97b72e076ac9afcba9323c0001d1d854ed100)
+(2026-10-05) the compiler links the `wasm32-wasip3` libc that wasi-sdk 34
+builds and refuses any other sysroot; the wasi-libc of nixpkgs, which the
+flake assembles into `AIHC_WASM_SYSROOT`, is built for preview 1 and calls
+the host through imports a component cannot have. Every AIHC Wasm cell on
+every machine failed to compile from that commit on. The runner fetches the
+two wasi-sdk release assets once, pinned by hash as the compiler's own
+`scripts/nix/wasi-sysroot.nix` pins them, cuts them down to the one target
+under `.cache/wasi-sysroot-34.0`, and points `AIHC_WASM_SYSROOT` there for
+every commit that contains e8f97b72. Earlier commits keep the flake's. It is
+fetched by the runner rather than added to `flake.nix` because the
+experiment ids hash that file, and a change to it restarts every history. A
+fetch that fails is reported and the Wasm cells fail with the compiler's own
+message, as before; the commit is still measured on the other backends.
+
 ## The CPP corpus
 
 `aihc-cpp-stackage` measures [`aihc-cpp`](https://github.com/ai-haskell-compiler/aihc-cpp),
