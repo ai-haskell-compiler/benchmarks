@@ -75,6 +75,28 @@ class DatabaseTests(unittest.TestCase):
         self.database.propagate_inherited("exp", "plat")
         self.assertEqual({attempt["commit_sha"] for attempt in self.database.terminal_attempts("exp", "plat")}, {"c3"})
 
+    def _finish(self, sha, results, timing=None):
+        self.database.start_attempt("exp", "plat", sha, f"run-{sha}", {"id": "env"}, "machine")
+        envelope = {"aihc_commit": {"sha": sha}, "compiler_status": "available", "results": results}
+        if timing is not None:
+            envelope["timing"] = timing
+        self.database.finish_attempt("exp", "plat", sha, "complete", envelope)
+
+    def test_a_reused_entry_keeps_where_it_was_first_measured(self):
+        """Stamping it with the attempt that carried it renewed the window on every commit."""
+        origin = {"commit_sha": "c0", "measured_at": "2026-01-02T00:00:00Z"}
+        self._finish("c1", [{"configuration": "ghc", "reused_from": origin}])
+        [entry] = self.database.results_measured_since("exp", "plat", "env", "2000-01-01")
+        self.assertEqual((entry["_measured_for"], entry["_measured_at"]), ("c0", "2026-01-02T00:00:00Z"))
+
+    def test_a_fresh_entry_carries_its_attempts_contention(self):
+        self._finish("c1", [{"configuration": "ghc"}, {"configuration": "old", "reused_from": {"commit_sha": "c0", "measured_at": "x"}}], timing={"contended": "busy"})
+        fresh, reused = self.database.results_measured_since("exp", "plat", "env", "2000-01-01")
+        self.assertEqual(fresh["_measured_for"], "c1")
+        self.assertEqual(fresh["_contended"], "busy")
+        # Carried forward, not measured under this attempt's load.
+        self.assertNotIn("_contended", reused)
+
 
 if __name__ == "__main__":
     unittest.main()

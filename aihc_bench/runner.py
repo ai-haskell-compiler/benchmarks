@@ -683,6 +683,13 @@ def reusable_baselines(
     compiler is the commit. Nor is a result that lacks a metric this runner
     measures: a baseline from before instruction counts were recorded would
     otherwise leave every new ratio empty for the whole window.
+
+    The window runs from when the number was first measured, not from the
+    last commit that carried it forward. And a result measured while the
+    machine was contended is not reused either: one noisy run is acceptable
+    as one commit's number, but reused it becomes the denominator of every
+    ratio for a month. On the M4 a GHC run that took 102 ms of wall time for
+    25 ms of CPU, measured beside other work, did exactly that.
     """
     hours = float(config.get("baseline_reuse_hours", DEFAULT_BASELINE_REUSE_HOURS))
     if hours <= 0:
@@ -692,6 +699,8 @@ def reusable_baselines(
     for benchmark, experiment_id in experiments.items():
         for entry in database.results_measured_since(experiment_id, platform_id, environment.get("id", ""), since):
             if entry.get("compiler_family") != "ghc":
+                continue
+            if not entry.get("_measured_at") or entry["_measured_at"] < since or entry.get("_contended"):
                 continue
             measurement = entry.get("measurement") or {}
             if measurement.get("status") not in MEASURED_STATUSES:

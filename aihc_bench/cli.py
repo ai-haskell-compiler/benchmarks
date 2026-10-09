@@ -155,9 +155,12 @@ def _dispatch(
                 f"benchmarking {next_commit['sha'][:12]} ({next_commit['ordinal'] + 1}/{len(history)}, {plan['stage']}, "
                 f"{', '.join(missing)}): {next_commit['subject']}"
             )
+            # The first commit of a run measures GHC again rather than reusing
+            # it; later commits reuse that fresh number as usual.
+            fresh = arguments.fresh_baselines and not completed
             envelopes = run_commit(
                 database=database,
-                config=config,
+                config={**config, "baseline_reuse_hours": 0} if fresh else config,
                 experiments=missing,
                 suite=suite,
                 platform_id=platform_id,
@@ -445,6 +448,11 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--all", action="store_true", help="continue until all commits are terminal")
     run.add_argument("--limit", type=int, default=0, help="maximum commits for --all; zero means unlimited")
     run.add_argument("--upload", action="store_true", help="upload results to the Worker after each commit")
+    run.add_argument(
+        "--fresh-baselines",
+        action="store_true",
+        help="measure GHC again on the first commit instead of reusing a baseline; later commits reuse the new one",
+    )
 
     compare = subparsers.add_parser("compare", help="benchmark two AIHC builds against each other, locally")
     compare.add_argument("a", help="commit, branch or tag for side A")

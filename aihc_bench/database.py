@@ -272,6 +272,12 @@ class Database:
         Baselines are reused across commits, so what matters is the newest
         attempt that actually ran here -- an inherited attempt carries another
         commit's numbers and measured nothing, so it cannot supply one.
+
+        An entry that was itself reused keeps the moment and commit it was
+        first measured for. Stamping it with the attempt that carried it
+        forward instead renewed the window on every commit, so a baseline
+        never aged out. A fresh entry carries its attempt's contention note,
+        if any, so a baseline measured on a busy machine can be refused.
         """
         rows = self.connection.execute(
             "SELECT result_json, environment_json, finished_at, commit_sha FROM attempts "
@@ -283,8 +289,16 @@ class Database:
             if json.loads(row["environment_json"]).get("id") != environment_id:
                 continue
             envelope = json.loads(row["result_json"])
+            contended = (envelope.get("timing") or {}).get("contended")
             for entry in envelope.get("results", []):
-                entry["_measured_at"] = row["finished_at"]
-                entry["_measured_for"] = row["commit_sha"]
+                origin = entry.get("reused_from")
+                if origin:
+                    entry["_measured_at"] = origin.get("measured_at")
+                    entry["_measured_for"] = origin.get("commit_sha")
+                else:
+                    entry["_measured_at"] = row["finished_at"]
+                    entry["_measured_for"] = row["commit_sha"]
+                    if contended:
+                        entry["_contended"] = contended
             return envelope.get("results", [])
         return []

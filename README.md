@@ -440,7 +440,12 @@ new OS, CPU or runner -- discards it at once. What this trades away is drift
 cancelling: an AIHC number measured now against a baseline measured earlier
 carries whatever the machine did in between, which the window bounds. Reused
 entries record `reused_from`, naming the commit and moment their baseline
-came from. The AIHC side is never reused: its compiler is the commit.
+was first measured, and the window counts from that moment rather than from
+the last commit that carried it forward. A baseline measured while the
+machine was contended is not reused at all, so the next commit measures it
+again. `run --fresh-baselines` measures GHC again on its first commit
+regardless, for a baseline that looks wrong. The AIHC side is never reused:
+its compiler is the commit.
 
 Each commit records its wall clock per phase -- building the compiler,
 preparing the AIHC stores, compiling, measuring -- and `run` prints the

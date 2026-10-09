@@ -1223,6 +1223,18 @@ class BaselineReuseTests(unittest.TestCase):
         database = self._database([self._ghc()], finished_at=self._recently(hours_ago=40 * 24))
         self.assertEqual(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
 
+    def test_a_contended_baseline_is_not_reused(self):
+        """One noisy run is one commit's number; reused it is a month's denominator."""
+        database = self._database([dict(self._ghc(), _contended="busy")])
+        self.assertEqual(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
+
+    def test_the_window_runs_from_the_first_measurement(self):
+        """A baseline carried forward by a recent commit still ages out."""
+        database = self._database([self._ghc()])
+        stale = dict(self._ghc(), _measured_at="2020-01-01T00:00:00")
+        database.results_measured_since = lambda *arguments: [stale]
+        self.assertEqual(reusable_baselines(database, {}, self.EXPERIMENTS, "test-platform", self.ENVIRONMENT), {})
+
     def test_a_reused_result_says_where_it_came_from(self):
         """Its compile time is another moment's, so the entry has to say so."""
         entry = dict(self._ghc(), _measured_at="2026-09-19T12:00:00", _measured_for="f" * 40)
