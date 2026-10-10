@@ -41,7 +41,37 @@ class StatsTests(unittest.TestCase):
         text = json.dumps({"schema": 1, "peak_heap_bytes": 10, "allocated_bytes": 20, "gc_count": 2, "gc_time_ns": 5})
         self.assertEqual(parse_aihc_json(text), {"peak_heap_bytes": 10, "allocated_bytes": 20, "gc_count": 2, "gc_time_ns": 5})
         with self.assertRaises(StatsError):
-            parse_aihc_json(json.dumps({"schema": 2}))
+            parse_aihc_json(json.dumps({"schema": 1}))
+
+    def test_parses_the_schema_3_object_the_runtime_writes(self):
+        """The record of ``integer-fibonacci`` at ``-O2``, written on an Apple M1."""
+        text = (
+            '{"schema": 3, "peak_heap_bytes": 60577184, "allocated_bytes": 1551688536, "gc_count": 372, '
+            '"gc_time_ns": 357106000, "gc_max_pause_ns": 18995000, "live_bytes": 8469992, '
+            '"gc_minor_count": 294, "gc_gen1_count": 78, "gc_full_count": 78}'
+        )
+        self.assertEqual(
+            parse_aihc_json(text),
+            {
+                "peak_heap_bytes": 60577184,
+                "allocated_bytes": 1551688536,
+                "gc_count": 372,
+                "gc_time_ns": 357106000,
+                "gc_max_pause_ns": 18995000,
+            },
+        )
+
+    def test_schema_2_object_keeps_its_longest_pause(self):
+        text = json.dumps({"schema": 2, "peak_heap_bytes": 10, "allocated_bytes": 20, "gc_count": 2, "gc_time_ns": 5, "gc_max_pause_ns": 3})
+        self.assertEqual(parse_aihc_json(text)["gc_max_pause_ns"], 3)
+
+    def test_reads_a_stats_file_from_the_newer_runtime(self):
+        """The runner left every AIHC GC metric unavailable while this file raised."""
+        record = {"schema": 3, "peak_heap_bytes": 10, "allocated_bytes": 20, "gc_count": 2, "gc_time_ns": 5, "gc_max_pause_ns": 3}
+        with tempfile.NamedTemporaryFile("w", suffix=".stats") as handle:
+            handle.write(json.dumps(record))
+            handle.flush()
+            self.assertEqual(read_stats_file(handle.name, "aihc")["gc_count"], 2)
 
     def test_aihc_json_may_report_its_longest_pause(self):
         """Optional, so a runtime that predates it still reports the rest."""

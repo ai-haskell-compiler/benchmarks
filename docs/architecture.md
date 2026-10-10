@@ -308,8 +308,9 @@ unavailable metrics.
   `gen_<n>_max_pause_seconds` (wall-clock) becomes `gc_max_pause`.
 - `aihc`: the runner sets `AIHC_RTS_STATS={stats_file}` in the environment
   (through `--env` and `--dir` under Wasmtime). The runtime is expected to
-  write a schema 1 JSON object with `peak_heap_bytes`, `allocated_bytes`,
-  `gc_count` and `gc_time_ns`, and optionally `gc_max_pause_ns`. See [design.md](design.md) for the contract.
+  write a JSON object with a positive integer `schema` and the fields
+  `peak_heap_bytes`, `allocated_bytes`, `gc_count` and `gc_time_ns`, and
+  optionally `gc_max_pause_ns`. Other fields are ignored. See [design.md](design.md) for the contract.
 
 ## Publication
 

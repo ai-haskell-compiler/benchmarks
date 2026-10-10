@@ -197,7 +197,8 @@ allocation high-water mark between collections, so it is comparable to GHC's
 `max_live_bytes`. `gc_max_pause_ns` is the longest single collection in
 wall-clock time, comparable to GHC's `gen_<n>_max_pause_seconds`; it is
 optional, so a runtime that writes the other four fields is still read and
-only `gc_max_pause` is unavailable. Under Wasm the file is written through WASI, so the benchmark
+only `gc_max_pause` is unavailable. A newer `schema` only adds fields, and the
+runner reads every schema from 1 up. Under Wasm the file is written through WASI, so the benchmark
 runner passes `--dir` for the stats directory.
 
 GHC baselines use `+RTS -t<path> --machine-readable -RTS`, which requires
