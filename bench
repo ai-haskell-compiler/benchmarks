@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# The benchmark runner, for people.
+#
+#   ./bench                       benchmark commit after commit (see `watch`)
+#   ./bench --once                say what would be benchmarked next, and exit
+#   ./bench window add 22:00-06:00
+#   ./bench <command> ...         any other aihc-bench command: plan, doctor, ...
+#
+# Everything runs through the flake, so the toolchains and corpora are the
+# ones the suite pins.
+set -euo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+cd "$here"
+if [ $# -eq 0 ] || [[ $1 == -* ]]; then
+  set -- watch "$@"
+fi
+exec nix run "$here" -- "$@"

@@ -21,8 +21,10 @@ from .planner import build_plan, merge_terminal_attempts
 from .process import raise_open_files_limit, run_command, utf8_locale
 from .cabal_index import index_state_reached, newest_freeze_index_state, package_list, refresh_package_list
 from .runner import hackage_index_cache, run_commit, warm_hackage_index
+from .schedule import Schedule, Window
 from .toolchain import MachineFault, pin_runner_environment
 from .uploader import UploadError, check_login, refresh_overview, upload_pending
+from .watch import RunBusy, Watcher, run_lock
 
 
 _REPO_HELP = f"AIHC checkout or clone URL; defaults to {DEFAULT_REMOTE}"
@@ -56,6 +58,11 @@ def main(argv: Optional[list] = None) -> None:
         print(f"error: {error}", file=sys.stderr)
         print("this machine needs fixing before it measures again; run `doctor`", file=sys.stderr)
         raise SystemExit(2) from error
+    except RunBusy as error:
+        print(f"error: {error}", file=sys.stderr)
+        raise SystemExit(3) from error
+    except KeyboardInterrupt:
+        raise SystemExit(130)
     except (CompareError, ConfigError, GitError, UploadError, ValueError) as error:
         parser.exit(2, f"error: {error}\n")
 
@@ -96,6 +103,14 @@ def _dispatch(
         print(format_report(report, markdown=arguments.markdown))
         return
 
+    if arguments.command == "window":
+        _window(arguments, Schedule(database.path.parent / "schedule.json"))
+        return
+
+    if arguments.command == "watch":
+        _watch(arguments, root, config, platform_id, experiments, database, machine)
+        return
+
     if arguments.command == "upload":
         if not arguments.dry_run:
             check_login(config, root)
@@ -107,76 +122,17 @@ def _dispatch(
             refresh_overview(config)
         return
 
-    if arguments.command in {"plan", "run"}:
+    if arguments.command == "plan":
         repository = _repository(arguments, root)
         history = _refresh_history(database, config, repository, platform_id, experiments, arguments.fetch)
-
-    if arguments.command == "plan":
         _print_plan(database, experiments, suite, platform_id, len(history))
         return
 
     if arguments.command == "run":
-        repository = _repository(arguments, root)
-        if arguments.upload:
-            check_login(config, root)
-        # Refresh both package lists before any commit is measured: cabal's,
-        # so a freeze pin newer than the machine's last `cabal update` does
-        # not take out every GHC baseline of a benchmark (see
-        # cabal_index.refresh_package_list), and AIHC's, so no measured
-        # commit performs the refresh itself (see warm_hackage_index).
-        list_error = refresh_package_list(config, root, float(config["measurement"]["compile_timeout_seconds"]))
-        if list_error:
-            print(f"warning: cabal's package list is behind, GHC baselines may not resolve: {list_error.splitlines()[0]}")
-        index_error = warm_hackage_index(config, platform_id, repository, root, float(config["measurement"]["compile_timeout_seconds"]))
-        if index_error:
-            print(f"warning: could not warm the Hackage index, measuring against whatever is cached: {index_error.splitlines()[0]}")
-        completed = 0
-        while True:
-            # Before choosing, not only before the sweep. A sweep runs for
-            # hours and the branch moves while it does, so a run that planned
-            # once kept measuring an old history and never saw the commit that
-            # had just landed -- the one most worth measuring.
-            if completed:
-                history = _refresh_history(database, config, repository, platform_id, experiments, arguments.fetch)
-            by_experiment = _terminal_by_experiment(database, experiments, platform_id)
-            plan = build_plan(database.commits(), merge_terminal_attempts(by_experiment))
-            next_commit = plan["next"]
-            if not next_commit:
-                print("all commits have terminal results")
-                break
-            # Only the benchmarks without a result for this commit are measured,
-            # so a benchmark added later fills in without re-measuring the rest.
-            missing = {
-                benchmark: experiment
-                for benchmark, experiment in experiments.items()
-                if next_commit["sha"] not in {attempt["commit_sha"] for attempt in by_experiment[experiment]}
-            }
-            print(
-                f"benchmarking {next_commit['sha'][:12]} ({next_commit['ordinal'] + 1}/{len(history)}, {plan['stage']}, "
-                f"{', '.join(missing)}): {next_commit['subject']}"
-            )
-            envelopes = run_commit(
-                database=database,
-                config=config,
-                experiments=missing,
-                suite=suite,
-                platform_id=platform_id,
-                machine=machine,
-                commit=next_commit,
-                aihc_repository=repository,
-                root=root,
-                )
-            for envelope in envelopes:
-                print(f"recorded {envelope['compiler_status']} result {envelope['run_id']} for {envelope['benchmark']}")
-            _report_commit_timing(config, envelopes)
-            inherited = sum(database.propagate_inherited(experiment, platform_id) for experiment in missing.values())
-            if inherited:
-                print(f"propagated the result to {inherited} same-tree benchmark results")
-            if arguments.upload:
-                _upload_after_commit(database, experiments, suite, platform_id, config, root)
-            completed += 1
-            if not arguments.all or (arguments.limit and completed >= arguments.limit):
-                break
+        # Before the history is touched: a second run on the machine would
+        # measure the first one's load. See watch.run_lock.
+        with run_lock(database.path.parent / "run.lock"):
+            _run(arguments, root, config, platform_id, experiments, suite, database, machine)
         return
 
     if arguments.command == "forget":
@@ -189,6 +145,80 @@ def _dispatch(
         return
 
     raise ValueError(f"unsupported command {arguments.command}")
+
+
+def _run(
+    arguments: argparse.Namespace,
+    root: Path,
+    config: Dict[str, Any],
+    platform_id: str,
+    experiments: Dict[str, str],
+    suite: str,
+    database: Database,
+    machine: Dict[str, Any],
+) -> None:
+    repository = _repository(arguments, root)
+    history = _refresh_history(database, config, repository, platform_id, experiments, arguments.fetch)
+    if arguments.upload:
+        check_login(config, root)
+    # Refresh both package lists before any commit is measured: cabal's,
+    # so a freeze pin newer than the machine's last `cabal update` does
+    # not take out every GHC baseline of a benchmark (see
+    # cabal_index.refresh_package_list), and AIHC's, so no measured
+    # commit performs the refresh itself (see warm_hackage_index).
+    list_error = refresh_package_list(config, root, float(config["measurement"]["compile_timeout_seconds"]))
+    if list_error:
+        print(f"warning: cabal's package list is behind, GHC baselines may not resolve: {list_error.splitlines()[0]}")
+    index_error = warm_hackage_index(config, platform_id, repository, root, float(config["measurement"]["compile_timeout_seconds"]))
+    if index_error:
+        print(f"warning: could not warm the Hackage index, measuring against whatever is cached: {index_error.splitlines()[0]}")
+    completed = 0
+    while True:
+        # Before choosing, not only before the sweep. A sweep runs for
+        # hours and the branch moves while it does, so a run that planned
+        # once kept measuring an old history and never saw the commit that
+        # had just landed -- the one most worth measuring.
+        if completed:
+            history = _refresh_history(database, config, repository, platform_id, experiments, arguments.fetch)
+        by_experiment = _terminal_by_experiment(database, experiments, platform_id)
+        plan = build_plan(database.commits(), merge_terminal_attempts(by_experiment))
+        next_commit = plan["next"]
+        if not next_commit:
+            print("all commits have terminal results")
+            break
+        # Only the benchmarks without a result for this commit are measured,
+        # so a benchmark added later fills in without re-measuring the rest.
+        missing = {
+            benchmark: experiment
+            for benchmark, experiment in experiments.items()
+            if next_commit["sha"] not in {attempt["commit_sha"] for attempt in by_experiment[experiment]}
+        }
+        print(
+            f"benchmarking {next_commit['sha'][:12]} ({next_commit['ordinal'] + 1}/{len(history)}, {plan['stage']}, "
+            f"{', '.join(missing)}): {next_commit['subject']}"
+        )
+        envelopes = run_commit(
+            database=database,
+            config=config,
+            experiments=missing,
+            suite=suite,
+            platform_id=platform_id,
+            machine=machine,
+            commit=next_commit,
+            aihc_repository=repository,
+            root=root,
+            )
+        for envelope in envelopes:
+            print(f"recorded {envelope['compiler_status']} result {envelope['run_id']} for {envelope['benchmark']}")
+        _report_commit_timing(config, envelopes)
+        inherited = sum(database.propagate_inherited(experiment, platform_id) for experiment in missing.values())
+        if inherited:
+            print(f"propagated the result to {inherited} same-tree benchmark results")
+        if arguments.upload:
+            _upload_after_commit(database, experiments, suite, platform_id, config, root)
+        completed += 1
+        if not arguments.all or (arguments.limit and completed >= arguments.limit):
+            break
 
 
 def _terminal_by_experiment(database: Database, experiments: Dict[str, str], platform_id: str) -> Dict[str, list]:
@@ -400,6 +430,62 @@ def _doctor(
         raise ValueError("doctor found missing requirements: " + ", ".join(failures))
 
 
+def _window(arguments: argparse.Namespace, schedule: Schedule) -> None:
+    if arguments.action == "add":
+        windows = schedule.add(Window.parse(_window_spec(arguments)))
+    elif arguments.action == "remove":
+        windows = schedule.remove(Window.parse(_window_spec(arguments)))
+    elif arguments.action == "clear":
+        schedule.save([])
+        windows = []
+    else:
+        windows = schedule.windows()
+    if windows:
+        print(f"benchmarks start only within {', '.join(map(str, windows))}, local time")
+    else:
+        print("benchmarks start at any time")
+
+
+def _window_spec(arguments: argparse.Namespace) -> str:
+    if not arguments.spec:
+        raise ValueError(f"window {arguments.action} needs a window such as 22:00-06:00")
+    return arguments.spec
+
+
+def _watch(
+    arguments: argparse.Namespace,
+    root: Path,
+    config: Dict[str, Any],
+    platform_id: str,
+    experiments: Dict[str, str],
+    database: Database,
+    machine: Dict[str, Any],
+) -> None:
+    repository = _repository(arguments, root)
+    forwarded = ["--root", str(root), "--config", arguments.config, "--state", arguments.state]
+    if arguments.platform:
+        forwarded += ["--platform", arguments.platform]
+    command = [sys.executable, "-m", "aihc_bench", *forwarded, "run", "--fetch", "--aihc-repo", str(repository)]
+    if not arguments.no_upload:
+        command.append("--upload")
+    watcher = Watcher(
+        root=root,
+        config=config,
+        database=database,
+        experiments=experiments,
+        platform_id=platform_id,
+        machine_id=machine["machine_id"],
+        refresh_history=lambda fetch_first: _refresh_history(database, config, repository, platform_id, experiments, fetch_first),
+        run_command=command,
+        # Through the flake again, so a changed flake.nix or flake.lock is
+        # evaluated afresh along with the code.
+        restart_command=["nix", "run", str(root), "--", *sys.argv[1:]],
+        poll_seconds=arguments.poll,
+        allow_battery=arguments.allow_battery,
+    )
+    watcher.loop(once=arguments.once)
+
+
 def _repository(arguments: argparse.Namespace, root: Path) -> Path:
     """Resolve the AIHC checkout to benchmark.
 
@@ -456,6 +542,17 @@ def _parser() -> argparse.ArgumentParser:
     compare.add_argument("--profile", choices=list(OPTIMIZATION_PROFILES))
     compare.add_argument("--rounds", type=int, default=10, help="interleaved A/B rounds per cell")
     compare.add_argument("--markdown", action="store_true", help="print a Markdown table")
+
+    watch = subparsers.add_parser("watch", help="benchmark commit after commit, explaining each choice (what ./bench runs)")
+    watch.add_argument("--aihc-repo", help=_REPO_HELP)
+    watch.add_argument("--no-upload", action="store_true", help="keep results local instead of uploading after each commit")
+    watch.add_argument("--allow-battery", action="store_true", help="start benchmarks on battery power too")
+    watch.add_argument("--poll", type=float, default=300, metavar="SECONDS", help="how often to fetch both repositories")
+    watch.add_argument("--once", action="store_true", help="print what would be benchmarked next and exit")
+
+    window = subparsers.add_parser("window", help="list, add or remove the local-time windows benchmarks may start in")
+    window.add_argument("action", nargs="?", choices=["list", "add", "remove", "clear"], default="list")
+    window.add_argument("spec", nargs="?", help="a window such as 22:00-06:00, 22-6 or 10pm-6am")
 
     upload_parser = subparsers.add_parser("upload", help="upload results the Worker has not acknowledged")
     upload_parser.add_argument("--dry-run", action="store_true")
