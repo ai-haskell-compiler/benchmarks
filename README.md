@@ -160,6 +160,57 @@ unbounded: GHC ships its own and the versions differ per release, so pinning
 them in the `.cabal` would break every toolchain but the one the freeze file
 was written under.
 
+## Benchmarking with `./bench`
+
+```console
+./bench
+./bench --once
+./bench window add 22:00-06:00
+```
+
+`./bench` measures one commit after another and says what it is doing. Before
+each commit it prints which commit is next and why: `HEAD` because it is the
+newest commit and has no result, `TAIL` because it is the oldest commit in the
+benchmark window, or the size of the wall time or allocation difference
+between its measured neighbours, and on which benchmark and configuration that
+difference was seen. It estimates how long the commit will take -- the median
+wall clock of the last ten commits this machine uploaded, or, on a checkout
+with no local history, of the last commit the site has from this machine --
+and how long the rest of the history will take, counting one commit per
+compiler tree since the others inherit its result. `--once` prints that and
+exits. Every other command passes through, so `./bench plan` and
+`./bench doctor` work as before.
+
+A benchmark starts only when the machine may measure:
+
+- inside a time window, when any are set. `./bench window add 22:00-06:00`
+  (also `22-6` or `10pm-6am`) adds one in local time, `window remove` and
+  `window clear` take them away, and `window` lists them. They live in
+  `.state/schedule.json` and are re-read every second, so a change applies to
+  a running `./bench` at once. Outside the windows it counts down to the next
+  start, and the estimate of when the history is done accounts for them. A
+  commit started inside a window is allowed to finish past its end.
+- on mains power. A laptop on battery lowers its clock speeds, which moves
+  every timing exactly as a change in the compiler would. macOS is asked
+  through `pmset`, Linux through `/sys/class/power_supply`; a machine without
+  a battery is on mains. `--allow-battery` overrides it.
+- with no other run on the machine. `run` holds `.state/run.lock` while it
+  measures, and a second `run` exits 3 rather than measuring the first.
+
+Each commit is measured by its own `run --fetch --upload` process
+(`--no-upload` keeps results local), whose output streams beneath a status
+line with the elapsed and expected time. A run that fails is retried after a
+minute, doubling to at most half an hour while it keeps failing.
+
+`./bench` follows both repositories. Every five minutes (`--poll`) it fetches
+the compiler and replans, so a commit that lands is considered at once. It
+fetches this checkout's upstream too and fast-forwards to it between commits,
+never into local commits, and when the checkout changes -- that pull, a local
+commit, or an edit to a tracked file -- it restarts itself through `nix run`
+so the change is what measures the next commit. A commit being measured is
+never interrupted: the change applies once it finishes. `nix run` sees only
+tracked files, so a new file takes a `git add` before it is part of a restart.
+
 ## The Wasm sysroot
 
 Since [ai-haskell-compiler/aihc@e8f97b72](https://github.com/ai-haskell-compiler/aihc/commit/e8f97b72e076ac9afcba9323c0001d1d854ed100)

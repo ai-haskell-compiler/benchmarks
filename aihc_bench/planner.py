@@ -72,9 +72,9 @@ def rank_gaps(
     def close(right: Optional[Dict[str, Any]]) -> None:
         if not run:
             return
-        signal = 0.0
+        signal, change = 0.0, None
         if left is not None and right is not None:
-            signal = signal_between(signals[left["sha"]], signals[right["sha"]])
+            signal, change = strongest_change(signals[left["sha"]], signals[right["sha"]])
         gaps.append(
             {
                 "start": run[0],
@@ -83,6 +83,7 @@ def rank_gaps(
                 "right": right,
                 "width": len(run),
                 "signal": signal,
+                "change": change,
                 "pick": run[len(run) // 2],
             }
         )
@@ -123,12 +124,27 @@ def attempt_signals(attempt: Dict[str, Any]) -> Dict[Tuple[str, str, str], float
 
 
 def signal_between(left: Dict[Tuple[str, str, str], float], right: Dict[Tuple[str, str, str], float]) -> float:
-    strongest = 0.0
+    return strongest_change(left, right)[0]
+
+
+def strongest_change(
+    left: Dict[Tuple[str, str, str], float], right: Dict[Tuple[str, str, str], float]
+) -> Tuple[float, Optional[Dict[str, Any]]]:
+    """The strongest absolute log ratio between two commits, and what it was measured on.
+
+    The second value names the benchmark, configuration and metric and gives
+    both estimates, so a pick can be explained; it is None without a change.
+    """
+    strongest, change = 0.0, None
     for key, value in left.items():
         other = right.get(key)
         if other and value > 0:
-            strongest = max(strongest, abs(math.log(other / value)))
-    return strongest
+            signal = abs(math.log(other / value))
+            if signal > strongest:
+                strongest = signal
+                benchmark, configuration, metric = key
+                change = {"benchmark": benchmark, "configuration": configuration, "metric": metric, "left": value, "right": other}
+    return strongest, change
 
 
 def merge_terminal_attempts(attempts_by_experiment: Dict[str, Iterable[Dict[str, Any]]]) -> List[Dict[str, Any]]:
