@@ -35,6 +35,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
+from . import progress
 from .database import Database
 from .planner import build_plan, merge_terminal_attempts
 from .schedule import Schedule, Window, current_window_end, in_window, next_window_start, on_battery
@@ -166,26 +167,209 @@ def format_metric(metric: str, value: float) -> str:
 # How long it will take
 
 
-def recent_commit_seconds(database: Database, limit: int = ESTIMATE_SAMPLE) -> List[float]:
-    """Wall clock of the newest commits this machine measured and uploaded, newest first.
+def recent_commit_timings(database: Database, limit: int = ESTIMATE_SAMPLE) -> List[Dict[str, float]]:
+    """Seconds per phase of the newest commits this machine measured and uploaded, newest first.
 
     Every benchmark of a commit carries the same timing record, so each
     commit counts once. Inherited results measured nothing and are skipped.
+    Each record has the phases by name and their sum under ``total``.
     """
     rows = database.connection.execute(
-        "SELECT commit_sha, json_extract(result_json, '$.timing.total_ns') AS total FROM attempts "
+        "SELECT commit_sha, json_extract(result_json, '$.timing.total_ns') AS total, "
+        "json_extract(result_json, '$.timing.phases_ns') AS phases FROM attempts "
         "WHERE status = 'complete' AND inherited_from IS NULL AND uploaded_at IS NOT NULL AND total IS NOT NULL "
         "ORDER BY finished_at DESC"
     ).fetchall()
-    seen, seconds = set(), []
+    seen, timings = set(), []
     for row in rows:
         if row["commit_sha"] in seen:
             continue
         seen.add(row["commit_sha"])
-        seconds.append(row["total"] / 1e9)
-        if len(seconds) >= limit:
+        try:
+            phases = {name: value / 1e9 for name, value in json.loads(row["phases"] or "{}").items()}
+        except (ValueError, AttributeError, TypeError):
+            phases = {}
+        timings.append({**phases, "total": row["total"] / 1e9})
+        if len(timings) >= limit:
             break
-    return seconds
+    return timings
+
+
+def recent_commit_seconds(database: Database, limit: int = ESTIMATE_SAMPLE) -> List[float]:
+    """Wall clock of the newest commits this machine measured and uploaded, newest first."""
+    return [timing["total"] for timing in recent_commit_timings(database, limit)]
+
+
+#: The phases of a run in the order they happen. ``prepare`` and ``upload``
+#: wrap the commit and are not part of its recorded timing.
+PHASES = ("prepare", "toolchain_check", "worktree", "compiler_build", "aihc_store", "compile", "measure", "upload")
+
+PHASE_NAMES = {
+    "prepare": "refreshing package lists",
+    "toolchain_check": "checking the toolchains",
+    "worktree": "checking out",
+    "compiler_build": "building the compiler",
+    "aihc_store": "preparing AIHC stores",
+    "compile": "compiling",
+    "measure": "measuring",
+    "upload": "uploading",
+}
+
+
+def phase_medians(timings: List[Dict[str, float]]) -> Dict[str, float]:
+    """The median seconds of every phase across ``timings``, a phase missing from one counting as zero there."""
+    if not timings:
+        return {}
+    names = {name for timing in timings for name in timing if name != "total"}
+    return {name: statistics.median(timing.get(name, 0.0) for timing in timings) for name in names}
+
+
+def estimate_progress(
+    state: Optional[Dict[str, Any]], elapsed: float, medians: Dict[str, float], now: float
+) -> Tuple[Optional[float], Optional[float]]:
+    """The fraction of the commit done and the seconds left, from where the run is and how long phases take.
+
+    A phase with a cell count is as far along as its cells; one without is
+    as far along as its usual length says, never past 95%. Without a phase
+    history it falls back on the elapsed time against the usual total, and
+    with nothing to go on it says nothing.
+    """
+    total = sum(medians.values())
+    if not total:
+        return None, None
+    phase = (state or {}).get("phase")
+    if phase not in PHASES or not any(name in medians for name in PHASES):
+        done_seconds = min(elapsed, total * 0.95)
+        return done_seconds / total, max(total - elapsed, 0.0)
+    index = PHASES.index(phase)
+    before = sum(medians.get(name, 0.0) for name in PHASES[:index])
+    after = sum(medians.get(name, 0.0) for name in PHASES[index + 1 :])
+    usual = medians.get(phase, 0.0)
+    in_phase = max(now - float(state.get("phase_started") or now), 0.0)
+    if state.get("total"):
+        fraction = state["done"] / state["total"]
+        if fraction > 0 and in_phase > 0:
+            # The cells so far say how fast this commit goes.
+            left_here = in_phase / fraction * (1 - fraction)
+        else:
+            left_here = usual
+    else:
+        fraction = min(in_phase / usual, 0.95) if usual else 0.0
+        left_here = max(usual - in_phase, 0.0)
+    return min((before + fraction * usual) / total, 1.0), left_here + after
+
+
+def progress_bar(fraction: float, width: int = 20) -> str:
+    filled = int(round(fraction * width))
+    return "[" + "#" * filled + "-" * (width - filled) + "]"
+
+
+# ---------------------------------------------------------------------------
+# Disk
+
+
+def directory_sizes(directory: Path) -> Dict[str, int]:
+    """Bytes under each entry of ``directory``, from one ``du`` call."""
+    if not directory.is_dir():
+        return {}
+    entries = [str(entry) for entry in sorted(directory.iterdir())]
+    if not entries:
+        return {}
+    try:
+        output = subprocess.run(
+            ["du", "-sk", *entries], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=600, check=False
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    sizes = {}
+    for line in output.splitlines():
+        kilobytes, _, path = line.partition("\t")
+        if kilobytes.isdigit():
+            sizes[Path(path).name] = int(kilobytes) * 1024
+    return sizes
+
+
+def format_bytes(value: float) -> str:
+    for unit, scale in (("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("kB", 1e3)):
+        if value >= scale:
+            return f"{value / scale:.1f} {unit}"
+    return f"{value:.0f} B"
+
+
+#: Below this much free space a run is likely to fail partway through.
+LOW_DISK_BYTES = 20e9
+
+
+class DiskUsage:
+    """What the suite keeps on disk and what is left, measured in the background.
+
+    ``du`` over the caches takes a while once they hold many commits' stores,
+    so it never holds up the loop; the last result is shown until a fresh one
+    is in.
+    """
+
+    def __init__(self, root: Path, state: Path):
+        self.root = root
+        self.state = state
+        self.cache: Optional[Dict[str, int]] = None
+        self.state_bytes: Optional[int] = None
+        self.measuring = False
+        self.version = 0
+        self.thread: Optional[threading.Thread] = None
+        self.lock = threading.Lock()
+
+    def refresh(self) -> None:
+        with self.lock:
+            if self.measuring:
+                return
+            self.measuring = True
+
+        def measure() -> None:
+            try:
+                cache = directory_sizes(self.root / ".cache")
+                state = sum(directory_sizes(self.state).values())
+                with self.lock:
+                    self.cache, self.state_bytes = cache, state
+                    self.version += 1
+            finally:
+                with self.lock:
+                    self.measuring = False
+
+        self.thread = threading.Thread(target=measure, daemon=True)
+        self.thread.start()
+
+    def wait(self) -> None:
+        if self.thread:
+            self.thread.join()
+
+    def lines(self) -> List[str]:
+        # Keyed by size and free space as well as device: on macOS /nix is
+        # its own APFS volume, sharing the container -- and the free space --
+        # of the checkout's.
+        filesystems: Dict[Any, Tuple[List[str], Any]] = {}
+        for label, path in (("this checkout", self.root), ("/nix", Path("/nix"))):
+            try:
+                usage = shutil.disk_usage(path)
+            except OSError:
+                continue
+            filesystems.setdefault((usage.total, usage.free), ([], usage))[0].append(label)
+        with self.lock:
+            cache, state = self.cache, self.state_bytes
+        if cache is None:
+            used = "measuring .cache and .state ..."
+        else:
+            largest = sorted(cache.items(), key=lambda item: item[1], reverse=True)[:3]
+            parts = ", ".join(f"{name} {format_bytes(size)}" for name, size in largest if size)
+            used = f".cache {format_bytes(sum(cache.values()))}" + (f" ({parts})" if parts else "") + f", .state {format_bytes(state or 0)}"
+        lines = [f"disk       {used}"]
+        for labels, usage in filesystems.values():
+            lines.append(
+                f"           {format_bytes(usage.free)} free of {format_bytes(usage.total)} on the disk holding {' and '.join(labels)}"
+                f" ({usage.used / usage.total:.0%} used)"
+            )
+            if usage.free < LOW_DISK_BYTES:
+                lines.append(f"           warning: under {format_bytes(LOW_DISK_BYTES)} free; a run may fail partway through")
+        return lines
 
 
 def published_commit_seconds(server_url: str, machine_id: str) -> Optional[float]:
@@ -436,6 +620,8 @@ class Watcher:
         self.display = display or Display()
         self.schedule = Schedule(database.path.parent / "schedule.json")
         self.lock_path = database.path.parent / "run.lock"
+        self.progress_path = database.path.parent / "progress.json"
+        self.disk = DiskUsage(root, database.path.parent)
         self.checkout = Checkout(root)
         self.snapshot: Dict[str, Any] = {}
         self.printed: List[str] = []
@@ -459,7 +645,8 @@ class Watcher:
         terminal = merge_terminal_attempts(by_experiment)
         commits = self.database.commits()
         plan = build_plan(commits, terminal)
-        durations = recent_commit_seconds(self.database)
+        timings = recent_commit_timings(self.database)
+        durations = [timing["total"] for timing in timings]
         if durations:
             seconds: Optional[float] = statistics.median(durations)
             source = f"median of the last {len(durations)} commit{'s' if len(durations) != 1 else ''} this machine uploaded"
@@ -479,7 +666,9 @@ class Watcher:
             "remaining": remaining_commits(commits, terminal),
             "seconds": seconds,
             "source": source,
+            "phases": phase_medians(timings),
         }
+        self.disk.refresh()
 
     def windows(self) -> Tuple[List[Window], Optional[str]]:
         try:
@@ -557,6 +746,7 @@ class Watcher:
                 )
         elif commit:
             lines.append("estimate   none yet: this machine has uploaded no measured commit")
+        lines.extend(self.disk.lines())
         if error:
             lines.append(f"window     cannot read the schedule: {error}")
         elif windows:
@@ -597,7 +787,8 @@ class Watcher:
         seconds = snapshot["seconds"]
         eta = f", done around {format_moment(begun + timedelta(seconds=seconds), begun)}" if seconds else ""
         self.display.lines([f"starting {commit['sha'][:12]} at {begun:%H:%M}{eta}"])
-        environment = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        self.progress_path.unlink(missing_ok=True)
+        environment = {**os.environ, "PYTHONUNBUFFERED": "1", progress.ENVIRONMENT: str(self.progress_path)}
         process = subprocess.Popen(
             self.run_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", env=environment
         )
@@ -624,9 +815,9 @@ class Watcher:
                         line = output.get_nowait()
                 except queue.Empty:
                     pass
-                elapsed = time.monotonic() - started
-                left = f" · ~{format_duration(max(seconds - elapsed, 0))} left" if seconds else ""
-                self.display.status(f"benchmarking {commit['sha'][:12]} · {format_clock(elapsed)} elapsed{left}", key="running")
+                state = progress.read(self.progress_path)
+                text, key = self.progress_line(commit, time.monotonic() - started, state)
+                self.display.status(text, key=key)
                 if time.monotonic() >= next_poll:
                     # Fetch only: the running commit reads the checkout.
                     message = self.checkout.poll(apply=False)
@@ -644,6 +835,31 @@ class Watcher:
         self.display.lines([f"run finished in {format_duration(time.monotonic() - started)} (exit {code})"])
         return code
 
+    def progress_line(self, commit: Dict[str, Any], elapsed: float, state: Optional[Dict[str, Any]]) -> Tuple[str, str]:
+        """The status line of a running commit, and the key a log repeats it on."""
+        medians = self.snapshot.get("phases") or {}
+        if not medians and self.snapshot.get("seconds"):
+            medians = {"total": self.snapshot["seconds"]}
+        fraction, left = estimate_progress(state, elapsed, medians, time.time())
+        parts = [f"{commit['sha'][:12]}"]
+        if fraction is not None:
+            parts.append(f"{progress_bar(fraction)} {fraction:.0%}")
+        parts.append(f"{format_clock(elapsed)} elapsed" + (f", ~{format_duration(left)} left" if left is not None else ""))
+        phase = (state or {}).get("phase")
+        if phase:
+            step = PHASE_NAMES.get(phase, phase)
+            if state.get("total"):
+                step += f" {state['done'] + 1}/{state['total']}"
+            step += f" ({format_clock(time.time() - float(state.get('phase_started') or time.time()))})"
+            if state.get("item"):
+                step += f": {state['item']}"
+            parts.append(step)
+        key = f"running:{phase}"
+        if state and state.get("total"):
+            # A log gets a line every tenth of the cells, not every cell.
+            key += f":{state['done'] * 10 // state['total']}"
+        return " · ".join(parts), key
+
     def loop(self, once: bool = False) -> None:
         try:
             self._loop(once)
@@ -654,10 +870,16 @@ class Watcher:
         self.poll(apply=True)
         self.refresh()
         self.next_poll = time.monotonic() + self.poll_seconds
-        self.show_info(force=True)
         if once:
+            self.disk.wait()
+            self.show_info(force=True)
             return
+        self.show_info(force=True)
+        disk_version = self.disk.version
         while True:
+            if self.disk.version != disk_version:
+                disk_version = self.disk.version
+                self.show_info()
             if time.monotonic() >= self.next_poll:
                 self.poll(apply=True)
                 self.refresh()

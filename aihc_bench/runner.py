@@ -15,6 +15,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+from . import progress
 from .config import expand_command
 from .database import Database
 from .git_history import GitError, create_worktree, fetch, path_exists, remove_worktree, rev_parse
@@ -614,6 +615,7 @@ class Phases:
 
     @contextmanager
     def timing(self, name: str):
+        progress.report(name)
         start = time.perf_counter_ns()
         try:
             yield
@@ -909,7 +911,8 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
             "precompiled": cell.precompiled is not None,
         }
 
-    for cell in available:
+    for index, cell in enumerate(available):
+        progress.report("compile", index, len(available), f"{cell.benchmark['id']} {cell.configuration['id']}")
         outcomes.append(compile_one(cell))
     return outcomes
 
@@ -1049,7 +1052,8 @@ def measure_cells(
         ).digest(),
     )
     started = time.monotonic()
-    for cell, compile_result in ordered:
+    for index, (cell, compile_result) in enumerate(ordered):
+        progress.report("measure", index, len(ordered), f"{cell.benchmark['id']} {cell.configuration['id']}")
         if load_samples is not None:
             load = machine_load()
             if load is not None:
