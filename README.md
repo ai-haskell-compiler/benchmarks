@@ -199,8 +199,20 @@ A benchmark starts only when the machine may measure:
 
 Each commit is measured by its own `run --fetch --upload` process
 (`--no-upload` keeps results local), whose output streams beneath a status
-line with the elapsed and expected time. A run that fails is retried after a
-minute, doubling to at most half an hour while it keeps failing.
+line. `run` is silent for hours between "benchmarking" and "recorded", so it
+writes where it is to the file `AIHC_BENCH_PROGRESS` names -- the phase, and
+while compiling and measuring which cell of how many -- and the status line
+shows that with a progress bar, a timer for the commit and for the phase, and
+the time left. The time left weighs each phase by its median in this
+machine's recent commits, and within compiling and measuring by how fast this
+commit's own cells have gone. A run that fails is retried after a minute,
+doubling to at most half an hour while it keeps failing.
+
+It also says what the suite keeps on disk: the size of `.cache`, with its
+three largest entries, and of `.state`, measured in the background since
+`du` over many commits' stores takes a while, and the free space on the
+disks holding the checkout and `/nix`, with a warning below 20 GB, where a
+run is likely to fail partway through.
 
 `./bench` follows both repositories. Every five minutes (`--poll`) it fetches
 the compiler and replans, so a commit that lands is considered at once. It

@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import counters
+from . import counters, progress
 from .compare import CompareError, format_report, resolve_side, run_compare, select_configuration, worktree_side
 from .config import OPTIMIZATION_PROFILES, ConfigError, detect_platform, experiment_ids, load_config, suite_key
 from .database import Database
@@ -166,6 +166,7 @@ def _run(
     # not take out every GHC baseline of a benchmark (see
     # cabal_index.refresh_package_list), and AIHC's, so no measured
     # commit performs the refresh itself (see warm_hackage_index).
+    progress.report("prepare")
     list_error = refresh_package_list(config, root, float(config["measurement"]["compile_timeout_seconds"]))
     if list_error:
         print(f"warning: cabal's package list is behind, GHC baselines may not resolve: {list_error.splitlines()[0]}")
@@ -215,6 +216,7 @@ def _run(
         if inherited:
             print(f"propagated the result to {inherited} same-tree benchmark results")
         if arguments.upload:
+            progress.report("upload")
             _upload_after_commit(database, experiments, suite, platform_id, config, root)
         completed += 1
         if not arguments.all or (arguments.limit and completed >= arguments.limit):
