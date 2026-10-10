@@ -58,13 +58,20 @@ def parse_ghc_machine_readable(text: str) -> Dict[str, int]:
 
 
 def parse_aihc_json(text: str) -> Dict[str, int]:
-    """Parse the JSON object written by the AIHC runtime through ``AIHC_RTS_STATS``."""
+    """Parse the JSON object written by the AIHC runtime through ``AIHC_RTS_STATS``.
+
+    A newer schema only adds fields: the runtime moved from schema 1 to 3 by
+    adding the longest pause and the collection counts per generation, and
+    the five fields read here kept their meaning. Any schema from 1 up is
+    therefore read, and a record that lacks a field is still an error.
+    """
     try:
         record: Any = json.loads(text)
     except ValueError as error:
         raise StatsError(f"AIHC statistics are not JSON: {error}") from error
-    if not isinstance(record, dict) or record.get("schema") != 1:
-        raise StatsError("AIHC statistics must be a schema 1 object")
+    schema = record.get("schema") if isinstance(record, dict) else None
+    if isinstance(schema, bool) or not isinstance(schema, int) or schema < 1:
+        raise StatsError("AIHC statistics must be a schema object with a positive integer schema")
     try:
         return {field: int(record[field]) for field in STATS_FIELDS if field in record or field not in OPTIONAL_AIHC_FIELDS}
     except (KeyError, TypeError, ValueError) as error:
