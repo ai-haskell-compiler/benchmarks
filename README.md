@@ -208,6 +208,11 @@ machine's recent commits, and within compiling and measuring by how fast this
 commit's own cells have gone. A run that fails is retried after a minute,
 doubling to at most half an hour while it keeps failing.
 
+Once a commit has been measured, its AIHC stores, artifacts and statistics
+(`.cache/aihc-stores`, `.cache/artifacts`, `.cache/stats`) are deleted, as are
+any a crashed run left behind, so those do not grow with the number of
+commits. The compiler roots, the sysroot and the Hackage index stay.
+
 It also says what the suite keeps on disk: the size of `.cache`, with its
 three largest entries, and of `.state`, measured in the background since
 `du` over many commits' stores takes a while, and the free space on the
