@@ -1,0 +1,15 @@
+cabal-version: 2.4
+name: exact-convex-hull
+version: 0.1.0.0
+synopsis: AIHC benchmark: Exact convex hull computation
+license: NONE
+build-type: Simple
+
+executable exact-convex-hull
+  main-is: Main.hs
+  other-modules:
+    Fixtures
+    Hull
+
+  build-depends: base
+  default-language: Haskell2010
