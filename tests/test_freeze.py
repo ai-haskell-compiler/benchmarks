@@ -26,8 +26,10 @@ class FreezeTests(unittest.TestCase):
         self.assertEqual(parse_freeze_flags(REPO_ROOT / "benchmarks" / "sha-digest" / "cabal.project.freeze")["SHA"], "-exe")
 
     def test_base_only_benchmark_depends_on_base_alone(self):
-        source = REPO_ROOT / "benchmarks" / "integer-factorial"
-        self.assertEqual(parse_build_depends(source / "integer-factorial.cabal"), ["base"])
+        for name in ("rsa-verify", "exact-convex-hull"):
+            with self.subTest(name=name):
+                source = REPO_ROOT / "benchmarks" / name
+                self.assertEqual(parse_build_depends(source / f"{name}.cabal"), ["base"])
 
     def test_non_boot_dependencies_are_pinned_in_the_cabal_file(self):
         """aihc build resolves from the .cabal, not the freeze file.

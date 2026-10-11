@@ -1,0 +1,15 @@
+cabal-version: 2.4
+name: rsa-verify
+version: 0.1.0.0
+synopsis: AIHC benchmark: RSA signature verification
+license: NONE
+build-type: Simple
+
+executable rsa-verify
+  main-is: Main.hs
+  other-modules:
+    Fixtures
+    Rsa
+
+  build-depends: base
+  default-language: Haskell2010
