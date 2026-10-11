@@ -17,6 +17,7 @@ from aihc_bench.toolchain import Compiler, CompilerDoesNotBuild
 from aihc_bench.runner import (
     INDEX_WARM_AGE_SECONDS,
     _archive_store,
+    remove_commit_data,
     _restore_store,
     _configured_aihc_builds,
     _prepare_aihc_store,
@@ -1461,3 +1462,19 @@ class SilentBenchmarkTests(unittest.TestCase):
     def test_other_benchmarks_are_judged_separately(self):
         results = [self._cell("cpp", "validation_failed"), self._cell("snappy", "converged")]
         self.assertEqual(sorted(unmeasured_benchmarks(results, ["cpp", "snappy"])), ["cpp"])
+
+
+class RemoveCommitDataTests(unittest.TestCase):
+    def test_removes_per_commit_data_and_keeps_shared_caches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("aihc-stores", "artifacts", "stats", "gcroots", "wasi-sysroot-34.0"):
+                (root / ".cache" / name / "x").mkdir(parents=True)
+            remove_commit_data(root)
+            self.assertEqual(
+                sorted(path.name for path in (root / ".cache").iterdir()), ["gcroots", "wasi-sysroot-34.0"]
+            )
+
+    def test_missing_cache_is_fine(self):
+        with tempfile.TemporaryDirectory() as directory:
+            remove_commit_data(Path(directory))

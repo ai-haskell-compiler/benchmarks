@@ -134,6 +134,8 @@ def run_commit(
     if not path_exists(aihc_repository, commit["sha"], config["aihc_compiler_marker"]):
         return unavailable("no_compiler")
 
+    # A crashed earlier run leaves its store and artifacts behind.
+    remove_commit_data(root)
     phases = Phases()
     previous_environment = {name: os.environ.get(name) for name in ("AIHC_WASM_SYSROOT", "PATH")}
     try:
@@ -213,6 +215,19 @@ def run_commit(
             else:
                 os.environ[name] = value
         remove_worktree(aihc_repository, worktree)
+        remove_commit_data(root)
+
+
+#: Directories under ``.cache`` that only matter while one commit is measured.
+#: Everything a result needs has been copied into the envelope by then, so
+#: they are deleted when the commit finishes, keeping disk use constant.
+COMMIT_DATA_DIRECTORIES = ("aihc-stores", "artifacts", "stats")
+
+
+def remove_commit_data(root: Path) -> None:
+    """Delete the AIHC stores, build artifacts and statistics of a finished commit."""
+    for name in COMMIT_DATA_DIRECTORIES:
+        shutil.rmtree(root / ".cache" / name, ignore_errors=True)
 
 
 def compiler_root(root: Path, name: str = "aihc") -> Path:
