@@ -40,7 +40,7 @@ def configuration(identifier, family="aihc", profile="O2", backend="native"):
 
 CONFIG = {
     "platforms": {"test-platform": {"aihc_native_target": "test-native"}},
-    "measurement": {"process_timeout_seconds": 5, "compile_timeout_seconds": 5, "relative_threshold": 0.01, "maximum_bucket_size": 4},
+    "measurement": {"process_timeout_seconds": 5, "compile_timeout_seconds": 5, "runs": 5},
     "benchmarks": [
         {"id": "fib", "package": "fib", "source": "fib.hs", "expected_stdout": "ok\n"},
         {"id": "fact", "package": "fact", "source": "fact.hs", "expected_stdout": "ok\n"},

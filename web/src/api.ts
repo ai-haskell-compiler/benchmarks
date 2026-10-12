@@ -517,8 +517,11 @@ export interface Failure {
   message: string;
 }
 
-/** Measurement statuses that carry numbers; anything else after a successful compile is a failure. */
-const MEASURED_STATUSES = new Set(["converged", "nonconverged", "budget"]);
+/**
+ * Measurement statuses that carry numbers; anything else after a successful compile is a failure.
+ * Runs now end "measured"; the rest are from the bucket escalation that preceded it, in older envelopes.
+ */
+const MEASURED_STATUSES = new Set(["measured", "converged", "nonconverged", "budget"]);
 const MESSAGE_LENGTH = 300;
 
 interface EnvelopeResult {

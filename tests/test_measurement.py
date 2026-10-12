@@ -1,9 +1,8 @@
 import itertools
 import unittest
-import unittest.mock
 from pathlib import Path
 
-from aihc_bench.measurement import compile_metrics, measure_adaptively, relative_difference
+from aihc_bench.measurement import compile_metrics, measure
 from aihc_bench.process import ProcessMeasurement
 
 
@@ -41,44 +40,56 @@ def metric(result, name):
 
 
 class MeasurementTests(unittest.TestCase):
-    def test_symmetric_relative_difference(self):
-        self.assertAlmostEqual(relative_difference(99, 101), 0.02)
-
-    def test_converges_after_initial_three_runs(self):
-        result = measure_adaptively(
-            ["unused"], Path("."), b"ok\n", 1, 0.01, 64, invoke=FakeRunner([100, 100, 100])
-        )
-        self.assertEqual(result["status"], "converged")
-        self.assertEqual(result["bucket_sizes"], [1, 2])
+    def test_runs_the_configured_number_of_times(self):
+        result = measure(["unused"], Path("."), b"ok\n", 1, 3, invoke=FakeRunner([100, 100, 100]))
+        self.assertEqual(result["status"], "measured")
         self.assertEqual(len(result["samples"]), 3)
         self.assertEqual(metric(result, "wall_time")["estimate"], 100)
         self.assertEqual(metric(result, "cpu_time")["estimate"], 50)
         self.assertEqual(metric(result, "peak_rss")["estimate"], 8_388_608)
 
-    def test_wall_time_estimate_is_the_median_of_stable_buckets(self):
-        result = measure_adaptively(
-            ["unused"], Path("."), b"ok\n", 1, 0.6, 64, invoke=FakeRunner([100, 100, 1000, 100, 100, 100, 1000])
-        )
-        self.assertEqual(result["bucket_sizes"], [1, 2, 4])
+    def test_wall_time_estimate_is_the_quickest_run(self):
+        """Interference only slows a run down, so one stalled invocation, or
+        four, does not move the estimate."""
+        result = measure(["unused"], Path("."), b"ok\n", 1, 5, invoke=FakeRunner([400, 130, 100, 1000, 120]))
         self.assertEqual(metric(result, "wall_time")["estimate"], 100)
+        self.assertEqual(metric(result, "wall_time")["samples"], [400, 130, 100, 1000, 120])
 
-    def test_doubles_buckets_and_stops_at_limit(self):
-        result = measure_adaptively(
-            ["unused"], Path("."), b"ok\n", 1, 0.01, 4,
-            invoke=FakeRunner([100, 200, 200, 400, 400, 400, 400]),
-        )
-        self.assertEqual(result["status"], "nonconverged")
-        self.assertEqual(result["bucket_sizes"], [1, 2, 4])
-        self.assertEqual(len(result["samples"]), 7)
+    def test_memory_estimate_is_the_median(self):
+        runner = FakeRunner([100, 100, 100])
+        original = runner.__call__
+        sizes = iter([30, 10, 20])
+
+        def growing(command, cwd, timeout):
+            sample = original(command, cwd, timeout)
+            return ProcessMeasurement(**{**sample.__dict__, "peak_rss_bytes": next(sizes)})
+
+        result = measure(["unused"], Path("."), b"ok\n", 1, 3, invoke=growing)
+        self.assertEqual(metric(result, "peak_rss")["estimate"], 20)
+
+    def test_a_failure_keeps_the_samples_before_it(self):
+        runner = FakeRunner([100, 100])
+        original = runner.__call__
+        calls = itertools.count()
+
+        def fails_second(command, cwd, timeout):
+            sample = original(command, cwd, timeout)
+            if next(calls) == 1:
+                return ProcessMeasurement(**{**sample.__dict__, "exit_code": 1})
+            return sample
+
+        result = measure(["unused"], Path("."), b"ok\n", 1, 5, invoke=fails_second)
+        self.assertEqual(result["status"], "run_failed")
+        self.assertEqual(len(result["samples"]), 1)
 
     def test_runtime_stats_are_unavailable_without_a_hook(self):
-        result = measure_adaptively(["unused"], Path("."), b"ok\n", 1, 0.01, 64, invoke=FakeRunner([100, 100, 100]))
+        result = measure(["unused"], Path("."), b"ok\n", 1, 3, invoke=FakeRunner([100, 100, 100]))
         self.assertEqual(metric(result, "peak_heap")["status"], "unavailable")
         self.assertIsNone(metric(result, "allocated_bytes")["estimate"])
 
     def test_runtime_stats_become_metrics(self):
-        result = measure_adaptively(
-            ["unused"], Path("."), b"ok\n", 1, 0.01, 64, invoke=FakeRunner([100, 100, 100], stats=STATS)
+        result = measure(
+            ["unused"], Path("."), b"ok\n", 1, 3, invoke=FakeRunner([100, 100, 100], stats=STATS)
         )
         self.assertEqual(metric(result, "peak_heap")["estimate"], 4096)
         self.assertEqual(metric(result, "allocated_bytes")["status"], "ok")
@@ -89,25 +100,25 @@ class MeasurementTests(unittest.TestCase):
 
     def test_longest_gc_pause_becomes_a_metric(self):
         stats = dict(STATS, gc_max_pause_ns=250)
-        result = measure_adaptively(["unused"], Path("."), b"ok\n", 1, 0.01, 64, invoke=FakeRunner([100, 100, 100], stats=stats))
+        result = measure(["unused"], Path("."), b"ok\n", 1, 3, invoke=FakeRunner([100, 100, 100], stats=stats))
         self.assertEqual(metric(result, "gc_max_pause")["estimate"], 250)
 
     def test_hardware_counts_become_metrics(self):
-        result = measure_adaptively(
-            ["unused"], Path("."), b"ok\n", 1, 0.01, 64, invoke=FakeRunner([100, 100, 100], counts=(9_000, 3_000))
+        result = measure(
+            ["unused"], Path("."), b"ok\n", 1, 3, invoke=FakeRunner([100, 100, 100], counts=(9_000, 3_000))
         )
         self.assertEqual(metric(result, "instructions")["estimate"], 9_000)
         self.assertEqual(metric(result, "cycles")["estimate"], 3_000)
         self.assertEqual(result["samples"][0]["instructions"], 9_000)
 
     def test_hardware_counts_are_unavailable_without_counters(self):
-        result = measure_adaptively(["unused"], Path("."), b"ok\n", 1, 0.01, 64, invoke=FakeRunner([100, 100, 100]))
+        result = measure(["unused"], Path("."), b"ok\n", 1, 3, invoke=FakeRunner([100, 100, 100]))
         self.assertEqual(metric(result, "instructions")["status"], "unavailable")
         self.assertEqual(metric(result, "cycles")["status"], "unavailable")
 
     def test_deterministic_metric_disagreement_is_recorded(self):
-        result = measure_adaptively(
-            ["unused"], Path("."), b"ok\n", 1, 0.01, 64,
+        result = measure(
+            ["unused"], Path("."), b"ok\n", 1, 3,
             invoke=FakeRunner([100, 100, 100], stats=STATS, allocations=[10, 10, 11]),
         )
         self.assertEqual(metric(result, "allocated_bytes")["status"], "nondeterministic")
@@ -120,7 +131,7 @@ class MeasurementTests(unittest.TestCase):
             sample = original(command, cwd, timeout)
             return ProcessMeasurement(**{**sample.__dict__, "stdout": b"wrong\n"})
 
-        result = measure_adaptively(["unused"], Path("."), b"ok\n", 1, 0.01, 2, invoke=wrong_output)
+        result = measure(["unused"], Path("."), b"ok\n", 1, 3, invoke=wrong_output)
         self.assertEqual(result["status"], "validation_failed")
 
     def test_compile_metrics_follow_the_compile_result(self):
@@ -134,56 +145,3 @@ class MeasurementTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
-
-class CellBudgetTests(unittest.TestCase):
-    """An invocation costs ten milliseconds in the integer benchmarks and ten
-    seconds in aihc-cpp-stackage, so the same escalation is a second for one
-    and twenty-one minutes for the other."""
-
-    def _never_converges(self):
-        # Rising times, so each bucket's mean is well above the previous one.
-        # Alternating values do NOT work: [1, 2] repeated gives successive
-        # buckets the same mean, which converges on the first comparison.
-        return FakeRunner((n * 1_000_000 for n in itertools.count(1)))
-
-    def test_a_cheap_cell_still_escalates_to_the_limit(self):
-        """The budget must not take precision away from cells that are cheap;
-        that is what a smaller maximum_bucket_size would have done."""
-        result = measure_adaptively(
-            ["x"], Path("."), b"ok\n", 10, 0.01, 64, invoke=self._never_converges(), cell_budget_seconds=60
-        )
-        self.assertEqual(result["bucket_sizes"], [1, 2, 4, 8, 16, 32, 64])
-        self.assertEqual(result["status"], "nonconverged")
-
-    def test_an_expensive_cell_stops_when_its_budget_is_spent(self):
-        slow = FakeRunner((n * 1_000_000 for n in itertools.count(1)))
-        original = slow.__call__
-
-        def crawl(command, cwd, timeout):
-            crawl.spent += 20.0
-            return original(command, cwd, timeout)
-
-        crawl.spent = 0.0
-        clock = lambda: crawl.spent
-        import aihc_bench.measurement as measurement
-
-        with unittest.mock.patch.object(measurement.time, "perf_counter", clock):
-            result = measure_adaptively(
-                ["x"], Path("."), b"ok\n", 10, 0.01, 64, invoke=crawl, cell_budget_seconds=60
-            )
-        self.assertEqual(result["status"], "budget")
-        self.assertLess(sum(result["bucket_sizes"]), 127)
-
-    def test_zero_budget_keeps_the_old_behaviour(self):
-        result = measure_adaptively(
-            ["x"], Path("."), b"ok\n", 10, 0.01, 64, invoke=self._never_converges(), cell_budget_seconds=0
-        )
-        self.assertEqual(result["status"], "nonconverged")
-
-    def test_convergence_still_wins_over_the_budget(self):
-        steady = FakeRunner(itertools.repeat(1_000_000))
-        result = measure_adaptively(
-            ["x"], Path("."), b"ok\n", 10, 0.01, 64, invoke=steady, cell_budget_seconds=60
-        )
-        self.assertEqual(result["status"], "converged")
-        self.assertEqual(result["bucket_sizes"], [1, 2])

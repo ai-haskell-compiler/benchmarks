@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from . import SCHEMA_VERSION
 from .database import Database
+from .measurement import MEASURED_STATUSES
 from .schema import utc_now
 
 COMMIT_CHUNK = 500
@@ -276,7 +277,7 @@ def run_statements(envelope: Dict[str, Any], key: str) -> List[str]:
         measurement = result.get("measurement", {})
         for metric in measurement.get("metrics", []):
             estimate = metric.get("estimate")
-            if measurement.get("status") in ("converged", "nonconverged"):
+            if measurement.get("status") in MEASURED_STATUSES:
                 status = "unavailable" if estimate is None else metric.get("status", "ok")
             else:
                 status = measurement.get("status", "unavailable")

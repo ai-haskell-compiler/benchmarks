@@ -256,7 +256,6 @@ results[]
   compile                 status, wall_time_ns, artifact_bytes, cached
   measurement
     status
-    bucket_sizes
     samples[]             wall_time_ns, cpu_time_ns, peak_rss_bytes,
                           peak_heap_bytes, allocated_bytes, gc_count, gc_time_ns,
                           gc_max_pause_ns, instructions, cycles
@@ -288,10 +287,12 @@ found with a kqueue `NOTE_EXIT`, and `proc_pid_rusage(RUSAGE_INFO_V4)` gives
 multiplexed Linux counter, a machine without counters and a timed-out process
 all record the metrics unavailable.
 
-Wall-time bucket sizes are 1, 2, 4, 8, 16, 32, and 64. Adjacent means converge
-when their symmetric relative difference is at most 1%. Every published
-estimate is the median of the final two wall-time buckets. Failure and
-non-convergence preserve all samples.
+Every cell runs `measurement.runs` times (five), and a completed measurement
+has status `measured`. The estimate for `wall_time`, `cpu_time`, `gc_time`,
+`instructions` and `cycles` is the lowest sample, since interference only
+adds to them; every other metric's is the median. Failures preserve the
+samples taken before them. Envelopes from before the fixed count carry
+`converged`, `nonconverged` or `budget` instead and still count as measured.
 
 ### Runtime statistics
 
