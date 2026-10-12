@@ -443,6 +443,36 @@ release's `ghc/`, `src/MicroHs`, `src/Text` and `src/runtime/MachDeps.h`,
 update the module list in the `.cabal` file from the release's, and
 regenerate the freeze file, `aihc.lock` and the expected output.
 
+## String metrics
+
+`string-metrics-v1` runs every function of
+[`text-metrics`](https://hackage.haskell.org/package/text-metrics-0.3.3)
+over a fixed list of word pairs: `levenshtein`, `levenshteinNorm`,
+`damerauLevenshtein`, `damerauLevenshteinNorm`, `overlap`, `jaccard`,
+`hamming`, `jaro` and `jaroWinkler`. The words are 40 to 64 characters long,
+drawn by a seeded generator from sixteen ASCII letters and four characters
+outside ASCII, so the library's UTF-8 iteration sees code points of one, two
+and three bytes. Two pairs in three are a word and an edited copy of it (a
+few substitutions, adjacent transpositions, insertions and deletions); the
+third is two unrelated words. The results are folded into an FNV-1a
+checksum, and the program prints `ok` only when the checksum matches the one
+a GHC build produces for that profile, so a miscompiled library fails the
+run instead of producing a number.
+
+The library's work is in `Data.Text` iteration, mutable unboxed arrays
+(`primitive` and `vector`), `Data.Map.Strict` and `Ratio Int` arithmetic.
+Three of the metrics are quadratic in the word length (Levenshtein,
+Damerau-Levenshtein and Jaro each fill a dynamic-programming table of
+`|a| * |b|` cells), `overlap` and `jaccard` build a character-count map per
+word, and `hamming` is linear. The pair count is per profile, sized so an
+AIHC native build takes about half a second on an Apple M1: 33 pairs at
+`-O0`, 32 at `-O1`, 76 at `-Os` and 420 at `-O2`. GHC `-O2` takes about
+0.04 seconds for the `-O2` count.
+
+To resize a profile, build the benchmark and run it with `--print <pairs>`,
+which prints the checksum for that many pairs, and copy the count and
+checksum into `work` in `Main.hs`.
+
 ## Comparing two builds
 
 ```console
