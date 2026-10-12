@@ -427,11 +427,11 @@ class RunnerTests(unittest.TestCase):
             self.assertTrue(by_id["ghc-native-O2"]["stripped"])
             self.assertGreater(by_id["ghc-native-O2"]["wall_time_ns"], 0)
 
-            def fake_measure(command, cwd, expected, timeout, threshold, maximum, invoke, cell_budget_seconds=0.0):
-                return {"status": "converged", "metrics": [{"metric": "wall_time", "unit": "ns", "status": "ok", "estimate": 1, "samples": [1]}]}
+            def fake_measure(command, cwd, expected, timeout, runs, invoke):
+                return {"status": "measured", "metrics": [{"metric": "wall_time", "unit": "ns", "status": "ok", "estimate": 1, "samples": [1]}]}
 
-            with patch("aihc_bench.runner.measure_adaptively", side_effect=fake_measure):
-                results = {result["configuration"]: result for result in measure_cells(compiled, root, {"process_timeout_seconds": 1, "relative_threshold": 0.01, "maximum_bucket_size": 2})}
+            with patch("aihc_bench.runner.measure", side_effect=fake_measure):
+                results = {result["configuration"]: result for result in measure_cells(compiled, root, {"process_timeout_seconds": 1, "runs": 2})}
             self.assertEqual(results["ghc-native-O2"]["optimization"], "O2")
             self.assertEqual([item["metric"] for item in results["ghc-native-O2"]["measurement"]["metrics"]], ["wall_time", "compile_time", "artifact_size"])
 
@@ -1149,7 +1149,7 @@ class BaselineReuseTests(unittest.TestCase):
 
         return Stub()
 
-    def _ghc(self, configuration="ghc-9.14.1-native-O2", status="converged"):
+    def _ghc(self, configuration="ghc-9.14.1-native-O2", status="measured"):
         return {
             "benchmark": "example",
             "configuration": configuration,
@@ -1181,7 +1181,8 @@ class BaselineReuseTests(unittest.TestCase):
         """A failure is a question about this machine now.
 
         The statuses here are the ones the runner really produces: a
-        measurement ends converged, nonconverged or budget, and anything else
+        measurement ends measured (converged, nonconverged or budget before
+        runs were a fixed count), and anything else
         names a failure. A fixture that invents "ok" passes against a
         predicate that never matches a real result.
         """
@@ -1193,8 +1194,8 @@ class BaselineReuseTests(unittest.TestCase):
                 )
 
     def test_every_completed_status_is_reusable(self):
-        """A cell that exhausted its buckets or its budget still measured."""
-        for status in ("converged", "nonconverged", "budget"):
+        """Results recorded before runs were a fixed count still measured."""
+        for status in ("measured", "converged", "nonconverged", "budget"):
             with self.subTest(status=status):
                 database = self._database([self._ghc(status=status)])
                 self.assertEqual(
@@ -1387,10 +1388,10 @@ class ContentionTests(unittest.TestCase):
         )
         samples: list = []
         with patch("aihc_bench.runner.machine_load", return_value=4.5), patch(
-            "aihc_bench.runner.measure_adaptively", return_value={"status": "converged", "metrics": []}
+            "aihc_bench.runner.measure", return_value={"status": "measured", "metrics": []}
         ):
             measure_cells([(cell, {"status": "compiled"})], Path("/tmp"), {
-                "process_timeout_seconds": 1, "relative_threshold": 0.01, "maximum_bucket_size": 2
+                "process_timeout_seconds": 1, "runs": 2
             }, samples)
         self.assertEqual([load for _, load in samples], [4.5])
         self.assertLess(samples[0][0], 1.0)
@@ -1446,11 +1447,11 @@ class SilentBenchmarkTests(unittest.TestCase):
     def test_one_measured_cell_is_enough_to_stay_quiet(self):
         """A partially broken benchmark still publishes, so it is visible and
         not this problem."""
-        results = [self._cell("cpp", "validation_failed"), self._cell("cpp", "converged")]
+        results = [self._cell("cpp", "validation_failed"), self._cell("cpp", "measured")]
         self.assertEqual(unmeasured_benchmarks(results, ["cpp"]), {})
 
     def test_every_completed_status_counts_as_measured(self):
-        for status in ("converged", "nonconverged", "budget"):
+        for status in ("measured", "converged", "nonconverged", "budget"):
             with self.subTest(status=status):
                 self.assertEqual(unmeasured_benchmarks([self._cell("cpp", status)], ["cpp"]), {})
 
@@ -1460,7 +1461,7 @@ class SilentBenchmarkTests(unittest.TestCase):
         self.assertEqual(unmeasured_benchmarks([], ["cpp"]), {})
 
     def test_other_benchmarks_are_judged_separately(self):
-        results = [self._cell("cpp", "validation_failed"), self._cell("snappy", "converged")]
+        results = [self._cell("cpp", "validation_failed"), self._cell("snappy", "measured")]
         self.assertEqual(sorted(unmeasured_benchmarks(results, ["cpp", "snappy"])), ["cpp"])
 
 

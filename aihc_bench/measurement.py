@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import statistics
-import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
@@ -28,78 +27,60 @@ INVOCATION_METRIC_NAMES = frozenset(name for name, _unit, _field, _deterministic
 RUNTIME_STATS_METRICS = {"peak_heap", "allocated_bytes", "gc_count", "gc_time", "gc_max_pause"}
 
 
-#: Statuses a measurement that ran to completion can carry. The escalation
-#: ends by converging, by exhausting its buckets, or by spending its time
-#: budget; anything else is a failure and names what went wrong.
-MEASURED_STATUSES = frozenset({"converged", "nonconverged", "budget"})
+#: Metrics whose estimate is the lowest sample rather than the median. The
+#: programs are deterministic and measured one at a time, so noise in these
+#: only ever adds: another process, a cold cache or a lowered clock makes a
+#: run slower, never faster, and the quickest run is the closest to what the
+#: program itself costs. Peak memory and the longest GC pause are not costs
+#: that interference inflates the same way, so they keep the median.
+FASTEST_METRICS = frozenset({"wall_time", "cpu_time", "gc_time", "instructions", "cycles"})
+
+#: Statuses a measurement that ran to completion can carry. Every run now
+#: ends ``measured``; the others name how the adaptive bucket escalation
+#: that preceded it ended, and are kept so envelopes recorded before the
+#: change still read as measured.
+MEASURED_STATUSES = frozenset({"measured", "converged", "nonconverged", "budget"})
 
 
-def relative_difference(left: float, right: float) -> float:
-    midpoint = (left + right) / 2.0
-    if midpoint == 0:
-        return 0.0 if left == right else float("inf")
-    return abs(left - right) / midpoint
-
-
-def measure_adaptively(
+def measure(
     command: Iterable[str],
     cwd: Path,
     expected_stdout: bytes,
     timeout_seconds: float,
-    relative_threshold: float,
-    maximum_bucket_size: int,
+    runs: int,
     invoke: Callable[[Iterable[str], Path, float], ProcessMeasurement] = run_measured,
-    cell_budget_seconds: float = 0.0,
 ) -> Dict[str, Any]:
-    """Measure until the mean settles, the buckets run out, or time does.
+    """Run the program ``runs`` times and keep every sample.
 
-    Doubling the bucket costs whatever an invocation costs, and that varies
-    by four orders of magnitude between benchmarks here: the integer
-    benchmarks run in about ten milliseconds, so the full escalation to 127
-    invocations costs a second and buys precision cheaply. ``aihc-cpp-stackage``
-    takes about ten seconds an invocation, where the same escalation is
-    twenty-one minutes for one cell, and a third of cells never converge.
-
-    ``cell_budget_seconds`` bounds that without taking the precision away
-    from the cheap cells the way a smaller ``maximum_bucket_size`` would: the
-    escalation stops once a cell has spent its budget, and the samples
-    already collected are the result.
+    A fixed count makes a cell cost a known multiple of one invocation, so
+    the time a commit takes is known before it starts. The estimate for the
+    time-like metrics is the quickest run (see ``FASTEST_METRICS``), which
+    needs no convergence test to be stable.
     """
-    buckets: List[List[Dict[str, Any]]] = []
-    bucket_size = 1
-    started = time.perf_counter()
+    samples: List[Dict[str, Any]] = []
     output_hash = sha256_bytes(expected_stdout)
     stats_error: Optional[str] = None
 
-    while bucket_size <= maximum_bucket_size:
-        bucket: List[Dict[str, Any]] = []
-        for _ in range(bucket_size):
-            sample = invoke(command, cwd, timeout_seconds)
-            if sample.timed_out:
-                return _failure("timed_out", buckets, bucket, sample)
-            if sample.exit_code != 0:
-                return _failure("run_failed", buckets, bucket, sample)
-            if sample.stdout != expected_stdout:
-                return _failure("validation_failed", buckets, bucket, sample)
-            stats_error = stats_error or sample.stats_error
-            bucket.append(_sample_record(sample))
-        buckets.append(bucket)
+    for _ in range(runs):
+        sample = invoke(command, cwd, timeout_seconds)
+        if sample.timed_out:
+            return _failure("timed_out", samples, sample)
+        if sample.exit_code != 0:
+            return _failure("run_failed", samples, sample)
+        if sample.stdout != expected_stdout:
+            return _failure("validation_failed", samples, sample)
+        stats_error = stats_error or sample.stats_error
+        samples.append(_sample_record(sample))
 
-        if len(buckets) >= 2:
-            previous_mean = statistics.fmean(item["wall_time_ns"] for item in buckets[-2])
-            current_mean = statistics.fmean(item["wall_time_ns"] for item in buckets[-1])
-            difference = relative_difference(previous_mean, current_mean)
-            if difference <= relative_threshold:
-                return _success("converged", buckets, output_hash, difference, stats_error)
-
-        # Checked after a whole bucket, so the budget bounds what the next one
-        # may cost rather than cutting one in half and skewing its mean.
-        if cell_budget_seconds and time.perf_counter() - started >= cell_budget_seconds:
-            return _success("budget", buckets, output_hash, None, stats_error)
-
-        bucket_size *= 2
-
-    return _success("nonconverged", buckets, output_hash, None, stats_error)
+    result: Dict[str, Any] = {
+        "status": "measured",
+        "output_sha256": output_hash,
+        "samples": samples,
+        "metrics": [_metric(name, unit, field, deterministic, samples) for name, unit, field, deterministic in INVOCATION_METRICS],
+    }
+    if stats_error:
+        result["stats_error"] = stats_error
+    return result
 
 
 def _sample_record(sample: ProcessMeasurement) -> Dict[str, Any]:
@@ -115,45 +96,16 @@ def _sample_record(sample: ProcessMeasurement) -> Dict[str, Any]:
     return record
 
 
-def _success(
-    status: str,
-    buckets: List[List[Dict[str, Any]]],
-    output_hash: str,
-    difference: Any,
-    stats_error: Optional[str],
-) -> Dict[str, Any]:
-    stable = [item for bucket in buckets[-2:] for item in bucket]
-    every = [item for bucket in buckets for item in bucket]
-    result: Dict[str, Any] = {
-        "status": status,
-        "output_sha256": output_hash,
-        "bucket_sizes": [len(bucket) for bucket in buckets],
-        "relative_difference": difference,
-        "samples": every,
-        "metrics": [_metric(name, unit, field, deterministic, stable, every) for name, unit, field, deterministic in INVOCATION_METRICS],
-    }
-    if stats_error:
-        result["stats_error"] = stats_error
-    return result
-
-
-def _metric(
-    name: str,
-    unit: str,
-    field: str,
-    deterministic: bool,
-    stable: List[Dict[str, Any]],
-    every: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+def _metric(name: str, unit: str, field: str, deterministic: bool, every: List[Dict[str, Any]]) -> Dict[str, Any]:
     samples = [item[field] for item in every]
-    stable_samples = [item[field] for item in stable]
     if any(value is None for value in samples):
         return {"metric": name, "unit": unit, "status": "unavailable", "estimate": None, "samples": []}
+    estimate = min(samples) if name in FASTEST_METRICS else round(statistics.median(samples))
     metric: Dict[str, Any] = {
         "metric": name,
         "unit": unit,
         "status": "ok",
-        "estimate": round(statistics.median(stable_samples)),
+        "estimate": estimate,
         "samples": samples,
     }
     if deterministic and len(set(samples)) > 1:
@@ -161,16 +113,10 @@ def _metric(
     return metric
 
 
-def _failure(
-    status: str,
-    completed_buckets: List[List[Dict[str, Any]]],
-    current_bucket: List[Dict[str, Any]],
-    sample: ProcessMeasurement,
-) -> Dict[str, Any]:
+def _failure(status: str, samples: List[Dict[str, Any]], sample: ProcessMeasurement) -> Dict[str, Any]:
     return {
         "status": status,
-        "bucket_sizes": [len(bucket) for bucket in completed_buckets] + ([len(current_bucket)] if current_bucket else []),
-        "samples": [item for bucket in completed_buckets for item in bucket] + current_bucket,
+        "samples": samples,
         "exit_code": sample.exit_code,
         "actual_stdout_sha256": sha256_bytes(sample.stdout),
         "stderr": sample.stderr[-8192:].decode("utf-8", errors="replace"),

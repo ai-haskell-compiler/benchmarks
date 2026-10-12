@@ -106,12 +106,9 @@ def load_config(path: Path) -> Dict[str, Any]:
     config["_runner_version"] = __version__
 
     measurement = config["measurement"]
-    maximum = int(measurement["maximum_bucket_size"])
-    if maximum < 2 or maximum & (maximum - 1):
-        raise ConfigError("maximum_bucket_size must be a power of two of at least 2")
-    threshold = float(measurement["relative_threshold"])
-    if not 0 < threshold < 1:
-        raise ConfigError("relative_threshold must be between zero and one")
+    runs = measurement.get("runs")
+    if not isinstance(runs, int) or isinstance(runs, bool) or runs < 1:
+        raise ConfigError("measurement.runs must be a positive integer")
     return config
 
 

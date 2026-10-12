@@ -49,7 +49,7 @@ def envelope(sha, run_id="run-0", inherited_from=None):
                 "backend": "native",
                 "optimization": "O2",
                 "baseline": False,
-                "measurement": {"status": "converged", "metrics": [
+                "measurement": {"status": "measured", "metrics": [
                     {"metric": "wall_time", "unit": "ns", "status": "ok", "estimate": 90, "samples": [90, 91]},
                     {"metric": "peak_heap", "unit": "byte", "status": "unavailable", "estimate": None, "samples": []},
                 ]},

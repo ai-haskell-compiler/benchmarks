@@ -194,7 +194,7 @@ describe("perf.aihc.app API", () => {
       run_id: "run-ack-4",
       aihc_commit: { sha: sha(4) },
       results: [
-        { benchmark: "ack", configuration: "aihc-native-semispace-O2", compiler_family: "aihc", backend: "native", optimization: "O2", compile: { status: "compiled" }, measurement: { status: "converged", metrics: [] } },
+        { benchmark: "ack", configuration: "aihc-native-semispace-O2", compiler_family: "aihc", backend: "native", optimization: "O2", compile: { status: "compiled" }, measurement: { status: "measured", metrics: [] } },
         {
           benchmark: "ack", configuration: "aihc-llvm-semispace-O2", compiler_family: "aihc", backend: "llvm", optimization: "O2",
           compile: { status: "compile_failed", exit_code: 1, stderr: "build  ack (executable)\naihc: user error (non-direct expression remained in a CPS bind)\n" },

@@ -492,16 +492,14 @@ never uploaded.
 
 The runner measures complete process invocations, including native startup and
 Wasmtime startup, but not Wasmtime's compilation of the module, which happens
-once before measuring (see above). It records wall time, CPU time and peak RSS for run buckets
-of 1, 2, 4, 8, 16, 32, and 64 processes, stopping when adjacent bucket means
-are within 1%, when the buckets run out, or when the cell has spent
-`cell_budget_seconds`. Doubling a bucket costs whatever an invocation costs,
-and that spans four orders of magnitude here: the integer benchmarks run in
-about ten milliseconds, so the full escalation costs a second and buys
-precision cheaply, while `aihc-cpp-stackage` takes about ten seconds an
-invocation, where the same escalation is twenty-one minutes for a single
-cell. The budget bounds the expensive cells without taking precision from
-the cheap ones, which a smaller bucket limit would. Peak heap, bytes allocated, GC count, GC time and the longest GC pause come from GHC's
+once before measuring (see above). It runs each program `measurement.runs`
+times (five) and records wall time, CPU time and peak RSS for every run. The
+published wall time, CPU time, GC time, instructions and cycles are those of
+the quickest run: the programs are deterministic and measured one at a time,
+so interference only ever slows a run down. Peak memory and the longest GC
+pause are the median. A fixed count makes a cell cost a known multiple of one
+invocation, from ten milliseconds in the integer benchmarks to ten seconds in
+`aihc-cpp-stackage`. Peak heap, bytes allocated, GC count, GC time and the longest GC pause come from GHC's
 `+RTS -t` output and from the `AIHC_RTS_STATS` hook once the AIHC runtime has
 it; the longest pause is optional in the hook, so a runtime that reports the
 rest but not it leaves only that metric unavailable.

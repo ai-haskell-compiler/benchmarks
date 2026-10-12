@@ -148,7 +148,7 @@ CREATE TABLE measurements (
   benchmark     TEXT NOT NULL,
   configuration TEXT NOT NULL,
   metric        TEXT NOT NULL,
-  status        TEXT NOT NULL,   -- converged | nonconverged | unavailable | failed
+  status        TEXT NOT NULL,   -- ok | nondeterministic | unavailable | failed
   estimate      REAL,
   sample_count  INTEGER,
   PRIMARY KEY (machine_id, experiment_id, commit_ordinal,

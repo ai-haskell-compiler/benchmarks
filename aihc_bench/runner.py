@@ -19,7 +19,7 @@ from . import progress
 from .config import expand_command
 from .database import Database
 from .git_history import GitError, create_worktree, fetch, path_exists, remove_worktree, rev_parse
-from .measurement import INVOCATION_METRIC_NAMES, MEASURED_STATUSES, compile_metrics, measure_adaptively
+from .measurement import INVOCATION_METRIC_NAMES, MEASURED_STATUSES, compile_metrics, measure
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
 from .wasm_sysroot import wasm_environment_for_commit
@@ -1095,15 +1095,13 @@ def measure_cells(
             stats_file=cell.stats_file,
             stats_format=cell.stats_format,
         )
-        measurement = measure_adaptively(
+        measurement = measure(
             cell.run_command or [],
             root,
             cell.benchmark["expected_stdout"].encode("utf-8"),
             float(cell.benchmark.get("process_timeout_seconds", measurement_config["process_timeout_seconds"])),
-            float(measurement_config["relative_threshold"]),
-            int(measurement_config["maximum_bucket_size"]),
+            int(measurement_config["runs"]),
             invoke=invoke,
-            cell_budget_seconds=float(measurement_config.get("cell_budget_seconds", 0.0)),
         )
         if "metrics" in measurement:
             measurement["metrics"].extend(compile_metrics(compile_result))
