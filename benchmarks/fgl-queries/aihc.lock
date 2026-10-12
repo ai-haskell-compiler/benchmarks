@@ -1,0 +1,46 @@
+{
+  "format": 1,
+  "compiler": "ghc-9.12.4",
+  "index-state": "2026-10-11T17:39:54Z",
+  "platforms": {
+    "linux-x86_64": [
+      {"name": "aihc-base", "version": "4.21.2.0", "source": "core"},
+      {"name": "aihc-internal", "version": "9.1204.0", "source": "core"},
+      {"name": "aihc-prim", "version": "0.13.0", "source": "core"},
+      {"name": "aihc-rts", "version": "1.0.2", "source": "core"},
+      {"name": "aihc-template-haskell", "version": "2.23.0.0", "source": "core"},
+      {"name": "array", "version": "0.5.8.0", "source": "hackage", "revision": 2},
+      {"name": "containers", "version": "0.8.1", "source": "hackage", "revision": 0},
+      {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
+      {"name": "fgl", "version": "5.8.3.0", "source": "hackage", "revision": 2, "flags": {"containers042":true}},
+      {"name": "fgl-queries", "version": "0.1.0.0", "source": "local"},
+      {"name": "transformers", "version": "0.6.3.0", "source": "hackage", "revision": 2}
+    ],
+    "osx-aarch64": [
+      {"name": "aihc-base", "version": "4.21.2.0", "source": "core"},
+      {"name": "aihc-internal", "version": "9.1204.0", "source": "core"},
+      {"name": "aihc-prim", "version": "0.13.0", "source": "core"},
+      {"name": "aihc-rts", "version": "1.0.2", "source": "core"},
+      {"name": "aihc-template-haskell", "version": "2.23.0.0", "source": "core"},
+      {"name": "array", "version": "0.5.8.0", "source": "hackage", "revision": 2},
+      {"name": "containers", "version": "0.8.1", "source": "hackage", "revision": 0},
+      {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
+      {"name": "fgl", "version": "5.8.3.0", "source": "hackage", "revision": 2, "flags": {"containers042":true}},
+      {"name": "fgl-queries", "version": "0.1.0.0", "source": "local"},
+      {"name": "transformers", "version": "0.6.3.0", "source": "hackage", "revision": 2}
+    ],
+    "wasi-wasm32": [
+      {"name": "aihc-base", "version": "4.21.2.0", "source": "core"},
+      {"name": "aihc-internal", "version": "9.1204.0", "source": "core"},
+      {"name": "aihc-prim", "version": "0.13.0", "source": "core"},
+      {"name": "aihc-rts", "version": "1.0.2", "source": "core"},
+      {"name": "aihc-template-haskell", "version": "2.23.0.0", "source": "core"},
+      {"name": "array", "version": "0.5.8.0", "source": "hackage", "revision": 2},
+      {"name": "containers", "version": "0.8.1", "source": "hackage", "revision": 0},
+      {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
+      {"name": "fgl", "version": "5.8.3.0", "source": "hackage", "revision": 2, "flags": {"containers042":true}},
+      {"name": "fgl-queries", "version": "0.1.0.0", "source": "local"},
+      {"name": "transformers", "version": "0.6.3.0", "source": "hackage", "revision": 2}
+    ]
+  }
+}

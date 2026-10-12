@@ -42,6 +42,13 @@
       "expected_stdout": "ok\n"
     },
     {
+      "id": "fgl-queries-v1",
+      "package": "fgl-queries",
+      "source": "benchmarks/fgl-queries",
+      "profile_argument": true,
+      "expected_stdout": "ok\n"
+    },
+    {
       "id": "arithmoi-factorise-v1",
       "package": "arithmoi-factorise",
       "source": "benchmarks/arithmoi-factorise",

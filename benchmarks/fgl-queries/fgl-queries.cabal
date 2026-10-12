@@ -1,0 +1,15 @@
+cabal-version: 2.4
+name: fgl-queries
+version: 0.1.0.0
+synopsis: AIHC benchmark: Graph queries with the fgl library
+license: NONE
+build-type: Simple
+
+executable fgl-queries
+  main-is: Main.hs
+  other-modules:
+    Fixtures
+    Queries
+
+  build-depends: base, fgl ==5.8.3.0
+  default-language: Haskell2010
