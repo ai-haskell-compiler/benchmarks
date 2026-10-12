@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create fixed RSA and convex hull reference inputs."""
+"""Create fixed RSA, convex hull and arithmoi reference inputs."""
 
 import argparse
 import hashlib
@@ -138,6 +138,138 @@ def hull_fixture():
     )
 
 
+def is_prime(candidate, rounds=64):
+    """Miller-Rabin with the first 64 primes as bases.
+
+    Deterministic below 3.3e24; the 256-bit inputs are checked against a
+    witness set large enough that an error is negligible.
+    """
+    if candidate < 2:
+        return False
+    small = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97]
+    while len(small) < rounds:
+        following = small[-1] + 2
+        while any(following % q == 0 for q in small if q * q <= following):
+            following += 2
+        small.append(following)
+    for q in small:
+        if candidate == q:
+            return True
+        if candidate % q == 0:
+            return False
+    odd, shifts = candidate - 1, 0
+    while odd % 2 == 0:
+        odd //= 2
+        shifts += 1
+    for base in small[:rounds]:
+        value = pow(base, odd, candidate)
+        if value in (1, candidate - 1):
+            continue
+        for _ in range(shifts - 1):
+            value = value * value % candidate
+            if value == candidate - 1:
+                break
+        else:
+            return False
+    return True
+
+
+def next_prime(value):
+    candidate = value + 1 if value % 2 == 0 else value + 2
+    while not is_prime(candidate):
+        candidate += 2
+    return candidate
+
+
+def random_prime(rng, bits):
+    while True:
+        candidate = rng.getrandbits(bits) | (1 << (bits - 1)) | 1
+        if is_prime(candidate):
+            return candidate
+
+
+#: Work per profile: (balanced semiprimes, bits per balanced factor, other cases, prime searches, search bits).
+#: Each list is run once; the sizes are chosen so native AIHC on an Apple M4 Pro takes about half a second.
+ARITHMOI_PROFILES = {
+    "O0": (4, 26, 4, 2, 128),
+    "Os": (4, 26, 4, 2, 128),
+    "O1": (4, 26, 4, 2, 128),
+    "O2": (28, 30, 8, 4, 192),
+}
+
+
+def arithmoi_cases(rng, balanced, balanced_bits, others, searches, search_bits):
+    """Integers with a known factorisation, and numbers with a known next prime.
+
+    Every factorisation is known by construction: the primes are chosen first
+    and multiplied, so no factoring algorithm is involved in the reference.
+    """
+    factorisations = []
+
+    def product(primes):
+        counts = {}
+        for q in primes:
+            counts[q] = counts.get(q, 0) + 1
+        value = 1
+        for q, k in counts.items():
+            value *= q ** k
+        factorisations.append((value, sorted(counts.items())))
+
+    # Balanced semiprimes: the costly case, which trial division cannot split.
+    for _ in range(balanced):
+        product([random_prime(rng, balanced_bits), random_prime(rng, balanced_bits)])
+    # Unbalanced semiprimes: a 16-bit factor found early, a 40-bit cofactor to prove prime.
+    for _ in range(others):
+        product([random_prime(rng, 16), random_prime(rng, 40)])
+    # Three primes of about 19 bits.
+    for _ in range(others):
+        product([random_prime(rng, 19) for _ in range(3)])
+    # Prime powers.
+    for exponent in (2, 3, 4, 5, 7, 11, 13, 17)[:others]:
+        product([random_prime(rng, 60 // exponent)] * exponent)
+    # Smooth numbers with repeated small primes.
+    for _ in range(others):
+        product([random_prime(rng, rng.randrange(2, 12)) for _ in range(rng.randrange(6, 14))])
+    # Primes of about 62 bits, which factorise must recognise as prime.
+    for _ in range(others // 2):
+        product([random_prime(rng, 62)])
+    # Edge cases.
+    factorisations.append((1, []))
+    factorisations.append((2, [(2, 1)]))
+    factorisations.append((2 ** 62, [(2, 62)]))
+    factorisations.append((3 ** 39, [(3, 39)]))
+    factorisations.append((2 ** 31 - 1, [(2 ** 31 - 1, 1)]))
+    factorisations.append(((2 ** 31 - 1) ** 2, [(2 ** 31 - 1, 2)]))
+
+    def render_factors(factors):
+        return "[" + ", ".join(f"({q}, {k})" for q, k in factors) + "]"
+
+    cases = [f"Factor {value} {render_factors(factors)}" for value, factors in factorisations]
+    for _ in range(searches):
+        begin = rng.getrandbits(search_bits) | (1 << (search_bits - 1))
+        cases.append(f"NextPrime {begin} {next_prime(begin)}")
+    return cases
+
+
+def arithmoi_fixture():
+    """One fixed case list per profile, each run exactly once."""
+    rng = random.Random(20261012)
+    lists = []
+    for profile, parameters in ARITHMOI_PROFILES.items():
+        cases = arithmoi_cases(rng, *parameters)
+        lists.append(f"cases{profile} :: [Case]\ncases{profile} = [\n  " + ",\n  ".join(cases) + "\n  ]\n")
+    return (
+        "-- Create this file with scripts/integer-fixtures.py.\n"
+        "module Fixtures (cases) where\n\n"
+        "import Factorise (Case (..))\n\n"
+        "-- | The fixed cases of a profile, sized so that one pass takes about half a second.\n"
+        "cases :: String -> Maybe [Case]\n"
+        + "".join(f'cases "{profile}" = Just cases{profile}\n' for profile in ARITHMOI_PROFILES)
+        + "cases _ = Nothing\n\n"
+        + "\n".join(lists)
+    )
+
+
 def normalized(text):
     return "".join(line.split("--", 1)[0] for line in text.splitlines()).split()
 
@@ -146,7 +278,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Check the fixed fixture files.")
     args = parser.parse_args()
-    for name, text in (("rsa-verify", rsa_fixture()), ("exact-convex-hull", hull_fixture())):
+    for name, text in (
+        ("rsa-verify", rsa_fixture()),
+        ("exact-convex-hull", hull_fixture()),
+        ("arithmoi-factorise", arithmoi_fixture()),
+    ):
         path = ROOT / name / "Fixtures.hs"
         if args.check:
             assert "".join(normalized(path.read_text())) == "".join(normalized(text)), str(path)

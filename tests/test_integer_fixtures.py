@@ -14,6 +14,7 @@ class IntegerFixtureTests(unittest.TestCase):
         for name, create in (
             ("rsa-verify", FIXTURES.rsa_fixture),
             ("exact-convex-hull", FIXTURES.hull_fixture),
+            ("arithmoi-factorise", FIXTURES.arithmoi_fixture),
         ):
             with self.subTest(name=name):
                 actual = (ROOT / "benchmarks" / name / "Fixtures.hs").read_text()
