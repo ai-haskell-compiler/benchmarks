@@ -44,6 +44,13 @@
       "expected_stdout": "ok\n"
     },
     {
+      "id": "arithmoi-factorise-v1",
+      "package": "arithmoi-factorise",
+      "source": "benchmarks/arithmoi-factorise",
+      "profile_argument": true,
+      "expected_stdout": "ok\n"
+    },
+    {
       "id": "snappy-roundtrip-v1",
       "package": "snappy-roundtrip",
       "source": "benchmarks/snappy-roundtrip",

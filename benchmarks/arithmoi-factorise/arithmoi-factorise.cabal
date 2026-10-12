@@ -1,0 +1,15 @@
+cabal-version: 2.4
+name: arithmoi-factorise
+version: 0.1.0.0
+synopsis: AIHC benchmark: integer factorisation and prime search with arithmoi
+license: NONE
+build-type: Simple
+
+executable arithmoi-factorise
+  main-is: Main.hs
+  other-modules:
+    Factorise
+    Fixtures
+
+  build-depends: base, arithmoi ==0.13.4.0
+  default-language: Haskell2010
