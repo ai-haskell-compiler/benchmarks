@@ -44,6 +44,13 @@
       "expected_stdout": "ok\n"
     },
     {
+      "id": "fgl-queries-v1",
+      "package": "fgl-queries",
+      "source": "benchmarks/fgl-queries",
+      "profile_argument": true,
+      "expected_stdout": "ok\n"
+    },
+    {
       "id": "snappy-roundtrip-v1",
       "package": "snappy-roundtrip",
       "source": "benchmarks/snappy-roundtrip",
