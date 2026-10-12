@@ -94,9 +94,9 @@ gone. That does not make the numbers good, it makes them answerable.
 Every configuration is measured in four profiles: `O0`, `O1`, `O2` and `Os`.
 AIHC passes the matching `-O` flag to `aihc build`, where `-O2` and `-Os` also
 compile the whole program at once. GHC has no size level, so its `Os` profile
-builds with `-O1`. The four self-contained programs (factorial, fibonacci,
-Snappy and SHA) take that profile name as their last argument and do a
-different amount of work in each one, sized so an AIHC native run lasts
+builds with `-O1`. The five self-contained programs (RSA, convex hull,
+arithmoi, Snappy and SHA) take that profile name as their last argument and do
+a different amount of work in each one, sized so an AIHC native run lasts
 between half a second and a second. The corpus programs do not: their work
 is the fixed sample, and the same tally is expected from every profile. Both
 compilers apply the level to the whole build: on the GHC side that takes a
