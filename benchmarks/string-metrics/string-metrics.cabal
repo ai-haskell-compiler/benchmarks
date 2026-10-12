@@ -1,0 +1,11 @@
+cabal-version:      2.4
+name:                string-metrics
+version:             0.1.0.0
+synopsis:            AIHC benchmark: string metrics (Levenshtein, Jaro, Jaccard, ...) over fixed word pairs
+license:             NONE
+build-type:          Simple
+
+executable string-metrics
+  main-is:          Main.hs
+  build-depends:    base, text, text-metrics ==0.3.3
+  default-language: Haskell2010

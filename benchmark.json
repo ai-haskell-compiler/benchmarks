@@ -65,6 +65,13 @@
       "expected_stdout": "ok\n"
     },
     {
+      "id": "string-metrics-v1",
+      "package": "string-metrics",
+      "source": "benchmarks/string-metrics",
+      "profile_argument": true,
+      "expected_stdout": "ok\n"
+    },
+    {
       "id": "aihc-cpp-stackage-v1",
       "package": "aihc-cpp-stackage",
       "source": "benchmarks/aihc-cpp-stackage",
