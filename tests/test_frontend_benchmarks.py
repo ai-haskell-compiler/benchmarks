@@ -41,7 +41,8 @@ class FrontendBenchmarkTests(unittest.TestCase):
                     for package in expected:
                         self.assertEqual(by_name[package]["source"], "local")
                         self.assertIn(f"{package} =={by_name[package]['version']}", cabal)
-            self.assertRegex(benchmark["expected_stdout"], r"^packages=\d+ modules=\d+ units=\d+ cyclic=\d+ (resolutions|bindings)=\d+ fnv1a=\d+\n$")
+            self.assertEqual(benchmark["expected_stdout"], "ok\n")
+            self.assertTrue(benchmark["profile_argument"])
         self.assertEqual(len(commits), 1)
 
     def test_scc_scheduler_handles_cycles_diamonds_and_shuffled_input(self):
@@ -64,3 +65,18 @@ class FrontendBenchmarkTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout, "SCC scheduling checks passed\n")
+
+    def test_each_profile_and_backend_selects_its_own_package_set(self):
+        workloads = json.loads((ROOT / "corpus/frontend/workloads.json").read_text())
+        for phase, backends in workloads.items():
+            self.assertEqual(set(backends), {"native", "llvm", "wasm"})
+            for backend, profiles in backends.items():
+                self.assertEqual(set(profiles), {"O0", "Os", "O1", "O2"})
+                self.assertEqual(len({tuple(cell["packages"]) for cell in profiles.values()}), 4)
+                for cell in profiles.values():
+                    self.assertIn("aihc-base", cell["packages"])
+                    self.assertGreater(cell["iterations"], 0)
+                    self.assertRegex(cell["expected"], r"^packages=\d+ modules=\d+ units=\d+ cyclic=\d+ (resolutions|bindings)=\d+ fnv1a=\d+$")
+            for profile in ("O0", "Os", "O1", "O2"):
+                selections = {tuple(profiles[profile]["packages"]) for profiles in backends.values()}
+                self.assertEqual(len(selections), 3)

@@ -17,6 +17,7 @@ in pkgs.runCommand "aihc-frontend-corpus-lts-24.58" {
   tar -xzf ${tarballs."split-0.2.5.1"}
   python3 ${./build.py} \
     --core ${core}/core-libs \
+    --workloads ${./workloads.json} \
     --parser-script ${../parser/build.py} \
     --out "$out" colour-2.3.7 split-0.2.5.1
 ''

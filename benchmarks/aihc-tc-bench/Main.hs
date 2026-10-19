@@ -15,7 +15,6 @@ import qualified Data.Text as T
 import Data.Word (Word64)
 import ModuleGraph
 import Corpus
-import System.Environment (getArgs)
 import System.Exit (die)
 import Wiring (primTcConfig, primTcWiring)
 
@@ -41,19 +40,21 @@ checkGraph package prim primitiveExports primitiveInterface = go Map.empty []
           let (checked, ownInterface) = typecheckModuleSccWithInterface (primTcConfig prim) importedInterface resolved
               completeInterface = mergeTcInterfaces TrustMergedFacts [importedInterface, ownInterface]
           if all tcModuleSuccess checked then pure () else die (show (concatMap tcModuleDiagnostics checked))
-          evaluate (rnf checked `seq` rnf completeInterface)
+          -- Dependency facts have already been forced by their own SCC.
+          -- Traverse newly produced facts once, rather than rewalking the
+          -- entire transitive interface after every dependent module.
+          evaluate (rnf checked `seq` rnf ownInterface)
           go (Map.insert (unitId unit) (visible, completeInterface) interfaces) (checked : results) rest
 
 main :: IO ()
-main = do
-  args <- getArgs
-  corpus <- case args of
-    [directory] -> pure directory
-    _ -> die "usage: aihc-tc-bench <frontend corpus>"
-  packages <- loadPackages corpus
+main = runWorkload "tc" sweep
+
+sweep :: FilePath -> [T.Text] -> IO String
+sweep corpus roots = do
+  packages <- loadPackages corpus roots
   let prim = PackageId "aihc-prim"
       go _ !modules !units !cyclic !bindings !checksum [] =
-        putStrLn ("packages=" ++ show (length packages) ++ " modules=" ++ show modules ++ " units=" ++ show units ++ " cyclic=" ++ show cyclic ++ " bindings=" ++ show bindings ++ " fnv1a=" ++ show checksum)
+        pure ("packages=" ++ show (length packages) ++ " modules=" ++ show modules ++ " units=" ++ show units ++ " cyclic=" ++ show cyclic ++ " bindings=" ++ show bindings ++ " fnv1a=" ++ show checksum)
       go interfaces !modules !units !cyclic !bindings !checksum ((name, deps) : rest) = do
         imported <- mapM (\dependency -> maybe (die "package dependency not checked") pure (Map.lookup dependency interfaces)) deps
         parsed <- loadModules corpus name

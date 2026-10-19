@@ -8,6 +8,7 @@ x86_64 variant is used on every host, so the input bytes remain comparable.
 """
 import argparse
 import importlib.util
+import json
 import re
 import shutil
 from pathlib import Path
@@ -97,11 +98,39 @@ def assemble(packages, core, out, parser_script):
     return len(sources)
 
 
+def write_workloads(path, out):
+    cells = json.loads(path.read_text())
+    packages = {line.split('\t')[0] for line in (out / 'packages.tsv').read_text().splitlines()}
+    if set(cells) != {'resolve', 'tc'}:
+        raise ValueError('expected resolve and tc workloads')
+    lines = []
+    for phase, backends in cells.items():
+        if set(backends) != {'native', 'llvm', 'wasm'}:
+            raise ValueError('expected all three backends')
+        for backend, profiles in backends.items():
+            if set(profiles) != {'O0', 'Os', 'O1', 'O2'}:
+                raise ValueError('expected all four profiles')
+            for profile, cell in profiles.items():
+                count = cell['iterations']
+                if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+                    raise ValueError('iterations must be a positive integer')
+                if 'aihc-base' not in cell['packages'] or not set(cell['packages']) <= packages:
+                    raise ValueError('unknown or empty package selection')
+                if not cell['expected'] or any(c in cell['expected'] for c in '\t\n\r'):
+                    raise ValueError('expected a single-line reference tally')
+                lines.append('\t'.join([phase, backend, profile, str(count), ','.join(cell['packages']), cell['expected']]) + '\n')
+    (out / 'workloads.tsv').write_text(''.join(lines))
+
+
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--workloads', type=Path)
     p.add_argument('--core', type=Path, required=True)
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--parser-script', type=Path, required=True)
     p.add_argument('packages', type=Path, nargs='+')
     a = p.parse_args()
     print(f"frontend corpus: {assemble(a.packages, a.core, a.out, a.parser_script)} modules")
+
+    if a.workloads:
+        write_workloads(a.workloads, a.out)

@@ -15,8 +15,9 @@ happen before the compilation timer; compilation of the libraries is timed.
 
 ## Real package inputs
 
-The flake's `frontend-corpus` output supplies the same inputs to both
-benchmarks through `AIHC_BENCH_FRONTEND_CORPUS`. It contains the complete
+The flake's `frontend-corpus` output supplies a pinned input pool through
+`AIHC_BENCH_FRONTEND_CORPUS`. Each profile/backend selects its package set
+from that pool using `workloads.tsv`. It contains the complete
 libraries of **colour-2.3.7** (15 modules) and **split-0.2.5.1** (2 modules)
 from the existing Stackage **lts-24.58** snapshot. Their tarballs use the
 snapshot's SHA-256 pins and share downloads with the parser and CPP corpora.
@@ -38,7 +39,13 @@ implicit Prelude and the compiler's wired type modules. Adding more complex
 libraries will require Cabal component finalization and preprocessing; the
 builder must not silently guess those settings.
 
-The output has 156 modules across four packages. `packages.tsv` records
+The pool has 156 modules across four packages. Every invocation compiles
+the full, unmodified real `Prelude` from the pinned `aihc-base` sources and
+its transitive dependency closure. Prelude is never replaced, trimmed, cached
+as a semantic interface, or excluded from the timed work. Even an explicit
+`--packages` selection automatically includes `aihc-base`.
+
+`packages.tsv` records
 package dependencies; `modules.tsv` records each source path, language edition
 and package extensions. The executables combine these settings with each
 module's own pragmas. Paths in parse trees are relative to the corpus, keeping
@@ -74,25 +81,51 @@ consumes every dynamic resolution annotation and hashes its displayed value.
 The type checker consumes every binding's identity and inferred type through
 its displayed `TcBindingResult`. Both force the resulting syntax trees; TC
 also forces interface facts. These steps cover payloads that the parser AST's
-`NFData` instance intentionally skips. Expected output:
+`NFData` instance intentionally skips. Each cell checks the full tally and
+checksum recorded in `corpus/frontend/workloads.json` on every sweep, then
+prints `ok`. Parse, resolution, inference or checksum failures exit nonzero.
+Only newly produced SCC interface facts are deeply forced: dependencies were
+already forced by their own SCC, so their entire closure is not traversed again.
 
-```text
-packages=4 modules=156 units=115 cyclic=2 resolutions=80929 fnv1a=3624782102185798415
-packages=4 modules=156 units=115 cyclic=2 bindings=8120 fnv1a=16946061974637811341
-```
+## Profile/backend workloads
 
-## Running and updating
+The runner passes the corpus directory, profile and backend, using the support
+merged from `origin/main`. `workloads.json` independently specifies roots,
+sweep count and reference output for all 24 frontend cells. Native, LLVM and
+Wasm selections differ within each profile; profiles differ within each backend.
+Their root combinations include `aihc-base` alone, with `split`, with `colour`,
+or with both. The real Prelude is compulsory in all combinations.
+
+The target is approximately **0.5 seconds of AIHC process runtime**. That target
+is subordinate to compiling the real Prelude. The mandatory Prelude/core work
+currently exceeds it, so all cells use **one complete sweep**. The calibration
+script explicitly reports `minimum_workload_above_target` when even one sweep
+is too slow; it never removes Prelude or silently cuts a source/module/SCC to
+meet the target. The choices provide distinct real package sets, not a claim
+that every cell has reached 0.5 seconds. Timings across differing sets are not
+comparable; GHC and AIHC use the same set within a cell.
+
+## Running and recalibrating
 
 ```console
 nix build .#frontend-corpus
-aihc-resolve-bench ./result
-aihc-tc-bench ./result
+aihc-resolve-bench ./result O2 native
+aihc-tc-bench ./result O2 native
+aihc-tc-bench ./result --packages aihc-base --repeat 1
+python3 scripts/calibrate-frontend.py --phase tc --profile O2 --backend native \
+  --corpus ./result --write -- /path/to/aihc-tc-bench
 ```
 
-The normal runner supplies the corpus path automatically. Runtime includes
-reading sources, parsing, dependency planning, resolution, checking where
-applicable, and result consumption. Inputs are identical for every optimization
-profile. No network access or compiler checkout is needed at runtime.
+The calibration command must use an AIHC executable built with the selected
+profile/backend. For Wasm, pass Wasmtime, its corpus directory grant, and the
+precompiled artifact after `--`. It checks each tally, measures fresh processes,
+adjusts sweep counts toward 0.5 seconds and optionally updates the selected
+cell. Profile/backend changes do not choose a compiler flag at runtime.
+
+Runtime includes reading sources, parsing, dependency planning, resolution,
+checking where applicable, and result consumption. No network or compiler
+checkout is needed at runtime. The process timeout remains 120 seconds;
+profiles/backends not executed locally may still exceed it with the full Prelude.
 
 When changing the library commit, update the corpus's core source pin and
 hash as well. Regenerate freeze files and platform locks with the selected

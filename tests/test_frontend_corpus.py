@@ -1,5 +1,6 @@
 """The frontend corpus must retain libraries and close their core imports."""
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -55,6 +56,8 @@ test-suite ignored
         self.assertIn("example\texample/Example/Internal.hs\tHaskell2010\t", manifest)
         self.assertIn("aihc-base\taihc-base/Prelude.hs\tGHC2021\tNoImplicitPrelude", manifest)
         self.assertNotIn("Broken", manifest)
+        self.assertEqual((self.out / "aihc-base/Prelude.hs").read_bytes(),
+                         (self.core / "aihc-base/src/Prelude.hs").read_bytes())
         self.assertEqual((self.out / "packages.tsv").read_text(),
                          "aihc-base\taihc-prim\naihc-prim\t\nexample\taihc-base\n")
         self.assertEqual((self.out / "example/Example.hs").read_bytes(),
@@ -72,3 +75,23 @@ test-suite ignored
                 self.cabal.write_text(original.replace("\ntest-suite", "\n" + addition + "\ntest-suite"))
                 with self.assertRaisesRegex(ValueError, "conditional|preprocessor"):
                     self.assemble()
+
+    def test_workload_manifest_requires_complete_valid_cells(self):
+        self.assemble()
+        cells = json.loads((ROOT / "corpus/frontend/workloads.json").read_text())
+        for backends in cells.values():
+            for profiles in backends.values():
+                for cell in profiles.values():
+                    cell["packages"] = ["aihc-base", "example"]
+        path = self.root / "workloads.json"
+        path.write_text(json.dumps(cells))
+        corpus.write_workloads(path, self.out)
+        self.assertEqual(len((self.out / "workloads.tsv").read_text().splitlines()), 24)
+        for field, value, message in [("packages", ["missing"], "package selection"), ("iterations", 0, "positive integer"), ("expected", "two\nlines", "single-line")]:
+            with self.subTest(field=field):
+                original = cells["resolve"]["native"]["O0"][field]
+                cells["resolve"]["native"]["O0"][field] = value
+                path.write_text(json.dumps(cells))
+                with self.assertRaisesRegex(ValueError, message):
+                    corpus.write_workloads(path, self.out)
+                cells["resolve"]["native"]["O0"][field] = original

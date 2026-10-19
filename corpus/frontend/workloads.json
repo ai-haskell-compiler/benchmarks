@@ -1,0 +1,210 @@
+{
+  "resolve": {
+    "native": {
+      "O0": {
+        "packages": [
+          "aihc-base"
+        ],
+        "iterations": 1,
+        "expected": "packages=2 modules=139 units=98 cyclic=2 resolutions=74668 fnv1a=17877567740040714279"
+      },
+      "Os": {
+        "packages": [
+          "aihc-base",
+          "split"
+        ],
+        "iterations": 1,
+        "expected": "packages=3 modules=141 units=100 cyclic=2 resolutions=75662 fnv1a=11573145547366100350"
+      },
+      "O1": {
+        "packages": [
+          "aihc-base",
+          "colour"
+        ],
+        "iterations": 1,
+        "expected": "packages=3 modules=154 units=113 cyclic=2 resolutions=79935 fnv1a=16168954697677876174"
+      },
+      "O2": {
+        "packages": [
+          "aihc-base",
+          "colour",
+          "split"
+        ],
+        "iterations": 1,
+        "expected": "packages=4 modules=156 units=115 cyclic=2 resolutions=80929 fnv1a=3624782102185798415"
+      }
+    },
+    "llvm": {
+      "O0": {
+        "packages": [
+          "aihc-base",
+          "split"
+        ],
+        "iterations": 1,
+        "expected": "packages=3 modules=141 units=100 cyclic=2 resolutions=75662 fnv1a=11573145547366100350"
+      },
+      "Os": {
+        "packages": [
+          "aihc-base",
+          "colour"
+        ],
+        "iterations": 1,
+        "expected": "packages=3 modules=154 units=113 cyclic=2 resolutions=79935 fnv1a=16168954697677876174"
+      },
+      "O1": {
+        "packages": [
+          "aihc-base",
+          "colour",
+          "split"
+        ],
+        "iterations": 1,
+        "expected": "packages=4 modules=156 units=115 cyclic=2 resolutions=80929 fnv1a=3624782102185798415"
+      },
+      "O2": {
+        "packages": [
+          "aihc-base"
+        ],
+        "iterations": 1,
+        "expected": "packages=2 modules=139 units=98 cyclic=2 resolutions=74668 fnv1a=17877567740040714279"
+      }
+    },
+    "wasm": {
+      "O0": {
+        "packages": [
+          "aihc-base",
+          "colour"
+        ],
+        "iterations": 1,
+        "expected": "packages=3 modules=154 units=113 cyclic=2 resolutions=79935 fnv1a=16168954697677876174"
+      },
+      "Os": {
+        "packages": [
+          "aihc-base",
+          "colour",
+          "split"
+        ],
+        "iterations": 1,
+        "expected": "packages=4 modules=156 units=115 cyclic=2 resolutions=80929 fnv1a=3624782102185798415"
+      },
+      "O1": {
+        "packages": [
+          "aihc-base"
+        ],
+        "iterations": 1,
+        "expected": "packages=2 modules=139 units=98 cyclic=2 resolutions=74668 fnv1a=17877567740040714279"
+      },
+      "O2": {
+        "packages": [
+          "aihc-base",
+          "split"
+        ],
+        "iterations": 1,
+        "expected": "packages=3 modules=141 units=100 cyclic=2 resolutions=75662 fnv1a=11573145547366100350"
+      }
+    }
+  },
+  "tc": {
+    "native": {
+      "O0": {
+        "packages": [
+          "aihc-base"
+        ],
+        "iterations": 1,
+        "expected": "packages=2 modules=139 units=98 cyclic=2 bindings=7548 fnv1a=6774486582406226114"
+      },
+      "Os": {
+        "packages": [
+          "aihc-base",
+          "split"
+        ],
+        "iterations": 1,
+        "expected": "packages=3 modules=141 units=100 cyclic=2 bindings=7653 fnv1a=6763103954475302006"
+      },
+      "O1": {
+        "packages": [
+          "aihc-base",
+          "colour"
+        ],
+        "iterations": 1,
+        "expected": "packages=3 modules=154 units=113 cyclic=2 bindings=8015 fnv1a=8810691520939344441"
+      },
+      "O2": {
+        "packages": [
+          "aihc-base",
+          "colour",
+          "split"
+        ],
+        "iterations": 1,
+        "expected": "packages=4 modules=156 units=115 cyclic=2 bindings=8120 fnv1a=16946061974637811341"
+      }
+    },
+    "llvm": {
+      "O0": {
+        "packages": [
+          "aihc-base",
+          "split"
+        ],
+        "iterations": 1,
+        "expected": "packages=3 modules=141 units=100 cyclic=2 bindings=7653 fnv1a=6763103954475302006"
+      },
+      "Os": {
+        "packages": [
+          "aihc-base",
+          "colour"
+        ],
+        "iterations": 1,
+        "expected": "packages=3 modules=154 units=113 cyclic=2 bindings=8015 fnv1a=8810691520939344441"
+      },
+      "O1": {
+        "packages": [
+          "aihc-base",
+          "colour",
+          "split"
+        ],
+        "iterations": 1,
+        "expected": "packages=4 modules=156 units=115 cyclic=2 bindings=8120 fnv1a=16946061974637811341"
+      },
+      "O2": {
+        "packages": [
+          "aihc-base"
+        ],
+        "iterations": 1,
+        "expected": "packages=2 modules=139 units=98 cyclic=2 bindings=7548 fnv1a=6774486582406226114"
+      }
+    },
+    "wasm": {
+      "O0": {
+        "packages": [
+          "aihc-base",
+          "colour"
+        ],
+        "iterations": 1,
+        "expected": "packages=3 modules=154 units=113 cyclic=2 bindings=8015 fnv1a=8810691520939344441"
+      },
+      "Os": {
+        "packages": [
+          "aihc-base",
+          "colour",
+          "split"
+        ],
+        "iterations": 1,
+        "expected": "packages=4 modules=156 units=115 cyclic=2 bindings=8120 fnv1a=16946061974637811341"
+      },
+      "O1": {
+        "packages": [
+          "aihc-base"
+        ],
+        "iterations": 1,
+        "expected": "packages=2 modules=139 units=98 cyclic=2 bindings=7548 fnv1a=6774486582406226114"
+      },
+      "O2": {
+        "packages": [
+          "aihc-base",
+          "split"
+        ],
+        "iterations": 1,
+        "expected": "packages=3 modules=141 units=100 cyclic=2 bindings=7653 fnv1a=6763103954475302006"
+      }
+    }
+  }
+}

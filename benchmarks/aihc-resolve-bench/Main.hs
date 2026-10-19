@@ -15,7 +15,6 @@ import qualified Data.Text as T
 import Data.Word (Word64)
 import ModuleGraph
 import Corpus
-import System.Environment (getArgs)
 import System.Exit (die)
 
 hashString :: Word64 -> String -> Word64
@@ -40,14 +39,13 @@ resolveGraph package packageScopes = go Map.empty []
           go (Map.insert (unitId unit) visible scopes) (resolved : results) rest
 
 main :: IO ()
-main = do
-  args <- getArgs
-  corpus <- case args of
-    [directory] -> pure directory
-    _ -> die "usage: aihc-resolve-bench <frontend corpus>"
-  packages <- loadPackages corpus
+main = runWorkload "resolve" sweep
+
+sweep :: FilePath -> [T.Text] -> IO String
+sweep corpus roots = do
+  packages <- loadPackages corpus roots
   let go _ !modules !units !cyclic !references !checksum [] =
-        putStrLn ("packages=" ++ show (length packages) ++ " modules=" ++ show modules ++ " units=" ++ show units ++ " cyclic=" ++ show cyclic ++ " resolutions=" ++ show references ++ " fnv1a=" ++ show checksum)
+        pure ("packages=" ++ show (length packages) ++ " modules=" ++ show modules ++ " units=" ++ show units ++ " cyclic=" ++ show cyclic ++ " resolutions=" ++ show references ++ " fnv1a=" ++ show checksum)
       go scopes !modules !units !cyclic !references !checksum ((name, deps) : rest) = do
         imported <- mapM (\dependency -> maybe (die "package dependency not resolved") pure (Map.lookup dependency scopes)) deps
         parsed <- loadModules corpus name

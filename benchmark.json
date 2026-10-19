@@ -110,6 +110,7 @@
       "id": "aihc-resolve-bench-v1",
       "package": "aihc-resolve-bench",
       "source": "benchmarks/aihc-resolve-bench",
+      "profile_argument": true,
       "corpus_env": "AIHC_BENCH_FRONTEND_CORPUS",
       "corpus_sources": ["corpus/frontend", "corpus/parser", "corpus/stackage"],
       "git_dependencies": [
@@ -121,13 +122,14 @@
           }
         }
       ],
-      "expected_stdout": "packages=4 modules=156 units=115 cyclic=2 resolutions=80929 fnv1a=3624782102185798415\n",
+      "expected_stdout": "ok\n",
       "process_timeout_seconds": 120
     },
     {
       "id": "aihc-tc-bench-v1",
       "package": "aihc-tc-bench",
       "source": "benchmarks/aihc-tc-bench",
+      "profile_argument": true,
       "corpus_env": "AIHC_BENCH_FRONTEND_CORPUS",
       "corpus_sources": ["corpus/frontend", "corpus/parser", "corpus/stackage"],
       "git_dependencies": [
@@ -140,7 +142,7 @@
           }
         }
       ],
-      "expected_stdout": "packages=4 modules=156 units=115 cyclic=2 bindings=8120 fnv1a=16946061974637811341\n",
+      "expected_stdout": "ok\n",
       "process_timeout_seconds": 120
     }
   ],

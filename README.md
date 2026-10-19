@@ -106,7 +106,10 @@ has its own. Both compilers run the same size in a configuration, so the
 ratio between them still compares the same work, but two profiles or two
 backends of one benchmark do not, and their times are not comparable with
 each other. The sizes are recalibrated as the compiler gets faster, which
-starts a new history for the benchmark. Both
+starts a new history for the benchmark. The resolver and type-checker
+benchmarks always compile the real Prelude and its dependency closure; that
+mandatory work currently exceeds the half-second target, even with no
+additional Stackage packages. Their per-cell package sets retain that work. Both
 compilers apply the level to the whole build: on the GHC side that takes a
 `package *` stanza in the generated project file, since cabal's command-line
 `-O` and `--ghc-options` reach local packages only and would leave the
