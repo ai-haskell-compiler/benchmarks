@@ -204,7 +204,10 @@ compile-time measurements.
 
 The [`aihc-resolve-bench` and `aihc-tc-bench` workloads](docs/frontend-benchmarks.md)
 use this support to benchmark name resolution and type inference at a fixed
-AIHC library commit, with `aihc-parser-5.0.0.0` from Hackage.
+AIHC library commit, with `aihc-parser-5.0.0.0` from Hackage. They process
+complete Stackage libraries and their core dependencies in dependency order,
+grouping modules into SCC units. `nix build .#frontend-corpus` builds their
+pinned runtime inputs.
 
 ## Benchmarking with `./bench`
 

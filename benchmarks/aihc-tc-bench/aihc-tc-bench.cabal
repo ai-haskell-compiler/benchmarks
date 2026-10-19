@@ -7,7 +7,7 @@ build-type: Simple
 
 executable aihc-tc-bench
   main-is: Main.hs
-  other-modules: Wiring, ModuleGraph
+  other-modules: Wiring, ModuleGraph, Corpus
   build-depends: base, deepseq, text, aihc-parser ==5.0.0.0, aihc-resolve ==0.1.0.0, aihc-tc ==0.1.0.0, containers
   default-language: GHC2021
   ghc-options: -Wall

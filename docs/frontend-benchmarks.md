@@ -1,119 +1,109 @@
 # Name resolution and type inference
 
 `aihc-resolve-bench-v1` and `aihc-tc-bench-v1` exercise the public APIs of
-AIHC's name resolver and type checker. Both use the `git_dependencies`
-support in `benchmark.json`, pinned to AIHC commit
-`6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d` (2026-10-19). The resolver
-benchmark selects `components/aihc-resolve`; the type checker selects that
-package and `components/aihc-tc`. The commit is independent of the compiler
-revision being measured.
+AIHC's name resolver and type checker. Both use `git_dependencies`, pinned to
+AIHC commit `6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d` (2026-10-19).
+The resolver selects `components/aihc-resolve`; the type checker selects
+that package and `components/aihc-tc`. The library revision is independent
+of the compiler revision being measured.
 
-Both benchmarks depend on **Hackage `aihc-parser-5.0.0.0`**. No parser source
-is selected from Git. Their `.cabal` files pin its version, Cabal freeze
-files pin the Hackage solution, and `aihc.lock` records the parser as
-`hackage` and the selected Git libraries as `local` on macOS ARM64, Linux
-x86-64 and WASI wasm32. LLVM uses the host platform's plan.
+Both depend on **Hackage `aihc-parser-5.0.0.0`**. Their Cabal bounds and freeze
+files pin the parser release, and `aihc.lock` records it as `hackage` and
+the selected Git libraries as `local` on macOS ARM64, Linux x86-64 and WASI
+wasm32. LLVM uses the host platform's plan. Git fetching and source staging
+happen before the compilation timer; compilation of the libraries is timed.
 
-The runner fetches the pinned repository before starting the compile clock,
-then gives each configuration fresh sources through Cabal local packages or
-AIHC's workspace. Compilation of the libraries remains timed. Runtime
-inputs are generated deterministically in the executables; neither workload
-requires a corpus, a compiler checkout, or network access at runtime.
+## Real package inputs
 
-## Resolver workload
+The flake's `frontend-corpus` output supplies the same inputs to both
+benchmarks through `AIHC_BENCH_FRONTEND_CORPUS`. It contains the complete
+libraries of **colour-2.3.7** (15 modules) and **split-0.2.5.1** (2 modules)
+from the existing Stackage **lts-24.58** snapshot. Their tarballs use the
+snapshot's SHA-256 pins and share downloads with the parser and CPP corpora.
+Test suites and executables are excluded.
 
-The workload generates 24 modules, each with 20 groups of functions and a
-recursive tree type. Each module after the first imports its predecessor
-under a qualified alias. Every group of four modules also contains a mutual
-import pair: module 1 imports module 2, and module 2 imports module 1. The
-input modules are deliberately reversed before planning, so input order
-cannot substitute for dependency scheduling. Local helpers shadow outer
-binders, recursive patterns introduce new bindings, and right-associative
-operators exercise fixity handling.
+These libraries need Prelude and primitive definitions. The corpus includes
+their transitive source closure from the real `aihc-base` and `aihc-prim`
+libraries at the same pinned AIHC commit, fetched with a fixed output hash.
+It uses the Linux x86-64 source variant on every benchmark target so the
+source bytes are identical across configurations. These are workload inputs;
+the executable itself still builds against the measured compiler's libraries.
+No synthetic declarations or precomputed semantic interfaces are used.
 
-`ModuleGraph.dependencyUnits` groups the package's import graph into SCCs and
-orders those units with dependencies first. The resolver processes each SCC
-with `resolveUnit`, using `collectModuleExportsWithDeps` to construct the
-unit's scopes against the exports of its dependencies. Exports are published
-only after the unit succeeds. The full graph has 18 units, six of them
-cyclic pairs; dependencies within a cycle are handled together.
+`corpus/frontend/build.py` deliberately supports only the two unconditional,
+preprocessor-free libraries selected here. It rejects missing modules,
+unknown imports, CPP, conditional/common settings and unexpected package
+dependencies. It follows their imports into the core libraries, including
+implicit Prelude and the compiler's wired type modules. Adding more complex
+libraries will require Cabal component finalization and preprocessing; the
+builder must not silently guess those settings.
 
-It walks every result's annotations and computes a 64-bit FNV-1a checksum of
-the displayed resolutions, including source spans, identifiers, namespaces
-and target entities. This explicitly consumes the dynamic annotations that
-the parser AST's `NFData` instance skips. It also forces the resulting trees.
-The expected output is:
+The output has 156 modules across four packages. `packages.tsv` records
+package dependencies; `modules.tsv` records each source path, language edition
+and package extensions. The executables combine these settings with each
+module's own pragmas. Paths in parse trees are relative to the corpus, keeping
+checksums independent of its installation directory.
 
-```text
-modules=24 units=18 cyclic=6 resolutions=28724 fnv1a=12249204649537228691
-```
+## Dependency-first SCC processing
 
-## Type checker workload
+Packages are processed in dependency order: `aihc-prim`, then `aihc-base`,
+then the Stackage libraries. Within a package, `ModuleGraph.dependencyUnits`
+groups the module graph into strongly connected components and puts each
+component after its dependencies. Edges include explicit imports, implicit
+Prelude and the wired type dependencies used by the pinned compiler. The
+real corpus has **115 SCC units, two cyclic**.
 
-The workload generates 16 modules, each with 10 groups of functions. It
-checks polymorphic identities and composition, explicit signatures,
-recursive tree traversals, optional-value binds, local generalization, a
-higher-kinded mapping class and two instances. Its package has the same
-chain-of-SCCs import pattern as the resolver workload, with cross-module
-calls to an explicitly signed polymorphic identity. Signatures make those
-bindings available while checking a cyclic unit. Modules have no Prelude
-dependency: their data types and classes are declared in the input itself.
+Each SCC is resolved with `resolveUnit`, using `collectModuleExportsWithDeps`
+against the completed dependency scopes. Exports are published after the
+unit succeeds. The type checker then calls
+`typecheckModuleSccWithInterface` on that resolved SCC, importing dependency
+interfaces and publishing its resulting facts for dependents. It retains
+transitive interface facts so imported signatures and instances remain valid.
+Unrelated earlier SCCs do not become implicit dependencies. Interface merges
+use `TrustMergedFacts`, as a normal compiler build does; the expensive shared
+fact comparisons are reserved for the compiler's lint mode.
 
-The public API requires the embedding compiler to provide its primitive
-wiring and a semantic interface for primitive kinds. `Wiring.hs` is a
-fixture copy of the pinned commit's
-`bin/aihc/prim-wiring/Aihc/Prim/Wiring.hs`, with its module renamed. A tiny
-`GHC.Types` input supplies `TYPE`, `RuntimeRep`, `BoxedRep`, `Levity` and
-`Lifted`; it is resolved and checked once before the generated modules.
-These fixtures keep runtime inputs independent of the compiler under test.
+`Wiring.hs` is a fixture copy of the pinned commit's
+`bin/aihc/prim-wiring/Aihc/Prim/Wiring.hs`, with its module renamed. This is
+the primitive identity and deriving-reference table required by the public
+TC API. The primitive semantic interface is obtained by resolving and checking
+real core sources as part of the workload.
 
-The primitive package is processed first. The generated package then passes
-through the same dependency-first SCC scheduler as the resolver. Each SCC
-is resolved as a unit and checked with `typecheckModuleSccWithInterface`.
-Only the primitive interface and the completed dependency interfaces are
-imported. The resulting facts are merged into that unit's interface closure
-for its dependents, rather than carrying the state of every preceding module
-through the whole package. The full graph has 12 units, four of them cyclic
-pairs.
-
-Any parse, resolution or type error fails the process. The benchmark consumes
-every binding's identity and inferred type through a checksum of its displayed
-`TcBindingResult`, then forces the checked syntax trees and interface facts.
-The expected output is:
+Any parse, resolution or type error fails the process. The resolver explicitly
+consumes every dynamic resolution annotation and hashes its displayed value.
+The type checker consumes every binding's identity and inferred type through
+its displayed `TcBindingResult`. Both force the resulting syntax trees; TC
+also forces interface facts. These steps cover payloads that the parser AST's
+`NFData` instance intentionally skips. Expected output:
 
 ```text
-modules=16 units=12 cyclic=4 bindings=1571 fnv1a=11963302585316829735
+packages=4 modules=156 units=115 cyclic=2 resolutions=80929 fnv1a=3624782102185798415
+packages=4 modules=156 units=115 cyclic=2 bindings=8120 fnv1a=16946061974637811341
 ```
 
 ## Running and updating
 
-Both executables take no arguments for the full workload. `--small` checks
-four modules with two groups each, including a cyclic pair, for quick checks. The full
-workload is the same for every optimization profile. The suite records
-the exact output above and allows 120 seconds per invocation.
+```console
+nix build .#frontend-corpus
+aihc-resolve-bench ./result
+aihc-tc-bench ./result
+```
 
-Runtime measurements include source generation, parsing, resolution,
-checking where applicable, and result consumption. They measure a small
-frontend pipeline rather than isolated API call timings. Compilation also
-includes the pinned libraries and their dependencies.
+The normal runner supplies the corpus path automatically. Runtime includes
+reading sources, parsing, dependency planning, resolution, checking where
+applicable, and result consumption. Inputs are identical for every optimization
+profile. No network access or compiler checkout is needed at runtime.
 
-When updating the library commit, stage the selected packages with the Git
-dependency helper, regenerate `cabal.project.freeze` with those local
-packages in the development project, and regenerate each platform's
-`aihc.lock` with the same workspace. Keep the parser's exact Hackage bound.
-Update the wiring fixture if its API changed, run both workloads with a
-baseline compiler, and replace `expected_stdout` only after checking any
-changed diagnostics, resolution targets or inferred types. Pin changes are
-part of the benchmark experiment identity, so their results form a new
-series automatically.
+When changing the library commit, update the corpus's core source pin and
+hash as well. Regenerate freeze files and platform locks with the selected
+Git packages in the development workspace, retaining the parser's exact
+Hackage bound. Update the wiring fixture if its API changed, and check any
+changed diagnostics, resolution targets or inferred types before replacing
+`expected_stdout`. Source, corpus and dependency pins participate in the
+experiment identity; earlier synthetic workload timings are not comparable.
 
-The `graph-tests` Cabal test suites exercise dependency order, mutually
-recursive and self-recursive units, diamond import deduplication, external
-imports, duplicate names, and input-order independence. They use only `base`
-and `containers`; the Python suite runs the same scheduler tests when GHC is
-available. Both self-contained benchmark copies of the scheduler and tests
-must remain identical.
-
-Changing to SCC processing changes the workload and its checked output. The
-source hash starts a new experiment automatically; the earlier whole-package
-runtime snapshots are not comparable to this workflow.
+The `graph-tests` Cabal suites cover dependency ordering, cycles, diamonds,
+external imports, duplicate names and input-order independence. The Python
+suite also checks corpus assembly, closure and rejected unsupported inputs.
+Both self-contained copies of `ModuleGraph.hs`, `Corpus.hs` and the graph
+tests must remain identical.

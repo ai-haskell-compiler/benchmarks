@@ -108,6 +108,8 @@
       "id": "aihc-resolve-bench-v1",
       "package": "aihc-resolve-bench",
       "source": "benchmarks/aihc-resolve-bench",
+      "corpus_env": "AIHC_BENCH_FRONTEND_CORPUS",
+      "corpus_sources": ["corpus/frontend", "corpus/parser", "corpus/stackage"],
       "git_dependencies": [
         {
           "url": "https://github.com/ai-haskell-compiler/aihc",
@@ -117,13 +119,15 @@
           }
         }
       ],
-      "expected_stdout": "modules=24 units=18 cyclic=6 resolutions=28724 fnv1a=12249204649537228691\n",
+      "expected_stdout": "packages=4 modules=156 units=115 cyclic=2 resolutions=80929 fnv1a=3624782102185798415\n",
       "process_timeout_seconds": 120
     },
     {
       "id": "aihc-tc-bench-v1",
       "package": "aihc-tc-bench",
       "source": "benchmarks/aihc-tc-bench",
+      "corpus_env": "AIHC_BENCH_FRONTEND_CORPUS",
+      "corpus_sources": ["corpus/frontend", "corpus/parser", "corpus/stackage"],
       "git_dependencies": [
         {
           "url": "https://github.com/ai-haskell-compiler/aihc",
@@ -134,7 +138,7 @@
           }
         }
       ],
-      "expected_stdout": "modules=16 units=12 cyclic=4 bindings=1571 fnv1a=11963302585316829735\n",
+      "expected_stdout": "packages=4 modules=156 units=115 cyclic=2 bindings=8120 fnv1a=16946061974637811341\n",
       "process_timeout_seconds": 120
     }
   ],
