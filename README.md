@@ -94,11 +94,19 @@ gone. That does not make the numbers good, it makes them answerable.
 Every configuration is measured in four profiles: `O0`, `O1`, `O2` and `Os`.
 AIHC passes the matching `-O` flag to `aihc build`, where `-O2` and `-Os` also
 compile the whole program at once. GHC has no size level, so its `Os` profile
-builds with `-O1`. The five self-contained programs (RSA, convex hull,
-arithmoi, Snappy and SHA) take that profile name as their last argument and do
-a different amount of work in each one, sized so an AIHC native run lasts
-between half a second and a second. The corpus programs do not: their work
-is the fixed sample, and the same tally is expected from every profile. Both
+builds with `-O1`. Every program except MicroHs takes the profile name and
+then the backend (`native`, `llvm` or `wasm`) as its last two arguments, after
+the corpus directory of a corpus benchmark, and does a different amount of
+work in each cell, sized so an AIHC run lasts about half a second. An AIHC
+`-O2` build is tens of times faster than an `-O0` one and a Wasm build under
+Wasmtime several times slower than a native one, so a single size gave some
+cells milliseconds, where startup and timer noise are the measurement, and
+others tens of seconds. Native and LLVM builds share the native sizes; Wasm
+has its own. Both compilers run the same size in a configuration, so the
+ratio between them still compares the same work, but two profiles or two
+backends of one benchmark do not, and their times are not comparable with
+each other. The sizes are recalibrated as the compiler gets faster, which
+starts a new history for the benchmark. Both
 compilers apply the level to the whole build: on the GHC side that takes a
 `package *` stanza in the generated project file, since cabal's command-line
 `-O` and `--ghc-options` reach local packages only and would leave the
@@ -284,11 +292,13 @@ one behind a platform conditional the corpus never takes). Because every
 decision is written out, a wrong macro or a missing header can be found by
 reading the corpus rather than the program.
 
-The timed run sweeps `benchmark.tsv`, an even stride through the corpus up
-to 512 KiB of module source (`sampleBytes` in `corpus/cpp/corpus.nix`; zero
-selects everything). A GHC build does the whole 75 MB in about two seconds,
-but an AIHC build preprocesses around 40 KB/s today, so the sample is what
-keeps an AIHC run inside the benchmark's own `process_timeout_seconds`.
+`benchmark.tsv` is the pool the timed run draws from: an even stride through
+the corpus up to 32 MiB of module source (`sampleBytes` in
+`corpus/cpp/corpus.nix`; zero selects everything). Each backend and profile
+preprocesses its own number of modules, an even stride through the pool,
+listed in the program with the tally they produce. A GHC build does the whole
+75 MB in about two seconds. `<program> <corpus> --modules N` prints the tally
+of N modules, which is how a new count is recorded, and
 `<program> <corpus> --report` sweeps every module and prints each
 diagnostic, which is how the stand-in headers and macros were chosen: what
 remains is Windows-only branches, headers only a package's `configure`
@@ -301,10 +311,11 @@ ships, which Stackage lists as `core`, so nothing is compiled or installed to
 build the corpus. Bump it with `corpus/stackage/update.py`, which needs only
 the `all-cabal-hashes` tarball from nixpkgs; the docstring has the commands. The runner receives the
 built corpus through `AIHC_BENCH_CPP_CORPUS`, exported by the flake like the
-toolchains, and passes it to the program as its argument (preopened with
-`--dir` under Wasmtime). The printed tally -- module count, modules without an
-error diagnostic, total output bytes -- is the benchmark's expected output,
-so a miscompiled preprocessor fails the run rather than producing a number.
+toolchains, and passes it to the program as its first argument (preopened
+with `--dir` under Wasmtime). The program checks the tally -- module count,
+modules without an error diagnostic, total output bytes -- against the one
+recorded for its count and prints `ok`, so a miscompiled preprocessor fails
+the run rather than producing a number.
 A corpus benchmark names the directories its corpus is built from in
 `corpus_sources` (`corpus/cpp` and the shared snapshot pin under
 `corpus/stackage` for this one), and those files are part of that benchmark's
@@ -335,21 +346,20 @@ hands the parser before the module's own `LANGUAGE` pragmas; the `.cabal`
 file is read loosely, every stanza contributing, so the extension set is a
 superset of any one component's.
 
-The timed run sweeps `benchmark.tsv`, an even stride through the corpus up
-to 32 KiB of module source (`sampleBytes` in `corpus/parser/corpus.nix`)
-that steps over modules above 16 KiB, so it is many hand-written modules
-rather than one generated one. An AIHC build at `-O0` parses hand-written
-modules at around 17 KB/s natively today, so a native run takes about two
-seconds; under Wasmtime it parses around 4 KB/s after two seconds of
-startup, about eleven seconds in all, and the sample is what keeps that
-inside the benchmark's `process_timeout_seconds`. A GHC build at `-O0`
-reads the whole corpus in about two minutes. Every module is read, decoded, parsed and forced completely --
+`benchmark.tsv` is the pool the timed run draws from: an even stride through
+the corpus up to 8 MiB of module source (`sampleBytes` in
+`corpus/parser/corpus.nix`) that steps over modules above 16 KiB, so it is
+many hand-written modules rather than one generated one. Each backend and
+profile parses its own number of modules, an even stride through the pool,
+as the CPP benchmark does. A GHC build at `-O0` reads the whole corpus in
+about two minutes. Every module is read, decoded, parsed and forced completely --
 the whole tree and the recovered parse errors -- before the next one
 starts, as a compiler front end would consume it. `<program> <corpus>
---report` sweeps every module and prints each parse error. The printed
-tally -- module count, modules without a parse error, imports and
-declarations across every tree -- is the benchmark's expected output, so a
-miscompiled parser fails the run rather than producing a number.
+--report` sweeps every module and prints each parse error, and `--modules N`
+prints the tally of N modules. The program checks the tally -- module count,
+modules without a parse error, imports and declarations across every tree --
+against the one recorded for its count and prints `ok`, so a miscompiled
+parser fails the run rather than producing a number.
 
 Before the timed compile the runner installs `aihc-base` and the dependencies
 GHC ships as boot libraries into a per-commit store, once per target and

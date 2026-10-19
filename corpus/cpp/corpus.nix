@@ -8,11 +8,13 @@
 {
   pkgs,
   snapshotFile ? ../stackage/lts-24.58.json,
-  # Module bytes the timed benchmark sweeps (benchmark.tsv); 0 for all of
-  # them. Sized so that an AIHC -O0 build of the sweep, which preprocesses
-  # around 40 KB/s today, stays well inside 20 seconds; GHC does the whole
-  # 75 MB corpus in two seconds, and --report still covers all of it.
-  sampleBytes ? 512 * 1024,
+  # Module bytes of benchmark.tsv, the pool the timed benchmark draws its
+  # modules from; 0 for all of them. The program takes an even stride of a
+  # given number of modules from it, a number per backend and profile, so
+  # the pool only has to be larger than the largest of them: an AIHC -O2
+  # build preprocesses tens of times faster than an -O0 one. GHC does the
+  # whole 75 MB corpus in two seconds, and --report still covers all of it.
+  sampleBytes ? 32 * 1024 * 1024,
 }: let
   inherit (pkgs) lib;
   snapshot = builtins.fromJSON (builtins.readFile snapshotFile);

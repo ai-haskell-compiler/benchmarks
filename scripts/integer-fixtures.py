@@ -188,13 +188,23 @@ def random_prime(rng, bits):
             return candidate
 
 
-#: Work per profile: (balanced semiprimes, bits per balanced factor, other cases, prime searches, search bits).
-#: Each list is run once; the sizes are chosen so native AIHC on an Apple M4 Pro takes about half a second.
-ARITHMOI_PROFILES = {
+#: Work per case list: (balanced semiprimes, bits per balanced factor, other cases, prime searches, search bits).
+#: Each list is run once; the sizes are chosen so AIHC on an Apple M4 Pro takes about half a second.
+ARITHMOI_LISTS = {
     "O0": (4, 26, 4, 2, 128),
     "Os": (4, 26, 4, 2, 128),
     "O1": (4, 26, 4, 2, 128),
-    "O2": (28, 30, 8, 4, 192),
+    "O2": (387, 30, 8, 4, 192),
+    "WasmO2": (79, 30, 8, 4, 192),
+}
+
+#: The case list of each backend and profile. Below -O2 every list is the
+#: smallest one: forcing arithmoi's prime sieve alone takes longer than half a
+#: second there, natively and under Wasmtime alike. Native and LLVM builds
+#: share the native lists.
+ARITHMOI_CELLS = {
+    "native": {"O0": "O0", "Os": "Os", "O1": "O1", "O2": "O2"},
+    "wasm": {"O0": "O0", "Os": "Os", "O1": "O1", "O2": "WasmO2"},
 }
 
 
@@ -252,20 +262,23 @@ def arithmoi_cases(rng, balanced, balanced_bits, others, searches, search_bits):
 
 
 def arithmoi_fixture():
-    """One fixed case list per profile, each run exactly once."""
+    """One fixed case list per backend and profile, each run exactly once."""
     rng = random.Random(20261012)
     lists = []
-    for profile, parameters in ARITHMOI_PROFILES.items():
+    for name, parameters in ARITHMOI_LISTS.items():
         cases = arithmoi_cases(rng, *parameters)
-        lists.append(f"cases{profile} :: [Case]\ncases{profile} = [\n  " + ",\n  ".join(cases) + "\n  ]\n")
+        lists.append(f"cases{name} :: [Case]\ncases{name} = [\n  " + ",\n  ".join(cases) + "\n  ]\n")
+    table = lambda cells: "[" + ", ".join(f'("{profile}", cases{name})' for profile, name in cells.items()) + "]"
     return (
         "-- Create this file with scripts/integer-fixtures.py.\n"
         "module Fixtures (cases) where\n\n"
         "import Factorise (Case (..))\n\n"
-        "-- | The fixed cases of a profile, sized so that one pass takes about half a second.\n"
-        "cases :: String -> Maybe [Case]\n"
-        + "".join(f'cases "{profile}" = Just cases{profile}\n' for profile in ARITHMOI_PROFILES)
-        + "cases _ = Nothing\n\n"
+        "-- | The fixed cases of a backend and profile, sized so that one pass takes about half a second.\n"
+        "cases :: String -> String -> Maybe [Case]\n"
+        "cases backend profile\n"
+        f'  | backend `elem` ["native", "llvm"] = lookup profile {table(ARITHMOI_CELLS["native"])}\n'
+        f'  | backend == "wasm" = lookup profile {table(ARITHMOI_CELLS["wasm"])}\n'
+        "  | otherwise = Nothing\n\n"
         + "\n".join(lists)
     )
 

@@ -187,21 +187,32 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("--dir", plain.run_command)
         self.assertEqual(plain.run_command[-1], str(plain.precompiled))
 
-    def test_profile_argument_is_the_programs_last_argument(self):
+    def test_profile_and_backend_are_the_programs_last_arguments(self):
         self.config["benchmarks"][0]["profile_argument"] = True
         with tempfile.TemporaryDirectory() as directory:
             cells = {cell.configuration["id"]: cell for cell in self.build(Path(directory))}
         native = cells["aihc-native-O0"]
-        self.assertEqual(native.run_command[-1], "O0")
+        self.assertEqual(native.run_command[-2:], ["O0", "native"])
         optimized = cells["aihc-native-Os"]
-        self.assertEqual(optimized.run_command[-1], "Os")
+        self.assertEqual(optimized.run_command[-2:], ["Os", "native"])
         ghc = cells["ghc-native-O2"]
         # The profile follows the RTS block, so GHC returns it from getArgs
         # and does not try to parse it as an RTS option.
-        self.assertEqual(ghc.run_command[-2:], ["-RTS", "O2"])
+        self.assertEqual(ghc.run_command[-3:], ["-RTS", "O2", "native"])
         wasm = cells["aihc-wasm-O2"]
-        self.assertEqual(wasm.run_command[-1], "O2")
-        self.assertEqual(wasm.run_command[-2], str(wasm.precompiled))
+        self.assertEqual(wasm.run_command[-3:], [str(wasm.precompiled), "O2", "wasm"])
+
+    def test_a_corpus_benchmark_takes_the_profile_after_its_directory(self):
+        self.config["benchmarks"][0]["corpus_env"] = "SWEEP_CORPUS"
+        self.config["benchmarks"][0]["profile_argument"] = True
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            corpus = root / "corpus"
+            corpus.mkdir()
+            with patch.dict(os.environ, {"SWEEP_CORPUS": str(corpus)}):
+                cells = {cell.configuration["id"]: cell for cell in self.build(root)}
+        native = cells["aihc-native-O1"]
+        self.assertEqual(native.run_command, [str(native.artifact), str(corpus), "O1", "native"])
 
     def test_unsupported_backends_leave_only_those_cells_unavailable(self):
         self.config["benchmarks"].append(

@@ -120,28 +120,40 @@ metrics h0 (a, b) =
 checksum :: Int -> Word64
 checksum count = foldl' metrics 14695981039346656037 (pairs count)
 
--- | Pairs per profile, and the checksum a correct build produces. A
--- miscompiled library fails the run rather than producing a number.
+-- | Pairs per backend and profile, and the checksum a correct build produces.
+-- A miscompiled library fails the run rather than producing a number.
 --
--- The runner passes the profile name, and each profile measures a different
--- number of pairs. The counts are what take an AIHC native build about half
--- a second on an Apple M1: 0.53s at @-O0@ (33 pairs), 0.52s at @-O1@ (32),
--- 0.49s at @-Os@ (76) and 0.50s at @-O2@ (420). GHC @-O2@ takes 0.04s for
--- the @-O2@ count.
-work :: String -> Maybe (Int, Word64)
-work "O0" = Just (33, 2540962228840496799)
-work "Os" = Just (76, 9271424970276301007)
-work "O1" = Just (32, 11667436790397052647)
-work "O2" = Just (420, 6976113316107318333)
-work _ = Nothing
+-- The runner passes the profile and the backend, and each pair of them
+-- measures a different number of pairs. The counts are what take an AIHC
+-- build about half a second on an Apple M4 Pro; native and LLVM builds share
+-- the native counts. @--print@ prints the checksum of a new count.
+work :: String -> String -> Maybe (Int, Word64)
+work backend profile
+  | backend `elem` ["native", "llvm"] = lookup profile [("O0", 30), ("Os", 109), ("O1", 37), ("O2", 5765)] >>= withChecksum
+  | backend == "wasm" = lookup profile [("O0", 6), ("Os", 22), ("O1", 6), ("O2", 1348)] >>= withChecksum
+  | otherwise = Nothing
+  where
+    withChecksum count = (,) count <$> lookup count checksums
+
+-- | The checksum of each pair count 'work' uses.
+checksums :: [(Int, Word64)]
+checksums =
+  [ (6, 10622944386971976380),
+    (22, 14766389033292212708),
+    (30, 17580702691337827161),
+    (37, 16124759367494292225),
+    (109, 10081844726478726807),
+    (1348, 11986428750995824896),
+    (5765, 6182484483643650695)
+  ]
 
 main :: IO ()
 main = do
   args <- getArgs
   (count, expected) <- case args of
-    [profile] | Just found <- work profile -> pure found
+    [profile, backend] | Just found <- work backend profile -> pure found
     ["--print", count] -> do
       print (checksum (read count))
       die "printed"
-    _ -> die "usage: string-metrics <O0|Os|O1|O2> | --print <pairs>"
+    _ -> die "usage: string-metrics <O0|Os|O1|O2> <native|llvm|wasm> | --print <pairs>"
   putStrLn (if checksum count == expected then "ok" else "fail")
