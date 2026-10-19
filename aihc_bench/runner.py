@@ -790,7 +790,8 @@ def _corpus_directory(benchmark: Dict[str, Any]) -> str:
 def _with_corpus(run_command: List[str], configuration: Dict[str, Any], values: Dict[str, str]) -> List[str]:
     """Hand the corpus to the benchmark process.
 
-    The directory becomes the program's last argument. A configuration whose
+    The directory becomes the program's first argument, followed only by
+    the profile and backend of a benchmark that takes them. A configuration whose
     program runs under a sandbox names the options that expose a directory in
     ``corpus_options`` (``--dir {corpus}`` for Wasmtime); they go in front of
     the program, among the host's own options. The program is the
@@ -819,16 +820,20 @@ def _with_wasi_http(run_command: List[str]) -> List[str]:
 
 
 def _with_profile(run_command: List[str], configuration: Dict[str, Any]) -> List[str]:
-    """Pass the optimization profile as the program's last argument.
+    """Pass the optimization profile and the backend as the program's last arguments.
 
     A benchmark flagged ``profile_argument`` does a different amount of work
-    in each profile, and the profile name (``O0``, ``Os``, ``O1``, ``O2``)
-    selects that size. It is appended after every host option, including a
-    GHC ``+RTS`` block, so the program's own ``getArgs`` sees it and the RTS
-    does not. Corpus benchmarks do not take one: their work is the sample
-    they are given, and an extra argument fails their usage check.
+    in each cell, and the profile name (``O0``, ``Os``, ``O1``, ``O2``)
+    followed by the backend (``native``, ``llvm``, ``wasm``) selects that
+    size: an AIHC ``-O2`` build is many times faster than an ``-O0`` one,
+    and a Wasm build under Wasmtime many times slower than a native one, so
+    one size for every cell gave some of them milliseconds and others tens
+    of seconds. Both compilers get the same size in a configuration, so the
+    ratio still compares the same work. They are appended after every host
+    option, including a GHC ``+RTS`` block, so the program's own ``getArgs``
+    sees them and the RTS does not, and after a corpus directory.
     """
-    return [*run_command, configuration["optimization"]]
+    return [*run_command, configuration["optimization"], configuration["backend"]]
 
 
 #: Preparing the runtime and installing the core libraries are compilations

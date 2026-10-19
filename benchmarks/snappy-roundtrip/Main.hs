@@ -21,10 +21,8 @@ nextSeed seed = (seed * 6364136223846793005 + 1442695040888963407)
 -- | A byte buffer with repeated structure (compressible, like real payloads)
 -- rather than pure noise: each 64-byte block is a slice of the PRNG stream
 -- XORed with its block index, then the block is repeated four times. The
--- block count is per profile, because list construction dominates the run
--- under AIHC and the profiles do it at different speeds. On an Apple M1 an
--- AIHC native build takes about 0.77s at @-O0@ (2687 blocks), 0.77s at
--- @-O1@ (2744), 0.79s at @-Os@ (5987) and 0.71s at @-O2@ (11293).
+-- block count is per backend and profile, because list construction
+-- dominates the run under AIHC and the cells do it at different speeds.
 payload :: Int -> ByteString
 payload blockCount = ByteString.pack (concatMap block [0 .. blockCount - 1])
   where
@@ -36,20 +34,21 @@ payload blockCount = ByteString.pack (concatMap block [0 .. blockCount - 1])
     toByte :: Word8 -> Word64 -> Word8
     toByte salt seed = fromIntegral ((seed `shiftR` 33) .&. 0xff) `xor` salt
 
--- | Blocks per profile. See 'payload'.
-workSize :: String -> Maybe Int
-workSize "O0" = Just 2687
-workSize "Os" = Just 5987
-workSize "O1" = Just 2744
-workSize "O2" = Just 11293
-workSize _ = Nothing
+-- | Blocks per backend and profile. See 'payload'.
+-- Each count targets 0.5 seconds with AIHC on an Apple M4 Pro; native and
+-- LLVM builds share the native counts.
+workSize :: String -> String -> Maybe Int
+workSize backend profile
+  | backend `elem` ["native", "llvm"] = lookup profile [("O0", 3540), ("Os", 10421), ("O1", 4290), ("O2", 62401)]
+  | backend == "wasm" = lookup profile [("O0", 558), ("Os", 2268), ("O1", 917), ("O2", 24164)]
+  | otherwise = Nothing
 
 main :: IO ()
 main = do
   args <- getArgs
   blockCount <- case args of
-    [profile] | Just size <- workSize profile -> pure size
-    _ -> die "usage: snappy-roundtrip <O0|Os|O1|O2>"
+    [profile, backend] | Just size <- workSize backend profile -> pure size
+    _ -> die "usage: snappy-roundtrip <O0|Os|O1|O2> <native|llvm|wasm>"
   let bytes = payload blockCount
       compressed = compress bytes
       ok = case decompress compressed of
