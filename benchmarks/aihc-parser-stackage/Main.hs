@@ -11,14 +11,20 @@
 --
 -- Each module is read, decoded, parsed and forced completely -- the whole
 -- syntax tree and the recovered parse errors -- before the next one is
--- started, which is what a compiler front end does with a parse tree. The
--- printed line is the benchmark's expected output: the module count, how
--- many parsed without an error, and the number of imports and declarations
--- across every tree. A compiler that miscompiles aihc-parser changes one of
--- those numbers.
+-- started, which is what a compiler front end does with a parse tree.
 --
--- With @--report@ the whole corpus (@modules.tsv@, not the benchmark's
--- sample) is swept and every parse error is printed, which is how the
+-- @benchmark.tsv@ is a pool larger than any one run needs. The runner passes
+-- the profile and the backend, and each pair parses its own number of
+-- modules, an even stride through the pool: an AIHC @-O2@ build is many
+-- times faster than an @-O0@ one, and a Wasm build slower than a native one.
+-- The tally of those modules -- the module count, how many parsed without an
+-- error, and the number of imports and declarations across every tree -- is
+-- checked against the one recorded here, and the program prints @ok@. A
+-- compiler that miscompiles aihc-parser changes one of those numbers.
+--
+-- With @--modules N@ the tally of N modules is printed, which is how the
+-- recorded ones are made. With @--report@ the whole corpus (@modules.tsv@,
+-- not the pool) is swept and every parse error is printed, which is how the
 -- corpus's selection rules were checked.
 module Main (main) where
 
@@ -41,7 +47,7 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import System.Environment (getArgs)
-import System.Exit (exitFailure)
+import System.Exit (die, exitFailure)
 import System.FilePath ((</>))
 import System.IO (hPutStrLn, stderr)
 
@@ -49,11 +55,53 @@ main :: IO ()
 main = do
   arguments <- getArgs
   case arguments of
-    [corpus] -> sweep corpus False
-    [corpus, "--report"] -> sweep corpus True
+    [corpus, profile, backend] | Just (count, expected) <- work backend profile -> do
+      tally <- sweep corpus (Just count) False
+      if tally == expected
+        then putStrLn "ok"
+        else hPutStrLn stderr ("expected " <> expected <> ", got " <> tally) >> putStrLn "fail"
+    [corpus, "--modules", count] -> sweep corpus (Just (read count)) False >>= putStrLn
+    [corpus, "--report"] -> sweep corpus Nothing True >>= putStrLn
     _ -> do
-      hPutStrLn stderr "usage: aihc-parser-stackage <corpus directory> [--report]"
+      hPutStrLn stderr "usage: aihc-parser-stackage <corpus directory> (<O0|Os|O1|O2> <native|llvm|wasm> | --modules <count> | --report)"
       exitFailure
+
+-- | Modules per backend and profile, and the tally a correct build prints for
+-- them. The counts are what take an AIHC build about half a second on an
+-- Apple M4 Pro; native and LLVM builds share the native counts.
+work :: String -> String -> Maybe (Int, String)
+work backend profile
+  | backend `elem` ["native", "llvm"] = lookup profile nativeWork >>= withTally
+  | backend == "wasm" = lookup profile wasmWork >>= withTally
+  | otherwise = Nothing
+  where
+    nativeWork = [("O0", 22), ("Os", 157), ("O1", 76), ("O2", 353)]
+    wasmWork = [("O0", 1), ("Os", 10), ("O1", 1), ("O2", 1)]
+    withTally count = (,) count <$> lookup count tallies
+
+-- | The tally of each module count 'work' uses.
+tallies :: [(Int, String)]
+tallies =
+  [ (1, "modules=1 ok=1 errored=0 imports=3 decls=4"),
+    (10, "modules=10 ok=10 errored=0 imports=112 decls=72"),
+    (22, "modules=22 ok=22 errored=0 imports=138 decls=220"),
+    (76, "modules=76 ok=76 errored=0 imports=433 decls=900"),
+    (157, "modules=157 ok=157 errored=0 imports=995 decls=2191"),
+    (353, "modules=353 ok=353 errored=0 imports=2412 decls=5464")
+  ]
+
+-- | @count@ elements spread evenly over the list: the middle one of each of
+-- @count@ equal stretches, so a small count is not always led by the first.
+spread :: Int -> [a] -> Maybe [a]
+spread count items
+  | count < 1 || count > total = Nothing
+  | otherwise = Just (pick [(2 * index + 1) * total `div` (2 * count) | index <- [0 .. count - 1]] (zip [0 ..] items))
+  where
+    total = length items
+    pick (wanted : later) ((index, item) : rest)
+      | wanted == index = item : pick later rest
+      | otherwise = pick (wanted : later) rest
+    pick _ _ = []
 
 -- | One module of the corpus, as a line of @modules.tsv@ describes it.
 data Entry = Entry
@@ -72,11 +120,16 @@ data Tally = Tally
     tallyDecls :: !Int
   }
 
-sweep :: FilePath -> Bool -> IO ()
-sweep corpus report = do
-  entries <- parseEntries corpus <$> BS.readFile (corpus </> (if report then "modules.tsv" else "benchmark.tsv"))
+-- | Parse @count@ modules of the pool, or with 'Nothing' every module of the
+-- corpus, and return the tally line.
+sweep :: FilePath -> Maybe Int -> Bool -> IO String
+sweep corpus count report = do
+  listed <- parseEntries corpus <$> BS.readFile (corpus </> maybe "modules.tsv" (const "benchmark.tsv") count)
+  entries <- case count of
+    Nothing -> pure listed
+    Just wanted -> maybe (die ("the pool has " <> show (length listed) <> " modules")) pure (spread wanted listed)
   tally <- go (Tally 0 0 0 0 0) entries
-  putStrLn
+  pure
     ( "modules="
         <> show (tallyModules tally)
         <> " ok="

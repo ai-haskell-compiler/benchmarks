@@ -54,11 +54,6 @@ def load_config(path: Path) -> Dict[str, Any]:
         if not isinstance(profile_argument, bool):
             raise ConfigError(f"benchmark {benchmark['id']}: profile_argument must be a boolean")
         corpus_env = benchmark.get("corpus_env")
-        if profile_argument and corpus_env:
-            raise ConfigError(
-                f"benchmark {benchmark['id']}: profile_argument cannot be combined with a corpus, "
-                "because both want to be the program's last argument"
-            )
         if corpus_env is not None and (not isinstance(corpus_env, str) or not corpus_env):
             raise ConfigError(f"benchmark {benchmark['id']}: corpus_env must name an environment variable")
         corpus_sources = benchmark.get("corpus_sources")

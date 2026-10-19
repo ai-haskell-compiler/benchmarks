@@ -226,11 +226,6 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_config(config_path)
             document["benchmarks"][0]["profile_argument"] = True
-            document["benchmarks"][0]["corpus_env"] = "SAMPLE_CORPUS"
-            config_path.write_text(json.dumps(document), encoding="utf-8")
-            with self.assertRaises(ConfigError):
-                load_config(config_path)
-            document["benchmarks"][0].pop("corpus_env")
             config_path.write_text(json.dumps(document), encoding="utf-8")
             self.assertTrue(load_config(config_path)["benchmarks"][0]["profile_argument"])
 
