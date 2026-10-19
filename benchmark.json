@@ -117,7 +117,7 @@
           }
         }
       ],
-      "expected_stdout": "modules=24 resolutions=28700 fnv1a=6305761367544039928\n",
+      "expected_stdout": "modules=24 units=18 cyclic=6 resolutions=28724 fnv1a=12249204649537228691\n",
       "process_timeout_seconds": 120
     },
     {
@@ -134,7 +134,7 @@
           }
         }
       ],
-      "expected_stdout": "modules=16 bindings=1552 fnv1a=2128632125511863541\n",
+      "expected_stdout": "modules=16 units=12 cyclic=4 bindings=1571 fnv1a=11963302585316829735\n",
       "process_timeout_seconds": 120
     }
   ],

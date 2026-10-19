@@ -24,10 +24,19 @@ requires a corpus, a compiler checkout, or network access at runtime.
 
 The workload generates 24 modules, each with 20 groups of functions and a
 recursive tree type. Each module after the first imports its predecessor
-under a qualified alias. Local helpers shadow outer binders, recursive
-patterns introduce new bindings, and right-associative operators exercise
-fixity handling. The benchmark builds the module export table and resolves
-the whole unit.
+under a qualified alias. Every group of four modules also contains a mutual
+import pair: module 1 imports module 2, and module 2 imports module 1. The
+input modules are deliberately reversed before planning, so input order
+cannot substitute for dependency scheduling. Local helpers shadow outer
+binders, recursive patterns introduce new bindings, and right-associative
+operators exercise fixity handling.
+
+`ModuleGraph.dependencyUnits` groups the package's import graph into SCCs and
+orders those units with dependencies first. The resolver processes each SCC
+with `resolveUnit`, using `collectModuleExportsWithDeps` to construct the
+unit's scopes against the exports of its dependencies. Exports are published
+only after the unit succeeds. The full graph has 18 units, six of them
+cyclic pairs; dependencies within a cycle are handled together.
 
 It walks every result's annotations and computes a 64-bit FNV-1a checksum of
 the displayed resolutions, including source spans, identifiers, namespaces
@@ -36,7 +45,7 @@ the parser AST's `NFData` instance skips. It also forces the resulting trees.
 The expected output is:
 
 ```text
-modules=24 resolutions=28700 fnv1a=6305761367544039928
+modules=24 units=18 cyclic=6 resolutions=28724 fnv1a=12249204649537228691
 ```
 
 ## Type checker workload
@@ -44,7 +53,10 @@ modules=24 resolutions=28700 fnv1a=6305761367544039928
 The workload generates 16 modules, each with 10 groups of functions. It
 checks polymorphic identities and composition, explicit signatures,
 recursive tree traversals, optional-value binds, local generalization, a
-higher-kinded mapping class and two instances. Modules have no Prelude
+higher-kinded mapping class and two instances. Its package has the same
+chain-of-SCCs import pattern as the resolver workload, with cross-module
+calls to an explicitly signed polymorphic identity. Signatures make those
+bindings available while checking a cyclic unit. Modules have no Prelude
 dependency: their data types and classes are declared in the input itself.
 
 The public API requires the embedding compiler to provide its primitive
@@ -55,20 +67,28 @@ fixture copy of the pinned commit's
 `Lifted`; it is resolved and checked once before the generated modules.
 These fixtures keep runtime inputs independent of the compiler under test.
 
-After parsing and resolution, `typecheckModulesWithInterface` checks the
-modules. Any parse, resolution or type error fails the process. The benchmark
-consumes every binding's identity and inferred type through a checksum of
-its displayed `TcBindingResult`, then forces the checked syntax trees. The
-expected output is:
+The primitive package is processed first. The generated package then passes
+through the same dependency-first SCC scheduler as the resolver. Each SCC
+is resolved as a unit and checked with `typecheckModuleSccWithInterface`.
+Only the primitive interface and the completed dependency interfaces are
+imported. The resulting facts are merged into that unit's interface closure
+for its dependents, rather than carrying the state of every preceding module
+through the whole package. The full graph has 12 units, four of them cyclic
+pairs.
+
+Any parse, resolution or type error fails the process. The benchmark consumes
+every binding's identity and inferred type through a checksum of its displayed
+`TcBindingResult`, then forces the checked syntax trees and interface facts.
+The expected output is:
 
 ```text
-modules=16 bindings=1552 fnv1a=2128632125511863541
+modules=16 units=12 cyclic=4 bindings=1571 fnv1a=11963302585316829735
 ```
 
 ## Running and updating
 
 Both executables take no arguments for the full workload. `--small` checks
-two modules with two groups each, for quick development checks. The full
+four modules with two groups each, including a cyclic pair, for quick checks. The full
 workload is the same for every optimization profile. The suite records
 the exact output above and allows 120 seconds per invocation.
 
@@ -86,3 +106,14 @@ baseline compiler, and replace `expected_stdout` only after checking any
 changed diagnostics, resolution targets or inferred types. Pin changes are
 part of the benchmark experiment identity, so their results form a new
 series automatically.
+
+The `graph-tests` Cabal test suites exercise dependency order, mutually
+recursive and self-recursive units, diamond import deduplication, external
+imports, duplicate names, and input-order independence. They use only `base`
+and `containers`; the Python suite runs the same scheduler tests when GHC is
+available. Both self-contained benchmark copies of the scheduler and tests
+must remain identical.
+
+Changing to SCC processing changes the workload and its checked output. The
+source hash starts a new experiment automatically; the earlier whole-package
+runtime snapshots are not comparable to this workflow.
