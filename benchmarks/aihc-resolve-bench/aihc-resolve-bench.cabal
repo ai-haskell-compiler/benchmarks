@@ -1,0 +1,12 @@
+cabal-version: 3.8
+name: aihc-resolve-bench
+version: 0.1.0.0
+synopsis: AIHC benchmark: name resolution across generated modules
+license: Unlicense
+build-type: Simple
+
+executable aihc-resolve-bench
+  main-is: Main.hs
+  build-depends: base, deepseq, text, aihc-parser ==5.0.0.0, aihc-resolve ==0.1.0.0
+  default-language: Haskell2010
+  ghc-options: -Wall

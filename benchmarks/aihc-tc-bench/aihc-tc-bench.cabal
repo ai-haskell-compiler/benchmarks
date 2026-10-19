@@ -1,0 +1,13 @@
+cabal-version: 3.8
+name: aihc-tc-bench
+version: 0.1.0.0
+synopsis: AIHC benchmark: polymorphic inference and class constraint solving
+license: Unlicense
+build-type: Simple
+
+executable aihc-tc-bench
+  main-is: Main.hs
+  other-modules: Wiring
+  build-depends: base, deepseq, text, aihc-parser ==5.0.0.0, aihc-resolve ==0.1.0.0, aihc-tc ==0.1.0.0, containers
+  default-language: GHC2021
+  ghc-options: -Wall
