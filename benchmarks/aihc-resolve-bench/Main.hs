@@ -6,20 +6,15 @@ import Aihc.Resolve
 import Aihc.Resolve.Traverse (annotationList)
 import Control.DeepSeq (rnf)
 import Control.Exception (evaluate)
-import Data.Bits (xor)
-import Data.Char (ord)
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
-import Data.Word (Word64)
 import ModuleGraph
 import Data.Maybe (mapMaybe)
 import Corpus
+import StructuralHash
 import PhaseTiming
 import System.Exit (die)
-
-hashString :: Word64 -> String -> Word64
-hashString = List.foldl' (\h c -> (h `xor` fromIntegral (ord c)) * 1099511628211)
 
 -- Export scopes are published only after a dependency unit has resolved.
 -- The closure retained for each unit supplies transitive imported names.
@@ -50,12 +45,12 @@ resolveGraph timings package packageScopes = go Map.empty []
 main :: IO ()
 main = runWorkload "resolve" sweep
 
-sweep :: FilePath -> [T.Text] -> IO String
+sweep :: FilePath -> PackageSelection -> IO String
 sweep corpus roots = do
   timings <- newTimings
   packages <- loadPackages timings corpus roots
   let go _ !modules !units !cyclic !references !checksum [] =
-        pure ("packages=" ++ show (length packages) ++ " modules=" ++ show modules ++ " units=" ++ show units ++ " cyclic=" ++ show cyclic ++ " resolutions=" ++ show references ++ " fnv1a=" ++ show checksum)
+        pure ("packages=" ++ show (length packages) ++ " modules=" ++ show modules ++ " units=" ++ show units ++ " cyclic=" ++ show cyclic ++ " resolutions=" ++ show references ++ " digest=" ++ show checksum)
       go scopes !modules !units !cyclic !references !checksum ((name, deps) : rest) = do
         imported <- mapM (\dependency -> maybe (die "package dependency not resolved") pure (Map.lookup dependency scopes)) deps
         parsed <- loadModules timings corpus name
@@ -64,10 +59,10 @@ sweep corpus roots = do
         (resolved, exports) <- resolveGraph timings package (mconcat imported) graph
         (n, h) <- timed timings "checksumming" $ \() -> do
           let annotations = concatMap (mapMaybe annotationResolution . annotationList . moduleUnitAst . resolvedModuleUnit) resolved
-              result = List.foldl' (\(!count, !hash) annotation -> (count + 1, hashString hash (show annotation))) (references, checksum) annotations
+              result = List.foldl' (\(!count, !hash) annotation -> (count + 1, hashResolution hash annotation)) (references, checksum) annotations
           evaluate (rnf result `seq` result)
         go (Map.insert name exports scopes) (modules + length parsed) (units + length graph) (cyclic + length (filter unitIsCyclic graph)) n h rest
-  result <- go Map.empty (0 :: Int) (0 :: Int) (0 :: Int) (0 :: Int) 14695981039346656037 packages
+  result <- go Map.empty (0 :: Int) (0 :: Int) (0 :: Int) (0 :: Int) seed packages
   evaluate (rnf result)
   reportTimings timings
   pure result

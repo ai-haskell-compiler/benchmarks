@@ -7,7 +7,7 @@ build-type: Simple
 
 executable aihc-resolve-bench
   main-is: Main.hs
-  other-modules: ModuleGraph, Corpus, PhaseTiming
+  other-modules: ModuleGraph, Corpus, PhaseTiming, StructuralHash
   build-depends: base, containers, deepseq, text, aihc-parser ==5.0.0.0, aihc-resolve ==0.1.0.0
   default-language: Haskell2010
   ghc-options: -Wall

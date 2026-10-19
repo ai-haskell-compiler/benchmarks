@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Corpus (forceResolved, planModules, runWorkload, loadPackages, loadModules, moduleGraph, builtinModules, wiredTypeModules) where
+module Corpus (PackageSelection (..), forceResolved, planModules, runWorkload, loadPackages, loadModules, moduleGraph, builtinModules, wiredTypeModules) where
 
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -29,8 +29,16 @@ wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "
 builtinModules :: [T.Text]
 builtinModules = "GHC.IsList" : wiredTypeModules
 
-loadPackages :: Timings -> FilePath -> [T.Text] -> IO [(T.Text, [T.Text])]
-loadPackages timings corpus roots = do
+-- Configured workloads always include Prelude; exact selection is an explicit
+-- diagnostic mode, e.g. to inspect the primitive package on its own.
+data PackageSelection = WithPrelude [T.Text] | ExactPackages [T.Text]
+
+selectionRoots :: PackageSelection -> [T.Text]
+selectionRoots (WithPrelude roots) = "aihc-base" : roots
+selectionRoots (ExactPackages roots) = roots
+
+loadPackages :: Timings -> FilePath -> PackageSelection -> IO [(T.Text, [T.Text])]
+loadPackages timings corpus selection = do
   input <- timed timings "source_io_decode" $ \() -> do
     text <- TIO.readFile (corpus ++ "/packages.tsv")
     evaluate (rnf text)
@@ -50,7 +58,7 @@ loadPackages timings corpus roots = do
           | otherwise = case Map.lookup name byName of
               Nothing -> die ("unknown corpus package: " ++ T.unpack name)
               Just deps -> closure (Set.insert name seen) (deps ++ rest)
-    selected <- closure Set.empty ("aihc-base" : roots)
+    selected <- closure Set.empty (selectionRoots selection)
     let result = [(name, deps) | (name, deps) <- concatMap unitMembers graph, name `Set.member` selected]
     evaluate (rnf result)
     pure result
@@ -96,7 +104,7 @@ moduleGraph units = dependencyUnits
 
 -- Each cell selects complete packages and repeats a fresh frontend sweep.
 -- Package choices and reference tallies live with the pinned corpus inputs.
-runWorkload :: String -> (FilePath -> [T.Text] -> IO String) -> IO ()
+runWorkload :: String -> (FilePath -> PackageSelection -> IO String) -> IO ()
 runWorkload phase sweep = do
   args <- getArgs
   case args of
@@ -107,24 +115,26 @@ runWorkload phase sweep = do
       case matches of
         [[_, _, _, iterations, roots, expected]] -> do
           count <- positiveCount (T.unpack iterations)
-          _ <- repeatSweep corpus (T.splitOn "," roots) count (Just (T.unpack expected))
+          _ <- repeatSweep corpus (WithPrelude (T.splitOn "," roots)) count (Just (T.unpack expected))
           putStrLn "ok"
         _ -> die "unknown or duplicate frontend workload"
-    [corpus, "--packages", roots, "--repeat", iterations] -> do
+    [corpus, flag, roots, "--repeat", iterations] | flag `elem` ["--packages", "--exact-packages"] -> do
       count <- positiveCount iterations
-      result <- repeatSweep corpus (T.splitOn "," (T.pack roots)) count Nothing
+      let selection = (if flag == "--exact-packages" then ExactPackages else WithPrelude) (T.splitOn "," (T.pack roots))
+      result <- repeatSweep corpus selection count Nothing
       putStrLn result
-    _ -> die "usage: frontend-bench <corpus> <O0|Os|O1|O2> <native|llvm|wasm> | <corpus> --packages <comma-separated names> --repeat <count>"
+    _ -> die "usage: frontend-bench <corpus> <O0|Os|O1|O2> <native|llvm|wasm> | <corpus> <--packages|--exact-packages> <comma-separated names> --repeat <count>"
   where
     positiveCount :: String -> IO Int
     positiveCount value = case readMaybe value of
       Just count | count > 0 -> pure count
       _ -> die "iterations must be a positive integer"
-    repeatSweep corpus roots count expected = do
+    repeatSweep corpus selection count expected = do
+      let roots = case selection of WithPrelude names -> names; ExactPackages names -> names
       if null roots || any T.null roots then die "empty package selection" else pure ()
       let go 0 result = pure result
           go n _ = do
-            result <- sweep corpus roots
+            result <- sweep corpus selection
             evaluate (rnf result)
             case expected of
               Just reference | result /= reference -> die ("expected " ++ reference ++ ", got " ++ result)

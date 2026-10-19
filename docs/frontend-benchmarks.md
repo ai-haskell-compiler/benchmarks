@@ -39,7 +39,7 @@ implicit Prelude and the compiler's wired type modules. Adding more complex
 libraries will require Cabal component finalization and preprocessing; the
 builder must not silently guess those settings.
 
-The pool has 156 modules across four packages. Every invocation compiles
+The pool has 156 modules across four packages. Every configured workload compiles
 the full, unmodified real `Prelude` from the pinned `aihc-base` sources and
 its transitive dependency closure. Prelude is never replaced, trimmed, cached
 as a semantic interface, or excluded from the timed work. Even an explicit
@@ -77,15 +77,25 @@ TC API. The primitive semantic interface is obtained by resolving and checking
 real core sources as part of the workload.
 
 Any parse, resolution or type error fails the process. The resolver explicitly
-consumes every dynamic resolution annotation and hashes its displayed value.
-The type checker consumes every binding's identity and inferred type through
-its displayed `TcBindingResult`. Both force the resulting syntax trees; TC
+consumes every dynamic resolution annotation and hashes its fields directly.
+The type checker hashes each binding's identity, display name, and complete
+inferred type structure. Both force the resulting syntax trees; TC
 also forces interface facts. These steps cover payloads that the parser AST's
 `NFData` instance intentionally skips. Each cell checks the full tally and
 checksum recorded in `corpus/frontend/workloads.json` on every sweep, then
 prints `ok`. Parse, resolution, inference or checksum failures exit nonzero.
 Only newly produced SCC interface facts are deeply forced: dependencies were
 already forced by their own SCC, so their entire closure is not traversed again.
+
+`StructuralHash.hs` folds constructor tags, field/list lengths, numeric values
+and text code points into a deterministic 64-bit word-wise FNV-style digest.
+`TypeHash.hs` includes all type constructors, variable identities and invisible
+kinds, predicates, constructor origins/arities and arbitrary-precision literals.
+It does not build a `Show` string. The output field is `digest`, distinguishing
+it from the earlier text-based `fnv1a` references. Explicit normal-form forcing
+inside resolution/checking is retained independently of checksumming. The
+checksum tests check semantic distinctions and demand nested lazy payloads;
+incomplete constructor coverage is a compilation error.
 
 ## Profile/backend workloads
 
@@ -143,17 +153,30 @@ This diagnostic command measures `aihc-prim` and `aihc-base` alone: 139
 modules in 98 SCCs, including the full real Prelude. It explicitly selects
 this common input instead of the profile/backend's additional corpus packages.
 Add `--packages aihc-base,colour,split` to measure the configured `O2/native`
-input instead. The script discards one warmup, takes five fresh-process samples with timings enabled,
+input instead. The script discards one warmup, takes five fresh-process samples
+with timings enabled,
 then five with timings disabled, and records raw samples, arithmetic means,
 checksums and executable hashes. `--compiler` additionally records the compiler
-binary's hash. The label describes build flags; it does not select them.
+binary's hash. The label describes build flags; it does not select them. Run the same command
+with GHC `-O2 -fasm` executables for the native GHC comparison.
+
+For an explicitly requested diagnostic that omits the automatic Prelude root,
+the executable accepts `--exact-packages <roots> --repeat 1`. The timing script
+also accepts `--exact-packages` with `--references <file.json>` containing
+`resolve` and `tc` expected output strings. Normal `--packages` and configured
+profile/backend selections still require Prelude. A full primitive-only corpus
+must contain all 27 exposed modules from the pinned `aihc-prim` Cabal library;
+the normal corpus includes only the 20 needed by the Prelude import closure.
+See [the structural-digest measurements](frontend-structural-results.md) for
+both compilers on the full primitive-only and configured workloads. Earlier
+[Show-based measurements](frontend-phase-results.md) are historical.
 
 The disjoint monotonic wall intervals cover source I/O and text decoding,
 parsing (including pragmas and forcing ASTs), dependency planning, export/scope
 collection, name resolution, type checking, interface merging, and checksumming.
 Resolution explicitly forces dynamic resolution payloads; checking forces new
-interface facts and inferred binding types. Checksumming covers traversal,
-`Show` formatting and FNV hashing of those materialized results. This prevents
+interface facts and inferred binding types. Checksumming covers traversal and
+the structural digest of those materialized results. This prevents
 lazy semantic work from being charged to checksumming. The original AST
 retention across each package is preserved. Explicit payload materialization
 adds traversal overhead even with timing output disabled.
@@ -176,5 +199,5 @@ experiment identity; earlier synthetic workload timings are not comparable.
 The `graph-tests` Cabal suites cover dependency ordering, cycles, diamonds,
 external imports, duplicate names and input-order independence. The Python
 suite also checks corpus assembly, closure and rejected unsupported inputs.
-Both self-contained copies of `ModuleGraph.hs`, `Corpus.hs`, `PhaseTiming.hs` and the graph
+Both self-contained copies of `ModuleGraph.hs`, `Corpus.hs`, `PhaseTiming.hs`, `StructuralHash.hs` and the graph
 tests must remain identical.

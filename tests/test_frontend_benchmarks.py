@@ -51,7 +51,7 @@ class FrontendBenchmarkTests(unittest.TestCase):
         resolver = ROOT / "benchmarks/aihc-resolve-bench"
         checker = ROOT / "benchmarks/aihc-tc-bench"
         # Each benchmark remains self-contained for scratch copies and hashing.
-        for name in ("ModuleGraph.hs", "Corpus.hs", "PhaseTiming.hs", "test/GraphTests.hs"):
+        for name in ("ModuleGraph.hs", "Corpus.hs", "PhaseTiming.hs", "StructuralHash.hs", "test/GraphTests.hs"):
             self.assertEqual((resolver / name).read_bytes(), (checker / name).read_bytes())
         ghc = shutil.which("ghc")
         if not ghc:
@@ -78,7 +78,7 @@ class FrontendBenchmarkTests(unittest.TestCase):
                 for cell in profiles.values():
                     self.assertIn("aihc-base", cell["packages"])
                     self.assertGreater(cell["iterations"], 0)
-                    self.assertRegex(cell["expected"], r"^packages=\d+ modules=\d+ units=\d+ cyclic=\d+ (resolutions|bindings)=\d+ fnv1a=\d+$")
+                    self.assertRegex(cell["expected"], r"^packages=\d+ modules=\d+ units=\d+ cyclic=\d+ (resolutions|bindings)=\d+ digest=\d+$")
             for profile in ("O0", "Os", "O1", "O2"):
                 selections = {tuple(profiles[profile]["packages"]) for profiles in backends.values()}
                 self.assertEqual(len(selections), 3)

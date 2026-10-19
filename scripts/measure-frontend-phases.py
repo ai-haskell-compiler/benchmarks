@@ -25,7 +25,10 @@ def main():
     parser.add_argument('--resolve', type=Path, required=True)
     parser.add_argument('--tc', type=Path, required=True)
     parser.add_argument('--corpus', type=Path, required=True)
-    parser.add_argument('--packages', default='aihc-base', help='Comma-separated roots; aihc-base is always included')
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument('--packages', help='Comma-separated roots; aihc-base is always included')
+    selection.add_argument('--exact-packages', help='Diagnostic roots without automatically adding aihc-base')
+    parser.add_argument('--references', type=Path, help='Diagnostic JSON with resolve/tc expected output strings')
     parser.add_argument('--compiler', type=Path)
     parser.add_argument('--label', required=True, help='Compiler, optimization and backend used to build both executables')
     parser.add_argument('--samples', type=int, default=5)
@@ -35,11 +38,18 @@ def main():
         parser.error('--samples must be positive')
     root = Path(__file__).resolve().parents[1]
     workloads = json.loads((root / 'corpus/frontend/workloads.json').read_text())
-    roots = sorted(set(['aihc-base', *filter(None, args.packages.split(','))]))
+    exact = args.exact_packages is not None
+    roots = sorted(set(filter(None, (args.exact_packages if exact else args.packages or 'aihc-base').split(','))))
+    if not exact:
+        roots = sorted(set(['aihc-base', *roots]))
+    if not roots or (exact and not args.references):
+        parser.error('provide nonempty roots and --references for an exact diagnostic selection')
+    references = json.loads(args.references.read_text()) if args.references else None
     report = {
         'recorded_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         'label': args.label, 'platform': platform.platform(),
         'corpus': str(args.corpus.resolve()), 'packages': roots,
+        'exact_packages': exact,
         'core_library_commit': '6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d',
         'parser': 'Hackage aihc-parser-5.0.0.0',
         'method': 'One discarded warmup, fresh processes, arithmetic means; wall phases include GC and result materialization.',
@@ -48,12 +58,14 @@ def main():
     if args.compiler:
         report['compiler'] = fingerprint(args.compiler)
     for phase, exe in [('resolve', args.resolve), ('tc', args.tc)]:
-        candidates = [cell['expected'] for profiles in workloads[phase].values()
-                      for cell in profiles.values() if sorted(cell['packages']) == roots]
+        candidates = ([references[phase]] if references else
+                      [cell['expected'] for profiles in workloads[phase].values()
+                       for cell in profiles.values() if sorted(cell['packages']) == roots])
         if not candidates:
             parser.error('package roots must match a selection in corpus/frontend/workloads.json')
         expected = candidates[0]
-        command = [str(exe.resolve()), str(args.corpus.resolve()), '--packages', ','.join(roots), '--repeat', '1']
+        command = [str(exe.resolve()), str(args.corpus.resolve()),
+                   '--exact-packages' if exact else '--packages', ','.join(roots), '--repeat', '1']
 
         def run(timed):
             env = {**os.environ, 'AIHC_BENCH_PHASE_TIMINGS': '1' if timed else '0'}

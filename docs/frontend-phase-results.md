@@ -1,4 +1,6 @@
-# AIHC frontend phase measurements
+# Historical Show-based frontend phase measurements
+
+These measurements use the former `Show`-based checksum. See [the structural-digest results](frontend-structural-results.md) for the updated AIHC/GHC comparison.
 
 Measured 2026-10-19 on Apple M4 Pro / macOS ARM64, with AIHC `-O2`, native `apple-arm64`, unstripped executables. Every sweep processes the full real Prelude from pinned `aihc-base` sources, in dependency-first SCC order. Hackage `aihc-parser-5.0.0.0` remains unchanged.
 

@@ -1,0 +1,1378 @@
+{
+  "hardware": "Apple M4 Pro",
+  "optimization": "O2/native; AIHC apple-arm64, GHC 9.14.1 -fasm; unstripped executables",
+  "digest": "structural-word-fnv-v1: constructor tags, lengths, text code points, full numeric values; all type fields including invisible kinds and predicates",
+  "method": "Five fresh-process samples after one discarded warmup, followed by five timing-disabled controls; arithmetic means. Local desktop wall times, GC charged to active phase. Explicit semantic forcing unchanged.",
+  "benchmark_source_sha256": {
+    "benchmarks/aihc-resolve-bench/Corpus.hs": "b5869d70bb58b77fc53f1f647aff7ded69c83c68d18617b5e6509ae394ae7d3d",
+    "benchmarks/aihc-resolve-bench/Main.hs": "d2bad6ad34f5fcd76cb22dab4928cfe5ab43af2573d619fc9f97afe054d483d2",
+    "benchmarks/aihc-resolve-bench/ModuleGraph.hs": "aa1e7557f47a01e8fb6d1744de9e3d3ca1997279e1c81016a206ca394c2cedb5",
+    "benchmarks/aihc-resolve-bench/PhaseTiming.hs": "255d4ff00d834a95dd5a4fc1e5a93ece700a17425559539a34180849db14b31d",
+    "benchmarks/aihc-resolve-bench/StructuralHash.hs": "4eb233be9bc01cfcdcb6b27dca9c7369d6824af69838449c5e377f717a75caf3",
+    "benchmarks/aihc-resolve-bench/aihc-resolve-bench.cabal": "566c961aa6253feb8d8a4e94f8e10e80ac28577cd68e328de1e38cd0672e3a01",
+    "benchmarks/aihc-resolve-bench/aihc.lock": "01ba8b6730f75b72808255f7f1a4af94f433f3b91bfd312817a2e6a63e99628f",
+    "benchmarks/aihc-resolve-bench/cabal.project.freeze": "65b3b9c061935d1f7793c96cccd607d4a50a8272e35d445a768dea62840ce5a1",
+    "benchmarks/aihc-resolve-bench/test/GraphTests.hs": "4264a046d16e38933c6e4a64b04f9bbe8bc2e711f592582d5a2efb04d184f4ae",
+    "benchmarks/aihc-tc-bench/Corpus.hs": "b5869d70bb58b77fc53f1f647aff7ded69c83c68d18617b5e6509ae394ae7d3d",
+    "benchmarks/aihc-tc-bench/Main.hs": "47c36ada7d5c01729b3b0f196c927029bb3397ba4679f47da54bbfbeda465ea8",
+    "benchmarks/aihc-tc-bench/ModuleGraph.hs": "aa1e7557f47a01e8fb6d1744de9e3d3ca1997279e1c81016a206ca394c2cedb5",
+    "benchmarks/aihc-tc-bench/PhaseTiming.hs": "255d4ff00d834a95dd5a4fc1e5a93ece700a17425559539a34180849db14b31d",
+    "benchmarks/aihc-tc-bench/StructuralHash.hs": "4eb233be9bc01cfcdcb6b27dca9c7369d6824af69838449c5e377f717a75caf3",
+    "benchmarks/aihc-tc-bench/TypeHash.hs": "57c98e8aa38b267a8a1d77713b80ddf3e64e6521aad66977081104f667a41cd0",
+    "benchmarks/aihc-tc-bench/Wiring.hs": "960e898c3d20b8d85f128862486d18c1daa037161c68cc551e8a79a0333d38f4",
+    "benchmarks/aihc-tc-bench/aihc-tc-bench.cabal": "4aad0020151078c9ba3a23ea122ef19b5d7ed92cc5503e274644f35f57429fe8",
+    "benchmarks/aihc-tc-bench/aihc.lock": "52cf933862d5a90f1f9b6218b7d15f551298552027b88b5cece51d4996e2e8da",
+    "benchmarks/aihc-tc-bench/cabal.project.freeze": "49aa01c5e62e7a8ac94b20e17e2b1a21766b4d42031ae5315db61c76b1ed4abc",
+    "benchmarks/aihc-tc-bench/test/ChecksumTests.hs": "b232da6f9cb4e68acd4280acb0743ce2242ad70276b58c30218667725cf88da0",
+    "benchmarks/aihc-tc-bench/test/GraphTests.hs": "4264a046d16e38933c6e4a64b04f9bbe8bc2e711f592582d5a2efb04d184f4ae"
+  },
+  "prim_corpus_sha256": {
+    "aihc-prim/Aihc/Prim/IO.hs": "6b27a4d881bf1a08c31efd6fc3a169d78c9f9c6e1d08c8ab073471ae5546a32d",
+    "aihc-prim/GHC/CString.hs": "cac7484a26c317cfdfab36fae345519cf6b7187def92d118b501f75dc9053d89",
+    "aihc-prim/GHC/Classes.hs": "790c0fb39905b22259cf5d8bc166a2343ba70f73d6a8297ec6d30e23e56e6a4c",
+    "aihc-prim/GHC/Debug.hs": "9059bbac3a7c4a8cb93f58152deb26c63cd24e46de73305e9c0fc3fe6b0f5e0c",
+    "aihc-prim/GHC/Magic/Dict.hs": "2034bc9959b1a92d104dba7cf615700ad66c808815c6cd40616a22f74f0470b8",
+    "aihc-prim/GHC/Magic.hs": "c5cd883954d29024c7ae8c8bd9d281c1538b1051630191b15bf2fb432ac9b619",
+    "aihc-prim/GHC/Prim/Base.hs": "2dc4442154dc68f1497166fe5510c9028d046c768f2d3709436dc7784aa2b92b",
+    "aihc-prim/GHC/Prim/Enum.hs": "f80ac9b70c46100394a29cc4fcae53467eef0c82974d8d9d3667bb0838f0ad5c",
+    "aihc-prim/GHC/Prim/Exception.hs": "807c3ba40aac68f484abdf65b3efc4e8a74a737f8f66461ace15e973f5aadd79",
+    "aihc-prim/GHC/Prim/Ext.hs": "2d1a7dab87f8833a04bf6649c8bcb5aa3e0969772cf7ec514bfd3eba0d663424",
+    "aihc-prim/GHC/Prim/IO.hs": "f1bf47dea453c3b4e52476921a2708d64bfa4c1b5893d913306c771af52eae74",
+    "aihc-prim/GHC/Prim/Integer.hs": "c1cc45e6292900099d65b2a00abf9c88dc173b18695f2852467a10b013c64488",
+    "aihc-prim/GHC/Prim/MonadFail.hs": "af1dc00ab4733725f9f1c067e38fadb4a72392cd69e1d18d6099488d678e80bb",
+    "aihc-prim/GHC/Prim/MonadFix.hs": "2936456dcf00788d447a160a9a0ac1d031c650b2a013042014e01bee061adf5b",
+    "aihc-prim/GHC/Prim/Natural.hs": "e5b1dd832b3beb06bb244a078274121936f877844a2a6eea5a18d14247e9988a",
+    "aihc-prim/GHC/Prim/Num.hs": "13aff6f7ef3026d0b888c9bf638124c574bcb786f469c5f17bcec03f8dd494fd",
+    "aihc-prim/GHC/Prim/Panic.hs": "472322025c78b2ca0cf983d6cd3aa1b56e0d8d12c3af45819679c2342ecd85aa",
+    "aihc-prim/GHC/Prim/PtrEq.hs": "ea860e7f162606f73d2b0ee5ba548bea08597a8b1b33b942aca54a65e47a1a79",
+    "aihc-prim/GHC/Prim/Read.hs": "d1954b30cdacfe052f00584dd3e4ea4e632101445f6907a733f95d6d2d4158aa",
+    "aihc-prim/GHC/Prim/Real.hs": "78b6cd5e1acf1b85bdf2f6d01b7c9a9948ea4b56e45cc54e5da6355d3dd707dd",
+    "aihc-prim/GHC/Prim/Show.hs": "df6c6b77a9b9f14aff437a94d7786d47a079fc103820ab72905f6256a2a76d99",
+    "aihc-prim/GHC/Prim/String.hs": "880044c0eda35c4b8c82b3a0d29734af91bb9cf30dcfa33db7cc35524103898a",
+    "aihc-prim/GHC/Prim/Unicode.hs": "c326e65329f7081b9ca961dcd13b366a89c6240489766da2a01bfc1f62638eb9",
+    "aihc-prim/GHC/Prim.hs": "74a75745af3c2f47836fbe9221f2786f72e586891f3f6c79a4a804df14d79ee5",
+    "aihc-prim/GHC/PrimopWrappers.hs": "d9f974b8bfd11da7298197a91e3349e699f7a10bb3e63e57ce8aa567c2130087",
+    "aihc-prim/GHC/Tuple.hs": "417b4f1b1b07c671cc859a6462bbe3b9c513dfc23dd59f9084f7563d0a7e5d84",
+    "aihc-prim/GHC/Types.hs": "bcaa971bb0b76b058e0c927d57544b31e8dd54ee57eeeb84ea5c261bfe5807d7",
+    "modules.tsv": "d5b309fbc1eb8e5ee9c9bc89c094b71e6aacc3ca8282769139253191eec7511b",
+    "packages.tsv": "d4a433328a1af5ecd4320c48908b8e856e5107cae5ff02c7070381bf75470da8"
+  },
+  "workloads": {
+    "configured": {
+      "aihc": {
+        "recorded_at": "2026-10-19T13:57:29.530937+00:00",
+        "label": "AIHC -O2/native apple-arm64 unstripped",
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "corpus": "/nix/store/b4dcmrdaizs83ldh97sv6abq1p70zlg0-aihc-frontend-corpus-lts-24.58",
+        "packages": [
+          "aihc-base",
+          "colour",
+          "split"
+        ],
+        "exact_packages": false,
+        "core_library_commit": "6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d",
+        "parser": "Hackage aihc-parser-5.0.0.0",
+        "method": "One discarded warmup, fresh processes, arithmetic means; wall phases include GC and result materialization.",
+        "benchmarks": {
+          "resolve": {
+            "executable": {
+              "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/hash-out-native-O2/aihc-resolve-bench",
+              "sha256": "8206dd1e039c2ce22c6a78e9f71a6e1663672a9f07fe9f29391a28c64c5defbe"
+            },
+            "command": [
+              "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/hash-out-native-O2/aihc-resolve-bench",
+              "/nix/store/b4dcmrdaizs83ldh97sv6abq1p70zlg0-aihc-frontend-corpus-lts-24.58",
+              "--packages",
+              "aihc-base,colour,split",
+              "--repeat",
+              "1"
+            ],
+            "expected_stdout": "packages=4 modules=156 units=115 cyclic=2 resolutions=80929 digest=15939480221285164113",
+            "samples": [
+              {
+                "total_ns": 1438958000,
+                "unattributed_ns": 846000,
+                "phases_ns": {
+                  "checksumming": 86001000,
+                  "dependency_planning": 2263000,
+                  "export_collection": 54037000,
+                  "name_resolution": 303680000,
+                  "parsing": 931200000,
+                  "source_io_decode": 60931000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 119,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161
+                },
+                "process_wall_ns": 1444776875
+              },
+              {
+                "total_ns": 1427783000,
+                "unattributed_ns": 804000,
+                "phases_ns": {
+                  "checksumming": 85540000,
+                  "dependency_planning": 2209000,
+                  "export_collection": 52658000,
+                  "name_resolution": 302082000,
+                  "parsing": 924284000,
+                  "source_io_decode": 60206000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 119,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161
+                },
+                "process_wall_ns": 1435703042
+              },
+              {
+                "total_ns": 1435178000,
+                "unattributed_ns": 871000,
+                "phases_ns": {
+                  "checksumming": 83898000,
+                  "dependency_planning": 2091000,
+                  "export_collection": 53605000,
+                  "name_resolution": 301296000,
+                  "parsing": 932890000,
+                  "source_io_decode": 60527000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 119,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161
+                },
+                "process_wall_ns": 1441099084
+              },
+              {
+                "total_ns": 1453282000,
+                "unattributed_ns": 830000,
+                "phases_ns": {
+                  "checksumming": 84013000,
+                  "dependency_planning": 2142000,
+                  "export_collection": 57388000,
+                  "name_resolution": 320272000,
+                  "parsing": 928701000,
+                  "source_io_decode": 59936000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 119,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161
+                },
+                "process_wall_ns": 1459167584
+              },
+              {
+                "total_ns": 1436286000,
+                "unattributed_ns": 855000,
+                "phases_ns": {
+                  "checksumming": 85103000,
+                  "dependency_planning": 2154000,
+                  "export_collection": 51657000,
+                  "name_resolution": 303228000,
+                  "parsing": 933317000,
+                  "source_io_decode": 59972000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 119,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161
+                },
+                "process_wall_ns": 1441924125
+              }
+            ],
+            "unprofiled_process_wall_ns": [
+              1419545834,
+              1418732750,
+              1437038167,
+              1434525083,
+              1470345000
+            ],
+            "mean": {
+              "total_ns": 1438297400,
+              "unattributed_ns": 841200,
+              "process_wall_ns": 1444534142,
+              "phases_ns": {
+                "checksumming": 84911000,
+                "dependency_planning": 2171800,
+                "export_collection": 53869000,
+                "name_resolution": 306111600,
+                "parsing": 930078400,
+                "source_io_decode": 60314400
+              },
+              "unprofiled_process_wall_ns": 1436037366.8
+            }
+          },
+          "tc": {
+            "executable": {
+              "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/hash-out-native-O2/aihc-tc-bench",
+              "sha256": "cea5f5a92fc29187cbbee062bf0c7ea4e606861c9468fbd27d8a85973c08f3c4"
+            },
+            "command": [
+              "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/hash-out-native-O2/aihc-tc-bench",
+              "/nix/store/b4dcmrdaizs83ldh97sv6abq1p70zlg0-aihc-frontend-corpus-lts-24.58",
+              "--packages",
+              "aihc-base,colour,split",
+              "--repeat",
+              "1"
+            ],
+            "expected_stdout": "packages=4 modules=156 units=115 cyclic=2 bindings=8120 digest=11834793672480155271",
+            "samples": [
+              {
+                "total_ns": 9615068000,
+                "unattributed_ns": 1633000,
+                "phases_ns": {
+                  "checksumming": 354259000,
+                  "dependency_planning": 5586000,
+                  "export_collection": 51586000,
+                  "interface_merging": 302698000,
+                  "name_resolution": 304544000,
+                  "parsing": 914480000,
+                  "source_io_decode": 60934000,
+                  "type_checking": 7619348000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 123,
+                  "interface_merging": 238,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161,
+                  "type_checking": 115
+                },
+                "process_wall_ns": 9628021750
+              },
+              {
+                "total_ns": 9579091000,
+                "unattributed_ns": 1598000,
+                "phases_ns": {
+                  "checksumming": 352743000,
+                  "dependency_planning": 5753000,
+                  "export_collection": 52274000,
+                  "interface_merging": 307109000,
+                  "name_resolution": 301975000,
+                  "parsing": 918417000,
+                  "source_io_decode": 60804000,
+                  "type_checking": 7578418000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 123,
+                  "interface_merging": 238,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161,
+                  "type_checking": 115
+                },
+                "process_wall_ns": 9591090041
+              },
+              {
+                "total_ns": 9638643000,
+                "unattributed_ns": 1763000,
+                "phases_ns": {
+                  "checksumming": 366803000,
+                  "dependency_planning": 5836000,
+                  "export_collection": 51931000,
+                  "interface_merging": 307215000,
+                  "name_resolution": 302534000,
+                  "parsing": 922403000,
+                  "source_io_decode": 61953000,
+                  "type_checking": 7618205000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 123,
+                  "interface_merging": 238,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161,
+                  "type_checking": 115
+                },
+                "process_wall_ns": 9652122333
+              },
+              {
+                "total_ns": 9490322000,
+                "unattributed_ns": 1547000,
+                "phases_ns": {
+                  "checksumming": 347494000,
+                  "dependency_planning": 5667000,
+                  "export_collection": 51396000,
+                  "interface_merging": 305310000,
+                  "name_resolution": 307074000,
+                  "parsing": 920018000,
+                  "source_io_decode": 59721000,
+                  "type_checking": 7492095000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 123,
+                  "interface_merging": 238,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161,
+                  "type_checking": 115
+                },
+                "process_wall_ns": 9503037292
+              },
+              {
+                "total_ns": 9363606000,
+                "unattributed_ns": 1417000,
+                "phases_ns": {
+                  "checksumming": 364500000,
+                  "dependency_planning": 5148000,
+                  "export_collection": 49896000,
+                  "interface_merging": 294683000,
+                  "name_resolution": 297993000,
+                  "parsing": 881480000,
+                  "source_io_decode": 58503000,
+                  "type_checking": 7409986000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 123,
+                  "interface_merging": 238,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161,
+                  "type_checking": 115
+                },
+                "process_wall_ns": 9376500000
+              }
+            ],
+            "unprofiled_process_wall_ns": [
+              9338324417,
+              9748449542,
+              9566944500,
+              9438473167,
+              9412728959
+            ],
+            "mean": {
+              "total_ns": 9537346000,
+              "unattributed_ns": 1591600,
+              "process_wall_ns": 9550154283.2,
+              "phases_ns": {
+                "checksumming": 357159800,
+                "dependency_planning": 5598000,
+                "export_collection": 51416600,
+                "interface_merging": 303403000,
+                "name_resolution": 302824000,
+                "parsing": 911359600,
+                "source_io_decode": 60383000,
+                "type_checking": 7543610400
+              },
+              "unprofiled_process_wall_ns": 9500984117
+            }
+          }
+        },
+        "compiler": {
+          "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-compiler",
+          "sha256": "69fcee510c02e03eb902e73cc8a077a06e70758a1e87f21d858da8cd16f39a80"
+        }
+      },
+      "ghc": {
+        "recorded_at": "2026-10-19T13:59:30.878953+00:00",
+        "label": "GHC 9.14.1 -O2/native apple-arm64 unstripped",
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "corpus": "/nix/store/b4dcmrdaizs83ldh97sv6abq1p70zlg0-aihc-frontend-corpus-lts-24.58",
+        "packages": [
+          "aihc-base",
+          "colour",
+          "split"
+        ],
+        "exact_packages": false,
+        "core_library_commit": "6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d",
+        "parser": "Hackage aihc-parser-5.0.0.0",
+        "method": "One discarded warmup, fresh processes, arithmetic means; wall phases include GC and result materialization.",
+        "benchmarks": {
+          "resolve": {
+            "executable": {
+              "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/ghc914-o2/dist/build/aarch64-osx/ghc-9.14.1/aihc-resolve-bench-0.1.0.0/x/aihc-resolve-bench/opt/build/aihc-resolve-bench/aihc-resolve-bench",
+              "sha256": "f6e0d286766b27655cd4d05b86b2bc31b831de050d5da2f92530bfa9defb1d57"
+            },
+            "command": [
+              "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/ghc914-o2/dist/build/aarch64-osx/ghc-9.14.1/aihc-resolve-bench-0.1.0.0/x/aihc-resolve-bench/opt/build/aihc-resolve-bench/aihc-resolve-bench",
+              "/nix/store/b4dcmrdaizs83ldh97sv6abq1p70zlg0-aihc-frontend-corpus-lts-24.58",
+              "--packages",
+              "aihc-base,colour,split",
+              "--repeat",
+              "1"
+            ],
+            "expected_stdout": "packages=4 modules=156 units=115 cyclic=2 resolutions=80929 digest=15939480221285164113",
+            "samples": [
+              {
+                "total_ns": 594791000,
+                "unattributed_ns": 264000,
+                "phases_ns": {
+                  "checksumming": 46726000,
+                  "dependency_planning": 1139000,
+                  "export_collection": 33070000,
+                  "name_resolution": 168010000,
+                  "parsing": 334366000,
+                  "source_io_decode": 11216000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 119,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161
+                },
+                "process_wall_ns": 606174250
+              },
+              {
+                "total_ns": 505510000,
+                "unattributed_ns": 215000,
+                "phases_ns": {
+                  "checksumming": 38016000,
+                  "dependency_planning": 1134000,
+                  "export_collection": 26604000,
+                  "name_resolution": 130331000,
+                  "parsing": 299050000,
+                  "source_io_decode": 10160000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 119,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161
+                },
+                "process_wall_ns": 520145041
+              },
+              {
+                "total_ns": 503282000,
+                "unattributed_ns": 205000,
+                "phases_ns": {
+                  "checksumming": 38437000,
+                  "dependency_planning": 1183000,
+                  "export_collection": 42109000,
+                  "name_resolution": 116438000,
+                  "parsing": 295079000,
+                  "source_io_decode": 9831000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 119,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161
+                },
+                "process_wall_ns": 519609958
+              },
+              {
+                "total_ns": 503688000,
+                "unattributed_ns": 186000,
+                "phases_ns": {
+                  "checksumming": 37178000,
+                  "dependency_planning": 1155000,
+                  "export_collection": 26659000,
+                  "name_resolution": 129510000,
+                  "parsing": 299276000,
+                  "source_io_decode": 9724000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 119,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161
+                },
+                "process_wall_ns": 515049875
+              },
+              {
+                "total_ns": 511262000,
+                "unattributed_ns": 202000,
+                "phases_ns": {
+                  "checksumming": 39391000,
+                  "dependency_planning": 1167000,
+                  "export_collection": 27685000,
+                  "name_resolution": 134297000,
+                  "parsing": 298180000,
+                  "source_io_decode": 10340000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 119,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161
+                },
+                "process_wall_ns": 532961584
+              }
+            ],
+            "unprofiled_process_wall_ns": [
+              529945750,
+              550055000,
+              534510875,
+              518324875,
+              522727416
+            ],
+            "mean": {
+              "total_ns": 523706600,
+              "unattributed_ns": 214400,
+              "process_wall_ns": 538788141.6,
+              "phases_ns": {
+                "checksumming": 39949600,
+                "dependency_planning": 1155600,
+                "export_collection": 31225400,
+                "name_resolution": 135717200,
+                "parsing": 305190200,
+                "source_io_decode": 10254200
+              },
+              "unprofiled_process_wall_ns": 531112783.2
+            }
+          },
+          "tc": {
+            "executable": {
+              "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/ghc914-o2/dist/build/aarch64-osx/ghc-9.14.1/aihc-tc-bench-0.1.0.0/x/aihc-tc-bench/opt/build/aihc-tc-bench/aihc-tc-bench",
+              "sha256": "03b278ebbca570b3ea58cb3c878384a476e28516b46003d6b5336f23f889aa59"
+            },
+            "command": [
+              "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/ghc914-o2/dist/build/aarch64-osx/ghc-9.14.1/aihc-tc-bench-0.1.0.0/x/aihc-tc-bench/opt/build/aihc-tc-bench/aihc-tc-bench",
+              "/nix/store/b4dcmrdaizs83ldh97sv6abq1p70zlg0-aihc-frontend-corpus-lts-24.58",
+              "--packages",
+              "aihc-base,colour,split",
+              "--repeat",
+              "1"
+            ],
+            "expected_stdout": "packages=4 modules=156 units=115 cyclic=2 bindings=8120 digest=11834793672480155271",
+            "samples": [
+              {
+                "total_ns": 3268295000,
+                "unattributed_ns": 588000,
+                "phases_ns": {
+                  "checksumming": 226119000,
+                  "dependency_planning": 1254000,
+                  "export_collection": 28551000,
+                  "interface_merging": 81406000,
+                  "name_resolution": 122675000,
+                  "parsing": 327684000,
+                  "source_io_decode": 10251000,
+                  "type_checking": 2469767000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 123,
+                  "interface_merging": 238,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161,
+                  "type_checking": 115
+                },
+                "process_wall_ns": 3296962416
+              },
+              {
+                "total_ns": 3367244000,
+                "unattributed_ns": 573000,
+                "phases_ns": {
+                  "checksumming": 230868000,
+                  "dependency_planning": 1279000,
+                  "export_collection": 31425000,
+                  "interface_merging": 86251000,
+                  "name_resolution": 127388000,
+                  "parsing": 348552000,
+                  "source_io_decode": 11968000,
+                  "type_checking": 2528940000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 123,
+                  "interface_merging": 238,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161,
+                  "type_checking": 115
+                },
+                "process_wall_ns": 3396978791
+              },
+              {
+                "total_ns": 3342292000,
+                "unattributed_ns": 581000,
+                "phases_ns": {
+                  "checksumming": 231351000,
+                  "dependency_planning": 1187000,
+                  "export_collection": 28972000,
+                  "interface_merging": 78168000,
+                  "name_resolution": 124658000,
+                  "parsing": 342744000,
+                  "source_io_decode": 11718000,
+                  "type_checking": 2522913000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 123,
+                  "interface_merging": 238,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161,
+                  "type_checking": 115
+                },
+                "process_wall_ns": 3367811959
+              },
+              {
+                "total_ns": 3257874000,
+                "unattributed_ns": 589000,
+                "phases_ns": {
+                  "checksumming": 230236000,
+                  "dependency_planning": 1243000,
+                  "export_collection": 29113000,
+                  "interface_merging": 76671000,
+                  "name_resolution": 124153000,
+                  "parsing": 333596000,
+                  "source_io_decode": 11204000,
+                  "type_checking": 2451069000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 123,
+                  "interface_merging": 238,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161,
+                  "type_checking": 115
+                },
+                "process_wall_ns": 3283039375
+              },
+              {
+                "total_ns": 3211058000,
+                "unattributed_ns": 521000,
+                "phases_ns": {
+                  "checksumming": 226691000,
+                  "dependency_planning": 1202000,
+                  "export_collection": 28648000,
+                  "interface_merging": 76491000,
+                  "name_resolution": 117477000,
+                  "parsing": 328014000,
+                  "source_io_decode": 10868000,
+                  "type_checking": 2421146000
+                },
+                "calls": {
+                  "checksumming": 4,
+                  "dependency_planning": 9,
+                  "export_collection": 123,
+                  "interface_merging": 238,
+                  "name_resolution": 115,
+                  "parsing": 156,
+                  "source_io_decode": 161,
+                  "type_checking": 115
+                },
+                "process_wall_ns": 3233208541
+              }
+            ],
+            "unprofiled_process_wall_ns": [
+              3405231917,
+              3383727042,
+              3246054083,
+              3269617542,
+              3309961916
+            ],
+            "mean": {
+              "total_ns": 3289352600,
+              "unattributed_ns": 570400,
+              "process_wall_ns": 3315600216.4,
+              "phases_ns": {
+                "checksumming": 229053000,
+                "dependency_planning": 1233000,
+                "export_collection": 29341800,
+                "interface_merging": 79797400,
+                "name_resolution": 123270200,
+                "parsing": 336118000,
+                "source_io_decode": 11201800,
+                "type_checking": 2478767000
+              },
+              "unprofiled_process_wall_ns": 3322918500
+            }
+          }
+        },
+        "compiler": {
+          "path": "/Users/lemmih/.ghcup/ghc/9.14.1/lib/ghc-9.14.1/bin/ghc-9.14.1",
+          "sha256": "63a8cfc2a538b4ea5470fe46734994d5db755012e520b33df5f5ad0118b57dec"
+        }
+      }
+    },
+    "prim": {
+      "aihc": {
+        "recorded_at": "2026-10-19T14:00:13.403508+00:00",
+        "label": "AIHC -O2/native apple-arm64 unstripped",
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "corpus": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-corpus",
+        "packages": [
+          "aihc-prim"
+        ],
+        "exact_packages": true,
+        "core_library_commit": "6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d",
+        "parser": "Hackage aihc-parser-5.0.0.0",
+        "method": "One discarded warmup, fresh processes, arithmetic means; wall phases include GC and result materialization.",
+        "benchmarks": {
+          "resolve": {
+            "executable": {
+              "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/hash-out-native-O2/aihc-resolve-bench",
+              "sha256": "8206dd1e039c2ce22c6a78e9f71a6e1663672a9f07fe9f29391a28c64c5defbe"
+            },
+            "command": [
+              "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/hash-out-native-O2/aihc-resolve-bench",
+              "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-corpus",
+              "--exact-packages",
+              "aihc-prim",
+              "--repeat",
+              "1"
+            ],
+            "expected_stdout": "packages=1 modules=27 units=14 cyclic=1 resolutions=22309 digest=8034950278326084052",
+            "samples": [
+              {
+                "total_ns": 684161000,
+                "unattributed_ns": 401000,
+                "phases_ns": {
+                  "checksumming": 33587000,
+                  "dependency_planning": 276000,
+                  "export_collection": 14135000,
+                  "name_resolution": 109554000,
+                  "parsing": 504242000,
+                  "source_io_decode": 21966000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 15,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29
+                },
+                "process_wall_ns": 689848875
+              },
+              {
+                "total_ns": 664968000,
+                "unattributed_ns": 376000,
+                "phases_ns": {
+                  "checksumming": 33272000,
+                  "dependency_planning": 291000,
+                  "export_collection": 13300000,
+                  "name_resolution": 103540000,
+                  "parsing": 492051000,
+                  "source_io_decode": 22138000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 15,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29
+                },
+                "process_wall_ns": 671304291
+              },
+              {
+                "total_ns": 682619000,
+                "unattributed_ns": 385000,
+                "phases_ns": {
+                  "checksumming": 31432000,
+                  "dependency_planning": 288000,
+                  "export_collection": 13683000,
+                  "name_resolution": 102705000,
+                  "parsing": 512116000,
+                  "source_io_decode": 22010000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 15,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29
+                },
+                "process_wall_ns": 688424000
+              },
+              {
+                "total_ns": 655080000,
+                "unattributed_ns": 393000,
+                "phases_ns": {
+                  "checksumming": 40573000,
+                  "dependency_planning": 288000,
+                  "export_collection": 12751000,
+                  "name_resolution": 102656000,
+                  "parsing": 476463000,
+                  "source_io_decode": 21956000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 15,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29
+                },
+                "process_wall_ns": 661918458
+              },
+              {
+                "total_ns": 681939000,
+                "unattributed_ns": 381000,
+                "phases_ns": {
+                  "checksumming": 32228000,
+                  "dependency_planning": 275000,
+                  "export_collection": 13600000,
+                  "name_resolution": 104692000,
+                  "parsing": 508701000,
+                  "source_io_decode": 22062000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 15,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29
+                },
+                "process_wall_ns": 687753958
+              }
+            ],
+            "unprofiled_process_wall_ns": [
+              691343750,
+              682038916,
+              680208208,
+              674923000,
+              673832875
+            ],
+            "mean": {
+              "total_ns": 673753400,
+              "unattributed_ns": 387200,
+              "process_wall_ns": 679849916.4,
+              "phases_ns": {
+                "checksumming": 34218400,
+                "dependency_planning": 283600,
+                "export_collection": 13493800,
+                "name_resolution": 104629400,
+                "parsing": 498714600,
+                "source_io_decode": 22026400
+              },
+              "unprofiled_process_wall_ns": 680469349.8
+            }
+          },
+          "tc": {
+            "executable": {
+              "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/hash-out-native-O2/aihc-tc-bench",
+              "sha256": "cea5f5a92fc29187cbbee062bf0c7ea4e606861c9468fbd27d8a85973c08f3c4"
+            },
+            "command": [
+              "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/hash-out-native-O2/aihc-tc-bench",
+              "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-corpus",
+              "--exact-packages",
+              "aihc-prim",
+              "--repeat",
+              "1"
+            ],
+            "expected_stdout": "packages=1 modules=27 units=14 cyclic=1 bindings=3288 digest=1885955776168484606",
+            "samples": [
+              {
+                "total_ns": 4981359000,
+                "unattributed_ns": 216000,
+                "phases_ns": {
+                  "checksumming": 316906000,
+                  "dependency_planning": 285000,
+                  "export_collection": 11640000,
+                  "interface_merging": 4453000,
+                  "name_resolution": 117633000,
+                  "parsing": 499673000,
+                  "source_io_decode": 22625000,
+                  "type_checking": 4007928000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 16,
+                  "interface_merging": 30,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29,
+                  "type_checking": 14
+                },
+                "process_wall_ns": 4992926042
+              },
+              {
+                "total_ns": 4943750000,
+                "unattributed_ns": 232000,
+                "phases_ns": {
+                  "checksumming": 315652000,
+                  "dependency_planning": 328000,
+                  "export_collection": 11715000,
+                  "interface_merging": 4548000,
+                  "name_resolution": 116407000,
+                  "parsing": 502444000,
+                  "source_io_decode": 22697000,
+                  "type_checking": 3969727000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 16,
+                  "interface_merging": 30,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29,
+                  "type_checking": 14
+                },
+                "process_wall_ns": 4958314750
+              },
+              {
+                "total_ns": 4862362000,
+                "unattributed_ns": 206000,
+                "phases_ns": {
+                  "checksumming": 310922000,
+                  "dependency_planning": 289000,
+                  "export_collection": 11267000,
+                  "interface_merging": 4948000,
+                  "name_resolution": 118101000,
+                  "parsing": 499543000,
+                  "source_io_decode": 22171000,
+                  "type_checking": 3894915000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 16,
+                  "interface_merging": 30,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29,
+                  "type_checking": 14
+                },
+                "process_wall_ns": 4874197875
+              },
+              {
+                "total_ns": 4994852000,
+                "unattributed_ns": 235000,
+                "phases_ns": {
+                  "checksumming": 313948000,
+                  "dependency_planning": 286000,
+                  "export_collection": 11657000,
+                  "interface_merging": 4723000,
+                  "name_resolution": 119495000,
+                  "parsing": 499672000,
+                  "source_io_decode": 21996000,
+                  "type_checking": 4022840000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 16,
+                  "interface_merging": 30,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29,
+                  "type_checking": 14
+                },
+                "process_wall_ns": 5011016375
+              },
+              {
+                "total_ns": 4978603000,
+                "unattributed_ns": 218000,
+                "phases_ns": {
+                  "checksumming": 319975000,
+                  "dependency_planning": 297000,
+                  "export_collection": 12467000,
+                  "interface_merging": 4820000,
+                  "name_resolution": 125081000,
+                  "parsing": 510390000,
+                  "source_io_decode": 22067000,
+                  "type_checking": 3983288000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 16,
+                  "interface_merging": 30,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29,
+                  "type_checking": 14
+                },
+                "process_wall_ns": 4994975084
+              }
+            ],
+            "unprofiled_process_wall_ns": [
+              5029674792,
+              5053598541,
+              4925110833,
+              4961478500,
+              4931278000
+            ],
+            "mean": {
+              "total_ns": 4952185200,
+              "unattributed_ns": 221400,
+              "process_wall_ns": 4966286025.2,
+              "phases_ns": {
+                "checksumming": 315480600,
+                "dependency_planning": 297000,
+                "export_collection": 11749200,
+                "interface_merging": 4698400,
+                "name_resolution": 119343400,
+                "parsing": 502344400,
+                "source_io_decode": 22311200,
+                "type_checking": 3975739600
+              },
+              "unprofiled_process_wall_ns": 4980228133.2
+            }
+          }
+        },
+        "compiler": {
+          "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-compiler",
+          "sha256": "69fcee510c02e03eb902e73cc8a077a06e70758a1e87f21d858da8cd16f39a80"
+        }
+      },
+      "ghc": {
+        "recorded_at": "2026-10-19T14:01:15.746956+00:00",
+        "label": "GHC 9.14.1 -O2/native apple-arm64 unstripped",
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "corpus": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-corpus",
+        "packages": [
+          "aihc-prim"
+        ],
+        "exact_packages": true,
+        "core_library_commit": "6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d",
+        "parser": "Hackage aihc-parser-5.0.0.0",
+        "method": "One discarded warmup, fresh processes, arithmetic means; wall phases include GC and result materialization.",
+        "benchmarks": {
+          "resolve": {
+            "executable": {
+              "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/ghc914-o2/dist/build/aarch64-osx/ghc-9.14.1/aihc-resolve-bench-0.1.0.0/x/aihc-resolve-bench/opt/build/aihc-resolve-bench/aihc-resolve-bench",
+              "sha256": "f6e0d286766b27655cd4d05b86b2bc31b831de050d5da2f92530bfa9defb1d57"
+            },
+            "command": [
+              "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/ghc914-o2/dist/build/aarch64-osx/ghc-9.14.1/aihc-resolve-bench-0.1.0.0/x/aihc-resolve-bench/opt/build/aihc-resolve-bench/aihc-resolve-bench",
+              "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-corpus",
+              "--exact-packages",
+              "aihc-prim",
+              "--repeat",
+              "1"
+            ],
+            "expected_stdout": "packages=1 modules=27 units=14 cyclic=1 resolutions=22309 digest=8034950278326084052",
+            "samples": [
+              {
+                "total_ns": 228751000,
+                "unattributed_ns": 42000,
+                "phases_ns": {
+                  "checksumming": 13551000,
+                  "dependency_planning": 194000,
+                  "export_collection": 6511000,
+                  "name_resolution": 33300000,
+                  "parsing": 172172000,
+                  "source_io_decode": 2981000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 15,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29
+                },
+                "process_wall_ns": 242194125
+              },
+              {
+                "total_ns": 228148000,
+                "unattributed_ns": 42000,
+                "phases_ns": {
+                  "checksumming": 13221000,
+                  "dependency_planning": 178000,
+                  "export_collection": 7096000,
+                  "name_resolution": 33998000,
+                  "parsing": 170655000,
+                  "source_io_decode": 2958000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 15,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29
+                },
+                "process_wall_ns": 247310750
+              },
+              {
+                "total_ns": 226584000,
+                "unattributed_ns": 32000,
+                "phases_ns": {
+                  "checksumming": 13260000,
+                  "dependency_planning": 189000,
+                  "export_collection": 6663000,
+                  "name_resolution": 33217000,
+                  "parsing": 170214000,
+                  "source_io_decode": 3009000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 15,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29
+                },
+                "process_wall_ns": 243481750
+              },
+              {
+                "total_ns": 227006000,
+                "unattributed_ns": 31000,
+                "phases_ns": {
+                  "checksumming": 13344000,
+                  "dependency_planning": 180000,
+                  "export_collection": 6665000,
+                  "name_resolution": 33742000,
+                  "parsing": 170024000,
+                  "source_io_decode": 3020000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 15,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29
+                },
+                "process_wall_ns": 249206292
+              },
+              {
+                "total_ns": 227527000,
+                "unattributed_ns": 34000,
+                "phases_ns": {
+                  "checksumming": 13213000,
+                  "dependency_planning": 188000,
+                  "export_collection": 6567000,
+                  "name_resolution": 33989000,
+                  "parsing": 170544000,
+                  "source_io_decode": 2992000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 15,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29
+                },
+                "process_wall_ns": 243653084
+              }
+            ],
+            "unprofiled_process_wall_ns": [
+              244040625,
+              270491209,
+              244478000,
+              244389375,
+              238601625
+            ],
+            "mean": {
+              "total_ns": 227603200,
+              "unattributed_ns": 36200,
+              "process_wall_ns": 245169200.2,
+              "phases_ns": {
+                "checksumming": 13317800,
+                "dependency_planning": 185800,
+                "export_collection": 6700400,
+                "name_resolution": 33649200,
+                "parsing": 170721800,
+                "source_io_decode": 2992000
+              },
+              "unprofiled_process_wall_ns": 248400166.8
+            }
+          },
+          "tc": {
+            "executable": {
+              "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/ghc914-o2/dist/build/aarch64-osx/ghc-9.14.1/aihc-tc-bench-0.1.0.0/x/aihc-tc-bench/opt/build/aihc-tc-bench/aihc-tc-bench",
+              "sha256": "03b278ebbca570b3ea58cb3c878384a476e28516b46003d6b5336f23f889aa59"
+            },
+            "command": [
+              "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/ghc914-o2/dist/build/aarch64-osx/ghc-9.14.1/aihc-tc-bench-0.1.0.0/x/aihc-tc-bench/opt/build/aihc-tc-bench/aihc-tc-bench",
+              "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-corpus",
+              "--exact-packages",
+              "aihc-prim",
+              "--repeat",
+              "1"
+            ],
+            "expected_stdout": "packages=1 modules=27 units=14 cyclic=1 bindings=3288 digest=1885955776168484606",
+            "samples": [
+              {
+                "total_ns": 1781507000,
+                "unattributed_ns": 49000,
+                "phases_ns": {
+                  "checksumming": 218808000,
+                  "dependency_planning": 184000,
+                  "export_collection": 6864000,
+                  "interface_merging": 1207000,
+                  "name_resolution": 34106000,
+                  "parsing": 177890000,
+                  "source_io_decode": 3262000,
+                  "type_checking": 1339137000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 16,
+                  "interface_merging": 30,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29,
+                  "type_checking": 14
+                },
+                "process_wall_ns": 1797265666
+              },
+              {
+                "total_ns": 1756597000,
+                "unattributed_ns": 56000,
+                "phases_ns": {
+                  "checksumming": 218209000,
+                  "dependency_planning": 185000,
+                  "export_collection": 6508000,
+                  "interface_merging": 1116000,
+                  "name_resolution": 32905000,
+                  "parsing": 173076000,
+                  "source_io_decode": 3144000,
+                  "type_checking": 1321398000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 16,
+                  "interface_merging": 30,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29,
+                  "type_checking": 14
+                },
+                "process_wall_ns": 1777020584
+              },
+              {
+                "total_ns": 1761397000,
+                "unattributed_ns": 43000,
+                "phases_ns": {
+                  "checksumming": 218827000,
+                  "dependency_planning": 181000,
+                  "export_collection": 6814000,
+                  "interface_merging": 1148000,
+                  "name_resolution": 33818000,
+                  "parsing": 173088000,
+                  "source_io_decode": 3216000,
+                  "type_checking": 1324262000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 16,
+                  "interface_merging": 30,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29,
+                  "type_checking": 14
+                },
+                "process_wall_ns": 1784226500
+              },
+              {
+                "total_ns": 1779190000,
+                "unattributed_ns": 57000,
+                "phases_ns": {
+                  "checksumming": 218122000,
+                  "dependency_planning": 184000,
+                  "export_collection": 6854000,
+                  "interface_merging": 1153000,
+                  "name_resolution": 34780000,
+                  "parsing": 196206000,
+                  "source_io_decode": 3905000,
+                  "type_checking": 1317929000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 16,
+                  "interface_merging": 30,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29,
+                  "type_checking": 14
+                },
+                "process_wall_ns": 1807802584
+              },
+              {
+                "total_ns": 1774429000,
+                "unattributed_ns": 51000,
+                "phases_ns": {
+                  "checksumming": 217736000,
+                  "dependency_planning": 182000,
+                  "export_collection": 6763000,
+                  "interface_merging": 1163000,
+                  "name_resolution": 33241000,
+                  "parsing": 172810000,
+                  "source_io_decode": 2988000,
+                  "type_checking": 1339495000
+                },
+                "calls": {
+                  "checksumming": 1,
+                  "dependency_planning": 3,
+                  "export_collection": 16,
+                  "interface_merging": 30,
+                  "name_resolution": 14,
+                  "parsing": 27,
+                  "source_io_decode": 29,
+                  "type_checking": 14
+                },
+                "process_wall_ns": 1795175334
+              }
+            ],
+            "unprofiled_process_wall_ns": [
+              1781334958,
+              1779977500,
+              1782560583,
+              1810070208,
+              1794519291
+            ],
+            "mean": {
+              "total_ns": 1770624000,
+              "unattributed_ns": 51200,
+              "process_wall_ns": 1792298133.6,
+              "phases_ns": {
+                "checksumming": 218340400,
+                "dependency_planning": 183200,
+                "export_collection": 6760600,
+                "interface_merging": 1157400,
+                "name_resolution": 33770000,
+                "parsing": 178614000,
+                "source_io_decode": 3303000,
+                "type_checking": 1328444200
+              },
+              "unprofiled_process_wall_ns": 1789692508
+            }
+          }
+        },
+        "compiler": {
+          "path": "/Users/lemmih/.ghcup/ghc/9.14.1/lib/ghc-9.14.1/bin/ghc-9.14.1",
+          "sha256": "63a8cfc2a538b4ea5470fe46734994d5db755012e520b33df5f5ad0118b57dec"
+        }
+      }
+    }
+  }
+}
