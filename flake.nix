@@ -107,7 +107,9 @@
 
     devShells = forAllSystems (pkgs: {
       default = pkgs.mkShell {
-        packages = [pkgs.nodejs] ++ (tooling pkgs).runtimeInputs;
+        # The SCC checks execute Haskell; use a matching Nix compiler and C
+        # toolchain instead of a host GHC leaking into the development shell.
+        packages = [pkgs.nodejs pkgs.ghc] ++ (tooling pkgs).runtimeInputs;
       };
     });
   };
