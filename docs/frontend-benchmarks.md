@@ -127,6 +127,44 @@ checking where applicable, and result consumption. No network or compiler
 checkout is needed at runtime. The process timeout remains 120 seconds;
 profiles/backends not executed locally may still exceed it with the full Prelude.
 
+### Measuring individual phases
+
+Set `AIHC_BENCH_PHASE_TIMINGS=1` to emit a JSON timing ledger to stderr for
+each sweep. Stdout and its checksum remain unchanged. For example, using
+executables built with AIHC `-O2` and the native backend:
+
+```console
+python3 scripts/measure-frontend-phases.py \
+  --resolve /path/to/aihc-resolve-bench --tc /path/to/aihc-tc-bench \
+  --corpus ./result --label 'AIHC -O2/native' --output phases.json
+```
+
+This diagnostic command measures `aihc-prim` and `aihc-base` alone: 139
+modules in 98 SCCs, including the full real Prelude. It explicitly selects
+this common input instead of the profile/backend's additional corpus packages.
+Add `--packages aihc-base,colour,split` to measure the configured `O2/native`
+input instead. The script discards one warmup, takes five fresh-process samples with timings enabled,
+then five with timings disabled, and records raw samples, arithmetic means,
+checksums and executable hashes. `--compiler` additionally records the compiler
+binary's hash. The label describes build flags; it does not select them.
+
+The disjoint monotonic wall intervals cover source I/O and text decoding,
+parsing (including pragmas and forcing ASTs), dependency planning, export/scope
+collection, name resolution, type checking, interface merging, and checksumming.
+Resolution explicitly forces dynamic resolution payloads; checking forces new
+interface facts and inferred binding types. Checksumming covers traversal,
+`Show` formatting and FNV hashing of those materialized results. This prevents
+lazy semantic work from being charged to checksumming. The original AST
+retention across each package is preserved. Explicit payload materialization
+adds traversal overhead even with timing output disabled.
+
+GC pauses count toward the phase active when they occur. These are wall times,
+not isolated CPU profiles. The ledger records unattributed sweep bookkeeping;
+the script rejects samples with more than 1% unattributed time. External process
+wall time also includes startup, argument handling, reporting and shutdown.
+Phase means add to the sweep mean, including unattributed time; process runtime
+must not be described as time spent in resolution or type checking alone.
+
 When changing the library commit, update the corpus's core source pin and
 hash as well. Regenerate freeze files and platform locks with the selected
 Git packages in the development workspace, retaining the parser's exact
@@ -138,5 +176,5 @@ experiment identity; earlier synthetic workload timings are not comparable.
 The `graph-tests` Cabal suites cover dependency ordering, cycles, diamonds,
 external imports, duplicate names and input-order independence. The Python
 suite also checks corpus assembly, closure and rejected unsupported inputs.
-Both self-contained copies of `ModuleGraph.hs`, `Corpus.hs` and the graph
+Both self-contained copies of `ModuleGraph.hs`, `Corpus.hs`, `PhaseTiming.hs` and the graph
 tests must remain identical.

@@ -1,5 +1,7 @@
 """Keep the frontend benchmarks' Git/Hackage boundary reproducible."""
 import json
+import os
+import tempfile
 import shutil
 import subprocess
 import unittest
@@ -49,7 +51,7 @@ class FrontendBenchmarkTests(unittest.TestCase):
         resolver = ROOT / "benchmarks/aihc-resolve-bench"
         checker = ROOT / "benchmarks/aihc-tc-bench"
         # Each benchmark remains self-contained for scratch copies and hashing.
-        for name in ("ModuleGraph.hs", "Corpus.hs", "test/GraphTests.hs"):
+        for name in ("ModuleGraph.hs", "Corpus.hs", "PhaseTiming.hs", "test/GraphTests.hs"):
             self.assertEqual((resolver / name).read_bytes(), (checker / name).read_bytes())
         ghc = shutil.which("ghc")
         if not ghc:
@@ -80,3 +82,45 @@ class FrontendBenchmarkTests(unittest.TestCase):
             for profile in ("O0", "Os", "O1", "O2"):
                 selections = {tuple(profiles[profile]["packages"]) for profiles in backends.values()}
                 self.assertEqual(len(selections), 3)
+
+    def test_phase_timing_is_opt_in_and_intervals_account_for_total(self):
+        ghc = shutil.which("ghc")
+        if not ghc:
+            self.skipTest("GHC unavailable")
+        resolver = ROOT / "benchmarks/aihc-resolve-bench"
+        with tempfile.TemporaryDirectory() as directory:
+            probe = Path(directory) / "TimingProbe.hs"
+            probe.write_text(r'''{-# LANGUAGE BangPatterns #-}
+module Main where
+import PhaseTiming
+import qualified Data.List as List
+import System.Environment (getEnv)
+main :: IO ()
+main = do
+  seed <- (read <$> getEnv "PHASE_TIMING_TEST_WORK") :: IO Int
+  timings <- newTimings
+  -- The strict let constructs the IO action. It must run after the start
+  -- clock, not when the caller constructs an argument to the timer.
+  first <- timed timings "constructed_work" $ \() ->
+    let !answer = List.foldl' (+) 0 [1 .. seed] in pure answer
+  second <- timed timings "constructed_work" $ \() ->
+    let !answer = List.foldl' (+) 0 [1 .. seed + 1] in pure answer
+  print (first, second)
+  reportTimings timings
+''')
+            command = [ghc, "-v0", "-ignore-dot-ghci", "-package-env", "-", "-hide-all-packages",
+                       "-package", "base", "-package", "containers", f"-i{resolver}", str(probe), "-e", "main"]
+            environment = dict(os.environ, PHASE_TIMING_TEST_WORK="50000")
+            environment.pop("AIHC_BENCH_PHASE_TIMINGS", None)
+            disabled = subprocess.run(command, capture_output=True, text=True, env=environment, timeout=60)
+            self.assertEqual(disabled.returncode, 0, disabled.stderr)
+            self.assertEqual(disabled.stderr, "")
+            self.assertEqual(disabled.stdout, "(1250025000,1250075001)\n")
+            enabled = subprocess.run(command, capture_output=True, text=True,
+                                     env=dict(environment, AIHC_BENCH_PHASE_TIMINGS="1"), timeout=60)
+            self.assertEqual(enabled.returncode, 0, enabled.stderr)
+            self.assertEqual(enabled.stdout, disabled.stdout)
+            ledger = json.loads(enabled.stderr)
+            self.assertEqual(ledger["calls"], {"constructed_work": 2})
+            self.assertGreater(ledger["phases_ns"]["constructed_work"], 0)
+            self.assertEqual(ledger["total_ns"], sum(ledger["phases_ns"].values()) + ledger["unattributed_ns"])

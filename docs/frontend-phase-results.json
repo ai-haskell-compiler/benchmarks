@@ -1,0 +1,669 @@
+{
+  "hardware": "Apple M4 Pro",
+  "measurement_note": "Local desktop wall-clock measurements with concurrent user activity; GC charged to active phase. Profiled and timing-disabled groups were sequential, so their difference includes runtime variation. Compiler commit unavailable; binary SHA-256 recorded. Executables are unstripped.",
+  "benchmark_source_sha256": {
+    "benchmarks/aihc-resolve-bench/Corpus.hs": "1ff39e9539b9133685865c6b48d447bf522ea621b0e1908c2b393e18f70477c7",
+    "benchmarks/aihc-resolve-bench/Main.hs": "9e316adc6369edc4d7bbe393eb36e95b951b396ea2bbe9efe7d1cdf4bb268a50",
+    "benchmarks/aihc-resolve-bench/ModuleGraph.hs": "aa1e7557f47a01e8fb6d1744de9e3d3ca1997279e1c81016a206ca394c2cedb5",
+    "benchmarks/aihc-resolve-bench/PhaseTiming.hs": "255d4ff00d834a95dd5a4fc1e5a93ece700a17425559539a34180849db14b31d",
+    "benchmarks/aihc-tc-bench/Corpus.hs": "1ff39e9539b9133685865c6b48d447bf522ea621b0e1908c2b393e18f70477c7",
+    "benchmarks/aihc-tc-bench/Main.hs": "74cf6901a5842a42c49a6a4d185c386e1199d5bc48e0b1d223f6e0cb389aa454",
+    "benchmarks/aihc-tc-bench/ModuleGraph.hs": "aa1e7557f47a01e8fb6d1744de9e3d3ca1997279e1c81016a206ca394c2cedb5",
+    "benchmarks/aihc-tc-bench/PhaseTiming.hs": "255d4ff00d834a95dd5a4fc1e5a93ece700a17425559539a34180849db14b31d",
+    "benchmarks/aihc-tc-bench/Wiring.hs": "960e898c3d20b8d85f128862486d18c1daa037161c68cc551e8a79a0333d38f4"
+  },
+  "core": {
+    "recorded_at": "2026-10-19T13:06:14.568254+00:00",
+    "label": "AIHC -O2/native, apple-arm64, unstripped",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "corpus": "/nix/store/81d7zmppzw876p9mzqkdmdmzf2aafq9y-aihc-frontend-corpus-lts-24.58",
+    "packages": [
+      "aihc-base"
+    ],
+    "core_library_commit": "6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d",
+    "parser": "Hackage aihc-parser-5.0.0.0",
+    "method": "One discarded warmup, fresh processes, arithmetic means; wall phases include GC and result materialization.",
+    "benchmarks": {
+      "resolve": {
+        "executable": {
+          "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/phase-out-native-O2/aihc-resolve-bench",
+          "sha256": "d97e88cd40efe96b5da2917db13f58cfcb43d18d695ed26c0c283da5e123812a"
+        },
+        "command": [
+          "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/phase-out-native-O2/aihc-resolve-bench",
+          "/nix/store/81d7zmppzw876p9mzqkdmdmzf2aafq9y-aihc-frontend-corpus-lts-24.58",
+          "--packages",
+          "aihc-base",
+          "--repeat",
+          "1"
+        ],
+        "expected_stdout": "packages=2 modules=139 units=98 cyclic=2 resolutions=74668 fnv1a=17877567740040714279",
+        "samples": [
+          {
+            "total_ns": 1795841000,
+            "unattributed_ns": 455000,
+            "phases_ns": {
+              "checksumming": 588258000,
+              "dependency_planning": 2377000,
+              "export_collection": 53208000,
+              "name_resolution": 259973000,
+              "parsing": 837856000,
+              "source_io_decode": 53714000
+            },
+            "calls": {
+              "checksumming": 2,
+              "dependency_planning": 5,
+              "export_collection": 100,
+              "name_resolution": 98,
+              "parsing": 139,
+              "source_io_decode": 142
+            },
+            "process_wall_ns": 1801336250
+          },
+          {
+            "total_ns": 1795441000,
+            "unattributed_ns": 388000,
+            "phases_ns": {
+              "checksumming": 589326000,
+              "dependency_planning": 2373000,
+              "export_collection": 53501000,
+              "name_resolution": 261827000,
+              "parsing": 835383000,
+              "source_io_decode": 52643000
+            },
+            "calls": {
+              "checksumming": 2,
+              "dependency_planning": 5,
+              "export_collection": 100,
+              "name_resolution": 98,
+              "parsing": 139,
+              "source_io_decode": 142
+            },
+            "process_wall_ns": 1801079125
+          },
+          {
+            "total_ns": 1805367000,
+            "unattributed_ns": 430000,
+            "phases_ns": {
+              "checksumming": 594102000,
+              "dependency_planning": 2420000,
+              "export_collection": 55049000,
+              "name_resolution": 267331000,
+              "parsing": 832544000,
+              "source_io_decode": 53491000
+            },
+            "calls": {
+              "checksumming": 2,
+              "dependency_planning": 5,
+              "export_collection": 100,
+              "name_resolution": 98,
+              "parsing": 139,
+              "source_io_decode": 142
+            },
+            "process_wall_ns": 1810867250
+          },
+          {
+            "total_ns": 1831744000,
+            "unattributed_ns": 466000,
+            "phases_ns": {
+              "checksumming": 598286000,
+              "dependency_planning": 2369000,
+              "export_collection": 54681000,
+              "name_resolution": 267132000,
+              "parsing": 853281000,
+              "source_io_decode": 55529000
+            },
+            "calls": {
+              "checksumming": 2,
+              "dependency_planning": 5,
+              "export_collection": 100,
+              "name_resolution": 98,
+              "parsing": 139,
+              "source_io_decode": 142
+            },
+            "process_wall_ns": 1837312792
+          },
+          {
+            "total_ns": 1836120000,
+            "unattributed_ns": 454000,
+            "phases_ns": {
+              "checksumming": 599715000,
+              "dependency_planning": 2370000,
+              "export_collection": 55725000,
+              "name_resolution": 267765000,
+              "parsing": 855979000,
+              "source_io_decode": 54112000
+            },
+            "calls": {
+              "checksumming": 2,
+              "dependency_planning": 5,
+              "export_collection": 100,
+              "name_resolution": 98,
+              "parsing": 139,
+              "source_io_decode": 142
+            },
+            "process_wall_ns": 1841844792
+          }
+        ],
+        "unprofiled_process_wall_ns": [
+          1811045458,
+          1777283792,
+          1765407166,
+          1797617333,
+          1808310166
+        ],
+        "mean": {
+          "total_ns": 1812902600,
+          "unattributed_ns": 438600,
+          "process_wall_ns": 1818488041.8,
+          "phases_ns": {
+            "checksumming": 593937400,
+            "dependency_planning": 2381800,
+            "export_collection": 54432800,
+            "name_resolution": 264805600,
+            "parsing": 843008600,
+            "source_io_decode": 53897800
+          },
+          "unprofiled_process_wall_ns": 1791932783
+        }
+      },
+      "tc": {
+        "executable": {
+          "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/phase-out-native-O2/aihc-tc-bench",
+          "sha256": "02f20fb1c5e50b266edc043ec2450e03ea9a145a53263be8ec32db77cf6302f8"
+        },
+        "command": [
+          "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/phase-out-native-O2/aihc-tc-bench",
+          "/nix/store/81d7zmppzw876p9mzqkdmdmzf2aafq9y-aihc-frontend-corpus-lts-24.58",
+          "--packages",
+          "aihc-base",
+          "--repeat",
+          "1"
+        ],
+        "expected_stdout": "packages=2 modules=139 units=98 cyclic=2 bindings=7548 fnv1a=6774486582406226114",
+        "samples": [
+          {
+            "total_ns": 12460210000,
+            "unattributed_ns": 3130000,
+            "phases_ns": {
+              "checksumming": 3540468000,
+              "dependency_planning": 6421000,
+              "export_collection": 53611000,
+              "interface_merging": 273461000,
+              "name_resolution": 296195000,
+              "parsing": 979848000,
+              "source_io_decode": 75684000,
+              "type_checking": 7231392000
+            },
+            "calls": {
+              "checksumming": 2,
+              "dependency_planning": 5,
+              "export_collection": 102,
+              "interface_merging": 200,
+              "name_resolution": 98,
+              "parsing": 139,
+              "source_io_decode": 142,
+              "type_checking": 98
+            },
+            "process_wall_ns": 12476873541
+          },
+          {
+            "total_ns": 12411846000,
+            "unattributed_ns": 2951000,
+            "phases_ns": {
+              "checksumming": 3554674000,
+              "dependency_planning": 6377000,
+              "export_collection": 53463000,
+              "interface_merging": 292536000,
+              "name_resolution": 292814000,
+              "parsing": 917876000,
+              "source_io_decode": 52664000,
+              "type_checking": 7238491000
+            },
+            "calls": {
+              "checksumming": 2,
+              "dependency_planning": 5,
+              "export_collection": 102,
+              "interface_merging": 200,
+              "name_resolution": 98,
+              "parsing": 139,
+              "source_io_decode": 142,
+              "type_checking": 98
+            },
+            "process_wall_ns": 12430312167
+          },
+          {
+            "total_ns": 12675626000,
+            "unattributed_ns": 3316000,
+            "phases_ns": {
+              "checksumming": 3671253000,
+              "dependency_planning": 5851000,
+              "export_collection": 55034000,
+              "interface_merging": 305919000,
+              "name_resolution": 306577000,
+              "parsing": 912002000,
+              "source_io_decode": 70890000,
+              "type_checking": 7344784000
+            },
+            "calls": {
+              "checksumming": 2,
+              "dependency_planning": 5,
+              "export_collection": 102,
+              "interface_merging": 200,
+              "name_resolution": 98,
+              "parsing": 139,
+              "source_io_decode": 142,
+              "type_checking": 98
+            },
+            "process_wall_ns": 12697018875
+          },
+          {
+            "total_ns": 13223299000,
+            "unattributed_ns": 3748000,
+            "phases_ns": {
+              "checksumming": 3645519000,
+              "dependency_planning": 6802000,
+              "export_collection": 63526000,
+              "interface_merging": 327545000,
+              "name_resolution": 338679000,
+              "parsing": 1027187000,
+              "source_io_decode": 81789000,
+              "type_checking": 7728504000
+            },
+            "calls": {
+              "checksumming": 2,
+              "dependency_planning": 5,
+              "export_collection": 102,
+              "interface_merging": 200,
+              "name_resolution": 98,
+              "parsing": 139,
+              "source_io_decode": 142,
+              "type_checking": 98
+            },
+            "process_wall_ns": 13242929750
+          },
+          {
+            "total_ns": 11850234000,
+            "unattributed_ns": 2305000,
+            "phases_ns": {
+              "checksumming": 3468096000,
+              "dependency_planning": 6163000,
+              "export_collection": 48216000,
+              "interface_merging": 239434000,
+              "name_resolution": 282832000,
+              "parsing": 917936000,
+              "source_io_decode": 58805000,
+              "type_checking": 6826447000
+            },
+            "calls": {
+              "checksumming": 2,
+              "dependency_planning": 5,
+              "export_collection": 102,
+              "interface_merging": 200,
+              "name_resolution": 98,
+              "parsing": 139,
+              "source_io_decode": 142,
+              "type_checking": 98
+            },
+            "process_wall_ns": 11863299250
+          }
+        ],
+        "unprofiled_process_wall_ns": [
+          11587494459,
+          11638321875,
+          11596737959,
+          11643296917,
+          11593713959
+        ],
+        "mean": {
+          "total_ns": 12524243000,
+          "unattributed_ns": 3090000,
+          "process_wall_ns": 12542086716.6,
+          "phases_ns": {
+            "checksumming": 3576002000,
+            "dependency_planning": 6322800,
+            "export_collection": 54770000,
+            "interface_merging": 287779000,
+            "name_resolution": 303419400,
+            "parsing": 950969800,
+            "source_io_decode": 67966400,
+            "type_checking": 7273923600
+          },
+          "unprofiled_process_wall_ns": 11611913033.8
+        }
+      }
+    },
+    "compiler": {
+      "path": "/Users/lemmih/coding/ai-haskell-compiler/aihc/dist-newstyle/build/aarch64-osx/ghc-9.12.4/aihc-0.1.0.0/x/aihc/build/aihc/aihc",
+      "sha256": "69fcee510c02e03eb902e73cc8a077a06e70758a1e87f21d858da8cd16f39a80"
+    }
+  },
+  "configured_O2_native": {
+    "recorded_at": "2026-10-19T13:08:58.640452+00:00",
+    "label": "AIHC -O2/native, apple-arm64, unstripped",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "corpus": "/nix/store/81d7zmppzw876p9mzqkdmdmzf2aafq9y-aihc-frontend-corpus-lts-24.58",
+    "packages": [
+      "aihc-base",
+      "colour",
+      "split"
+    ],
+    "core_library_commit": "6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d",
+    "parser": "Hackage aihc-parser-5.0.0.0",
+    "method": "One discarded warmup, fresh processes, arithmetic means; wall phases include GC and result materialization.",
+    "benchmarks": {
+      "resolve": {
+        "executable": {
+          "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/phase-out-native-O2/aihc-resolve-bench",
+          "sha256": "d97e88cd40efe96b5da2917db13f58cfcb43d18d695ed26c0c283da5e123812a"
+        },
+        "command": [
+          "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/phase-out-native-O2/aihc-resolve-bench",
+          "/nix/store/81d7zmppzw876p9mzqkdmdmzf2aafq9y-aihc-frontend-corpus-lts-24.58",
+          "--packages",
+          "aihc-base,colour,split",
+          "--repeat",
+          "1"
+        ],
+        "expected_stdout": "packages=4 modules=156 units=115 cyclic=2 resolutions=80929 fnv1a=3624782102185798415",
+        "samples": [
+          {
+            "total_ns": 1921468000,
+            "unattributed_ns": 482000,
+            "phases_ns": {
+              "checksumming": 646166000,
+              "dependency_planning": 2880000,
+              "export_collection": 48940000,
+              "name_resolution": 286123000,
+              "parsing": 880819000,
+              "source_io_decode": 56058000
+            },
+            "calls": {
+              "checksumming": 4,
+              "dependency_planning": 9,
+              "export_collection": 119,
+              "name_resolution": 115,
+              "parsing": 156,
+              "source_io_decode": 161
+            },
+            "process_wall_ns": 1927046208
+          },
+          {
+            "total_ns": 1915334000,
+            "unattributed_ns": 492000,
+            "phases_ns": {
+              "checksumming": 644152000,
+              "dependency_planning": 2883000,
+              "export_collection": 48845000,
+              "name_resolution": 285348000,
+              "parsing": 877553000,
+              "source_io_decode": 56061000
+            },
+            "calls": {
+              "checksumming": 4,
+              "dependency_planning": 9,
+              "export_collection": 119,
+              "name_resolution": 115,
+              "parsing": 156,
+              "source_io_decode": 161
+            },
+            "process_wall_ns": 1921074708
+          },
+          {
+            "total_ns": 1935178000,
+            "unattributed_ns": 510000,
+            "phases_ns": {
+              "checksumming": 648621000,
+              "dependency_planning": 2939000,
+              "export_collection": 49123000,
+              "name_resolution": 288243000,
+              "parsing": 889260000,
+              "source_io_decode": 56482000
+            },
+            "calls": {
+              "checksumming": 4,
+              "dependency_planning": 9,
+              "export_collection": 119,
+              "name_resolution": 115,
+              "parsing": 156,
+              "source_io_decode": 161
+            },
+            "process_wall_ns": 1940797542
+          },
+          {
+            "total_ns": 1926538000,
+            "unattributed_ns": 481000,
+            "phases_ns": {
+              "checksumming": 640474000,
+              "dependency_planning": 2954000,
+              "export_collection": 49733000,
+              "name_resolution": 286531000,
+              "parsing": 890396000,
+              "source_io_decode": 55969000
+            },
+            "calls": {
+              "checksumming": 4,
+              "dependency_planning": 9,
+              "export_collection": 119,
+              "name_resolution": 115,
+              "parsing": 156,
+              "source_io_decode": 161
+            },
+            "process_wall_ns": 1932391750
+          },
+          {
+            "total_ns": 1940323000,
+            "unattributed_ns": 517000,
+            "phases_ns": {
+              "checksumming": 649759000,
+              "dependency_planning": 2911000,
+              "export_collection": 50936000,
+              "name_resolution": 293270000,
+              "parsing": 886476000,
+              "source_io_decode": 56454000
+            },
+            "calls": {
+              "checksumming": 4,
+              "dependency_planning": 9,
+              "export_collection": 119,
+              "name_resolution": 115,
+              "parsing": 156,
+              "source_io_decode": 161
+            },
+            "process_wall_ns": 1946154917
+          }
+        ],
+        "unprofiled_process_wall_ns": [
+          1952346959,
+          1936166167,
+          1941410625,
+          1928589166,
+          1928904417
+        ],
+        "mean": {
+          "total_ns": 1927768200,
+          "unattributed_ns": 496400,
+          "process_wall_ns": 1933493025,
+          "phases_ns": {
+            "checksumming": 645834400,
+            "dependency_planning": 2913400,
+            "export_collection": 49515400,
+            "name_resolution": 287903000,
+            "parsing": 884900800,
+            "source_io_decode": 56204800
+          },
+          "unprofiled_process_wall_ns": 1937483466.8
+        }
+      },
+      "tc": {
+        "executable": {
+          "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/phase-out-native-O2/aihc-tc-bench",
+          "sha256": "02f20fb1c5e50b266edc043ec2450e03ea9a145a53263be8ec32db77cf6302f8"
+        },
+        "command": [
+          "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/phase-out-native-O2/aihc-tc-bench",
+          "/nix/store/81d7zmppzw876p9mzqkdmdmzf2aafq9y-aihc-frontend-corpus-lts-24.58",
+          "--packages",
+          "aihc-base,colour,split",
+          "--repeat",
+          "1"
+        ],
+        "expected_stdout": "packages=4 modules=156 units=115 cyclic=2 bindings=8120 fnv1a=16946061974637811341",
+        "samples": [
+          {
+            "total_ns": 13050709000,
+            "unattributed_ns": 2286000,
+            "phases_ns": {
+              "checksumming": 3621383000,
+              "dependency_planning": 6021000,
+              "export_collection": 53348000,
+              "interface_merging": 303144000,
+              "name_resolution": 316592000,
+              "parsing": 922716000,
+              "source_io_decode": 68193000,
+              "type_checking": 7757026000
+            },
+            "calls": {
+              "checksumming": 4,
+              "dependency_planning": 9,
+              "export_collection": 123,
+              "interface_merging": 238,
+              "name_resolution": 115,
+              "parsing": 156,
+              "source_io_decode": 161,
+              "type_checking": 115
+            },
+            "process_wall_ns": 13066225542
+          },
+          {
+            "total_ns": 12840977000,
+            "unattributed_ns": 2287000,
+            "phases_ns": {
+              "checksumming": 3611293000,
+              "dependency_planning": 6009000,
+              "export_collection": 52298000,
+              "interface_merging": 302384000,
+              "name_resolution": 301161000,
+              "parsing": 938746000,
+              "source_io_decode": 55794000,
+              "type_checking": 7571005000
+            },
+            "calls": {
+              "checksumming": 4,
+              "dependency_planning": 9,
+              "export_collection": 123,
+              "interface_merging": 238,
+              "name_resolution": 115,
+              "parsing": 156,
+              "source_io_decode": 161,
+              "type_checking": 115
+            },
+            "process_wall_ns": 12855192458
+          },
+          {
+            "total_ns": 13234796000,
+            "unattributed_ns": 3031000,
+            "phases_ns": {
+              "checksumming": 3685745000,
+              "dependency_planning": 6280000,
+              "export_collection": 56181000,
+              "interface_merging": 336872000,
+              "name_resolution": 318799000,
+              "parsing": 1017098000,
+              "source_io_decode": 66940000,
+              "type_checking": 7743850000
+            },
+            "calls": {
+              "checksumming": 4,
+              "dependency_planning": 9,
+              "export_collection": 123,
+              "interface_merging": 238,
+              "name_resolution": 115,
+              "parsing": 156,
+              "source_io_decode": 161,
+              "type_checking": 115
+            },
+            "process_wall_ns": 13250906959
+          },
+          {
+            "total_ns": 12617732000,
+            "unattributed_ns": 1890000,
+            "phases_ns": {
+              "checksumming": 3555538000,
+              "dependency_planning": 6241000,
+              "export_collection": 50476000,
+              "interface_merging": 272948000,
+              "name_resolution": 300422000,
+              "parsing": 968658000,
+              "source_io_decode": 61749000,
+              "type_checking": 7399810000
+            },
+            "calls": {
+              "checksumming": 4,
+              "dependency_planning": 9,
+              "export_collection": 123,
+              "interface_merging": 238,
+              "name_resolution": 115,
+              "parsing": 156,
+              "source_io_decode": 161,
+              "type_checking": 115
+            },
+            "process_wall_ns": 12634289834
+          },
+          {
+            "total_ns": 12446540000,
+            "unattributed_ns": 1883000,
+            "phases_ns": {
+              "checksumming": 3561763000,
+              "dependency_planning": 5597000,
+              "export_collection": 50240000,
+              "interface_merging": 285465000,
+              "name_resolution": 292734000,
+              "parsing": 882607000,
+              "source_io_decode": 51038000,
+              "type_checking": 7315213000
+            },
+            "calls": {
+              "checksumming": 4,
+              "dependency_planning": 9,
+              "export_collection": 123,
+              "interface_merging": 238,
+              "name_resolution": 115,
+              "parsing": 156,
+              "source_io_decode": 161,
+              "type_checking": 115
+            },
+            "process_wall_ns": 12459353375
+          }
+        ],
+        "unprofiled_process_wall_ns": [
+          12456699833,
+          13077679792,
+          12522983000,
+          12378331708,
+          12624604000
+        ],
+        "mean": {
+          "total_ns": 12838150800,
+          "unattributed_ns": 2275400,
+          "process_wall_ns": 12853193633.6,
+          "phases_ns": {
+            "checksumming": 3607144400,
+            "dependency_planning": 6029600,
+            "export_collection": 52508600,
+            "interface_merging": 300162600,
+            "name_resolution": 305941600,
+            "parsing": 945965000,
+            "source_io_decode": 60742800,
+            "type_checking": 7557380800
+          },
+          "unprofiled_process_wall_ns": 12612059666.6
+        }
+      }
+    },
+    "compiler": {
+      "path": "/Users/lemmih/coding/ai-haskell-compiler/aihc/dist-newstyle/build/aarch64-osx/ghc-9.12.4/aihc-0.1.0.0/x/aihc/build/aihc/aihc",
+      "sha256": "69fcee510c02e03eb902e73cc8a077a06e70758a1e87f21d858da8cd16f39a80"
+    }
+  }
+}
