@@ -43,3 +43,26 @@ Resolution includes forcing dynamic resolution payloads; type checking includes 
 These are local desktop measurements with concurrent user activity, not isolated CPU profiles. Timed and timing-disabled groups were sequential; their difference includes runtime variation as well as timing overhead. Explicit semantic result materialization also adds traversal work compared with the earlier harness. All measured runs match the existing reference checksums.
 
 The compiler commit is unavailable; the compiler binary SHA-256 used for these builds is `69fcee510c02e03eb902e73cc8a077a06e70758a1e87f21d858da8cd16f39a80`. Library/core sources remain pinned to `6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d`. Exact executable hashes, commands, call counts and raw samples are in [frontend-phase-results.json](frontend-phase-results.json). See [the phase measurement command and boundaries](frontend-benchmarks.md#measuring-individual-phases) to reproduce.
+
+## Full aihc-prim only
+
+This diagnostic includes all **27 exposed modules** of the pinned `aihc-prim` library, in 14 SCCs (one cyclic), with no `aihc-base`. The earlier Prelude/core workload includes only the 20 primitive modules needed by its import closure, so the primitive inputs differ. Sources are copied byte-for-byte from the same pinned commit.
+
+Isolated diagnostic copies of both executables replace `selected <- closure Set.empty ("aihc-base" : roots)` with `selected <- closure Set.empty roots` in `Corpus.hs`. They run with `--packages aihc-prim --repeat 1`. The configured benchmarks still require the full real Prelude. Build flags, compiler binary and phase boundaries match the earlier measurements. GHC 9.14.1 `-O2` independently reproduces both checksums. Means below use five fresh AIHC processes after one discarded warmup, in seconds.
+
+| Phase | Resolver benchmark | Type-checker benchmark |
+| --- | ---: | ---: |
+| Source I/O and decoding | 0.027664 | 0.022869 |
+| Parsing | 0.507015 | 0.511229 |
+| Dependency/SCC planning | 0.000325 | 0.000268 |
+| Export/scope collection | 0.016029 | 0.011951 |
+| Name resolution | 0.115715 | 0.117037 |
+| Type checking | — | 4.116865 |
+| Interface merging | — | 0.004756 |
+| Checksumming (traversal, Show, FNV) | 0.187535 | 3.375812 |
+| Unattributed bookkeeping | 0.000147 | 0.000245 |
+| Sweep total | 0.854430 | 8.161030 |
+| Whole process | 0.861658 | 8.177767 |
+| Whole process, timing disabled | 0.851380 | 8.081712 |
+
+Result tallies: 22,309 resolution annotations; 3,288 inferred binding results. The JSON records the diagnostic source change, source/corpus hashes, executable hashes, exact commands and raw samples.

@@ -665,5 +665,387 @@
       "path": "/Users/lemmih/coding/ai-haskell-compiler/aihc/dist-newstyle/build/aarch64-osx/ghc-9.12.4/aihc-0.1.0.0/x/aihc/build/aihc/aihc",
       "sha256": "69fcee510c02e03eb902e73cc8a077a06e70758a1e87f21d858da8cd16f39a80"
     }
+  },
+  "prim_only": {
+    "recorded_at": "2026-10-19T13:21:06.838161+00:00",
+    "label": "AIHC -O2/native, apple-arm64, unstripped; full aihc-prim only",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "corpus": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-corpus",
+    "packages": [
+      "aihc-prim"
+    ],
+    "core_library_commit": "6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d",
+    "parser": "Hackage aihc-parser-5.0.0.0",
+    "method": "One discarded warmup, fresh processes, arithmetic means; wall phases include GC and result materialization.",
+    "benchmarks": {
+      "resolve": {
+        "executable": {
+          "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-out-native-O2/aihc-resolve-bench",
+          "sha256": "be1a78ce0c0f37e142e9b3ee03ca80a03cc010f2f970364facb9e25c10dfd42b"
+        },
+        "command": [
+          "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-out-native-O2/aihc-resolve-bench",
+          "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-corpus",
+          "--packages",
+          "aihc-prim",
+          "--repeat",
+          "1"
+        ],
+        "expected_stdout": "packages=1 modules=27 units=14 cyclic=1 resolutions=22309 fnv1a=13556024265081191292",
+        "samples": [
+          {
+            "total_ns": 856501000,
+            "unattributed_ns": 162000,
+            "phases_ns": {
+              "checksumming": 187922000,
+              "dependency_planning": 273000,
+              "export_collection": 16220000,
+              "name_resolution": 115557000,
+              "parsing": 508663000,
+              "source_io_decode": 27704000
+            },
+            "calls": {
+              "checksumming": 1,
+              "dependency_planning": 3,
+              "export_collection": 15,
+              "name_resolution": 14,
+              "parsing": 27,
+              "source_io_decode": 29
+            },
+            "process_wall_ns": 862989750
+          },
+          {
+            "total_ns": 849927000,
+            "unattributed_ns": 143000,
+            "phases_ns": {
+              "checksumming": 185752000,
+              "dependency_planning": 305000,
+              "export_collection": 16277000,
+              "name_resolution": 114460000,
+              "parsing": 505025000,
+              "source_io_decode": 27965000
+            },
+            "calls": {
+              "checksumming": 1,
+              "dependency_planning": 3,
+              "export_collection": 15,
+              "name_resolution": 14,
+              "parsing": 27,
+              "source_io_decode": 29
+            },
+            "process_wall_ns": 855679500
+          },
+          {
+            "total_ns": 861463000,
+            "unattributed_ns": 140000,
+            "phases_ns": {
+              "checksumming": 186304000,
+              "dependency_planning": 270000,
+              "export_collection": 15350000,
+              "name_resolution": 118108000,
+              "parsing": 513636000,
+              "source_io_decode": 27655000
+            },
+            "calls": {
+              "checksumming": 1,
+              "dependency_planning": 3,
+              "export_collection": 15,
+              "name_resolution": 14,
+              "parsing": 27,
+              "source_io_decode": 29
+            },
+            "process_wall_ns": 867785583
+          },
+          {
+            "total_ns": 858911000,
+            "unattributed_ns": 146000,
+            "phases_ns": {
+              "checksumming": 193708000,
+              "dependency_planning": 274000,
+              "export_collection": 16179000,
+              "name_resolution": 115480000,
+              "parsing": 506030000,
+              "source_io_decode": 27094000
+            },
+            "calls": {
+              "checksumming": 1,
+              "dependency_planning": 3,
+              "export_collection": 15,
+              "name_resolution": 14,
+              "parsing": 27,
+              "source_io_decode": 29
+            },
+            "process_wall_ns": 865643125
+          },
+          {
+            "total_ns": 845347000,
+            "unattributed_ns": 144000,
+            "phases_ns": {
+              "checksumming": 183990000,
+              "dependency_planning": 504000,
+              "export_collection": 16117000,
+              "name_resolution": 114971000,
+              "parsing": 501721000,
+              "source_io_decode": 27900000
+            },
+            "calls": {
+              "checksumming": 1,
+              "dependency_planning": 3,
+              "export_collection": 15,
+              "name_resolution": 14,
+              "parsing": 27,
+              "source_io_decode": 29
+            },
+            "process_wall_ns": 856192125
+          }
+        ],
+        "unprofiled_process_wall_ns": [
+          850325708,
+          847161458,
+          846029542,
+          852050333,
+          861335000
+        ],
+        "mean": {
+          "total_ns": 854429800,
+          "unattributed_ns": 147000,
+          "process_wall_ns": 861658016.6,
+          "phases_ns": {
+            "checksumming": 187535200,
+            "dependency_planning": 325200,
+            "export_collection": 16028600,
+            "name_resolution": 115715200,
+            "parsing": 507015000,
+            "source_io_decode": 27663600
+          },
+          "unprofiled_process_wall_ns": 851380408.2
+        }
+      },
+      "tc": {
+        "executable": {
+          "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-out-native-O2/aihc-tc-bench",
+          "sha256": "9e14fefdafbc9d1fda4429121426c573b51447713b7e81c69e27c08882f6dd0d"
+        },
+        "command": [
+          "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-out-native-O2/aihc-tc-bench",
+          "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-corpus",
+          "--packages",
+          "aihc-prim",
+          "--repeat",
+          "1"
+        ],
+        "expected_stdout": "packages=1 modules=27 units=14 cyclic=1 bindings=3288 fnv1a=15198925227416486192",
+        "samples": [
+          {
+            "total_ns": 8109383000,
+            "unattributed_ns": 226000,
+            "phases_ns": {
+              "checksumming": 3352543000,
+              "dependency_planning": 271000,
+              "export_collection": 12420000,
+              "interface_merging": 4511000,
+              "name_resolution": 116607000,
+              "parsing": 511509000,
+              "source_io_decode": 22578000,
+              "type_checking": 4088718000
+            },
+            "calls": {
+              "checksumming": 1,
+              "dependency_planning": 3,
+              "export_collection": 16,
+              "interface_merging": 30,
+              "name_resolution": 14,
+              "parsing": 27,
+              "source_io_decode": 29,
+              "type_checking": 14
+            },
+            "process_wall_ns": 8125038458
+          },
+          {
+            "total_ns": 8144309000,
+            "unattributed_ns": 229000,
+            "phases_ns": {
+              "checksumming": 3365094000,
+              "dependency_planning": 269000,
+              "export_collection": 11831000,
+              "interface_merging": 4974000,
+              "name_resolution": 119155000,
+              "parsing": 514328000,
+              "source_io_decode": 22651000,
+              "type_checking": 4105778000
+            },
+            "calls": {
+              "checksumming": 1,
+              "dependency_planning": 3,
+              "export_collection": 16,
+              "interface_merging": 30,
+              "name_resolution": 14,
+              "parsing": 27,
+              "source_io_decode": 29,
+              "type_checking": 14
+            },
+            "process_wall_ns": 8161986250
+          },
+          {
+            "total_ns": 8229751000,
+            "unattributed_ns": 253000,
+            "phases_ns": {
+              "checksumming": 3436292000,
+              "dependency_planning": 265000,
+              "export_collection": 11720000,
+              "interface_merging": 4616000,
+              "name_resolution": 117074000,
+              "parsing": 511917000,
+              "source_io_decode": 23068000,
+              "type_checking": 4124546000
+            },
+            "calls": {
+              "checksumming": 1,
+              "dependency_planning": 3,
+              "export_collection": 16,
+              "interface_merging": 30,
+              "name_resolution": 14,
+              "parsing": 27,
+              "source_io_decode": 29,
+              "type_checking": 14
+            },
+            "process_wall_ns": 8246908375
+          },
+          {
+            "total_ns": 8176396000,
+            "unattributed_ns": 252000,
+            "phases_ns": {
+              "checksumming": 3354071000,
+              "dependency_planning": 265000,
+              "export_collection": 11957000,
+              "interface_merging": 5032000,
+              "name_resolution": 116882000,
+              "parsing": 511767000,
+              "source_io_decode": 22995000,
+              "type_checking": 4153175000
+            },
+            "calls": {
+              "checksumming": 1,
+              "dependency_planning": 3,
+              "export_collection": 16,
+              "interface_merging": 30,
+              "name_resolution": 14,
+              "parsing": 27,
+              "source_io_decode": 29,
+              "type_checking": 14
+            },
+            "process_wall_ns": 8193413000
+          },
+          {
+            "total_ns": 8145312000,
+            "unattributed_ns": 263000,
+            "phases_ns": {
+              "checksumming": 3371060000,
+              "dependency_planning": 268000,
+              "export_collection": 11829000,
+              "interface_merging": 4647000,
+              "name_resolution": 115465000,
+              "parsing": 506623000,
+              "source_io_decode": 23051000,
+              "type_checking": 4112106000
+            },
+            "calls": {
+              "checksumming": 1,
+              "dependency_planning": 3,
+              "export_collection": 16,
+              "interface_merging": 30,
+              "name_resolution": 14,
+              "parsing": 27,
+              "source_io_decode": 29,
+              "type_checking": 14
+            },
+            "process_wall_ns": 8161488791
+          }
+        ],
+        "unprofiled_process_wall_ns": [
+          8129020334,
+          8158579875,
+          8348439042,
+          7939054958,
+          7833466375
+        ],
+        "mean": {
+          "total_ns": 8161030200,
+          "unattributed_ns": 244600,
+          "process_wall_ns": 8177766974.8,
+          "phases_ns": {
+            "checksumming": 3375812000,
+            "dependency_planning": 267600,
+            "export_collection": 11951400,
+            "interface_merging": 4756000,
+            "name_resolution": 117036600,
+            "parsing": 511228800,
+            "source_io_decode": 22868600,
+            "type_checking": 4116864600
+          },
+          "unprofiled_process_wall_ns": 8081712116.8
+        }
+      }
+    },
+    "compiler": {
+      "path": "/Users/lemmih/.codex/worktrees/2611/benchmarks/.cache/front-end-validation/prim-compiler",
+      "sha256": "69fcee510c02e03eb902e73cc8a077a06e70758a1e87f21d858da8cd16f39a80"
+    },
+    "diagnostic_source_change": {
+      "base_revision": "b9e3f34",
+      "files": [
+        "benchmarks/aihc-resolve-bench/Corpus.hs",
+        "benchmarks/aihc-tc-bench/Corpus.hs"
+      ],
+      "replace": "selected <- closure Set.empty (\"aihc-base\" : roots)",
+      "with": "selected <- closure Set.empty roots",
+      "scope": "Isolated diagnostic source copies only; configured benchmarks still require full Prelude."
+    },
+    "corpus_description": "All 27 exposed modules in pinned core-libs/aihc-prim/aihc-prim.cabal, copied byte-for-byte with GHC2021 and NoImplicitPrelude. Earlier Prelude dependency closure includes only 20 of these modules.",
+    "reference_validation": "Both result tallies/checksums match a GHC 9.14.1 -O2 build of the same diagnostic source.",
+    "source_sha256": {
+      "aihc-resolve-bench/Corpus.hs": "942c31b2308419d7c6b7654cd585dd675cb2d053476656fa669b463a5b5dc5bd",
+      "aihc-resolve-bench/Main.hs": "9e316adc6369edc4d7bbe393eb36e95b951b396ea2bbe9efe7d1cdf4bb268a50",
+      "aihc-resolve-bench/ModuleGraph.hs": "aa1e7557f47a01e8fb6d1744de9e3d3ca1997279e1c81016a206ca394c2cedb5",
+      "aihc-resolve-bench/PhaseTiming.hs": "255d4ff00d834a95dd5a4fc1e5a93ece700a17425559539a34180849db14b31d",
+      "aihc-resolve-bench/test/GraphTests.hs": "4264a046d16e38933c6e4a64b04f9bbe8bc2e711f592582d5a2efb04d184f4ae",
+      "aihc-tc-bench/Corpus.hs": "942c31b2308419d7c6b7654cd585dd675cb2d053476656fa669b463a5b5dc5bd",
+      "aihc-tc-bench/Main.hs": "74cf6901a5842a42c49a6a4d185c386e1199d5bc48e0b1d223f6e0cb389aa454",
+      "aihc-tc-bench/ModuleGraph.hs": "aa1e7557f47a01e8fb6d1744de9e3d3ca1997279e1c81016a206ca394c2cedb5",
+      "aihc-tc-bench/PhaseTiming.hs": "255d4ff00d834a95dd5a4fc1e5a93ece700a17425559539a34180849db14b31d",
+      "aihc-tc-bench/Wiring.hs": "960e898c3d20b8d85f128862486d18c1daa037161c68cc551e8a79a0333d38f4",
+      "aihc-tc-bench/test/GraphTests.hs": "4264a046d16e38933c6e4a64b04f9bbe8bc2e711f592582d5a2efb04d184f4ae"
+    },
+    "corpus_sha256": {
+      "aihc-prim/Aihc/Prim/IO.hs": "6b27a4d881bf1a08c31efd6fc3a169d78c9f9c6e1d08c8ab073471ae5546a32d",
+      "aihc-prim/GHC/CString.hs": "cac7484a26c317cfdfab36fae345519cf6b7187def92d118b501f75dc9053d89",
+      "aihc-prim/GHC/Classes.hs": "790c0fb39905b22259cf5d8bc166a2343ba70f73d6a8297ec6d30e23e56e6a4c",
+      "aihc-prim/GHC/Debug.hs": "9059bbac3a7c4a8cb93f58152deb26c63cd24e46de73305e9c0fc3fe6b0f5e0c",
+      "aihc-prim/GHC/Magic/Dict.hs": "2034bc9959b1a92d104dba7cf615700ad66c808815c6cd40616a22f74f0470b8",
+      "aihc-prim/GHC/Magic.hs": "c5cd883954d29024c7ae8c8bd9d281c1538b1051630191b15bf2fb432ac9b619",
+      "aihc-prim/GHC/Prim/Base.hs": "2dc4442154dc68f1497166fe5510c9028d046c768f2d3709436dc7784aa2b92b",
+      "aihc-prim/GHC/Prim/Enum.hs": "f80ac9b70c46100394a29cc4fcae53467eef0c82974d8d9d3667bb0838f0ad5c",
+      "aihc-prim/GHC/Prim/Exception.hs": "807c3ba40aac68f484abdf65b3efc4e8a74a737f8f66461ace15e973f5aadd79",
+      "aihc-prim/GHC/Prim/Ext.hs": "2d1a7dab87f8833a04bf6649c8bcb5aa3e0969772cf7ec514bfd3eba0d663424",
+      "aihc-prim/GHC/Prim/IO.hs": "f1bf47dea453c3b4e52476921a2708d64bfa4c1b5893d913306c771af52eae74",
+      "aihc-prim/GHC/Prim/Integer.hs": "c1cc45e6292900099d65b2a00abf9c88dc173b18695f2852467a10b013c64488",
+      "aihc-prim/GHC/Prim/MonadFail.hs": "af1dc00ab4733725f9f1c067e38fadb4a72392cd69e1d18d6099488d678e80bb",
+      "aihc-prim/GHC/Prim/MonadFix.hs": "2936456dcf00788d447a160a9a0ac1d031c650b2a013042014e01bee061adf5b",
+      "aihc-prim/GHC/Prim/Natural.hs": "e5b1dd832b3beb06bb244a078274121936f877844a2a6eea5a18d14247e9988a",
+      "aihc-prim/GHC/Prim/Num.hs": "13aff6f7ef3026d0b888c9bf638124c574bcb786f469c5f17bcec03f8dd494fd",
+      "aihc-prim/GHC/Prim/Panic.hs": "472322025c78b2ca0cf983d6cd3aa1b56e0d8d12c3af45819679c2342ecd85aa",
+      "aihc-prim/GHC/Prim/PtrEq.hs": "ea860e7f162606f73d2b0ee5ba548bea08597a8b1b33b942aca54a65e47a1a79",
+      "aihc-prim/GHC/Prim/Read.hs": "d1954b30cdacfe052f00584dd3e4ea4e632101445f6907a733f95d6d2d4158aa",
+      "aihc-prim/GHC/Prim/Real.hs": "78b6cd5e1acf1b85bdf2f6d01b7c9a9948ea4b56e45cc54e5da6355d3dd707dd",
+      "aihc-prim/GHC/Prim/Show.hs": "df6c6b77a9b9f14aff437a94d7786d47a079fc103820ab72905f6256a2a76d99",
+      "aihc-prim/GHC/Prim/String.hs": "880044c0eda35c4b8c82b3a0d29734af91bb9cf30dcfa33db7cc35524103898a",
+      "aihc-prim/GHC/Prim/Unicode.hs": "c326e65329f7081b9ca961dcd13b366a89c6240489766da2a01bfc1f62638eb9",
+      "aihc-prim/GHC/Prim.hs": "74a75745af3c2f47836fbe9221f2786f72e586891f3f6c79a4a804df14d79ee5",
+      "aihc-prim/GHC/PrimopWrappers.hs": "d9f974b8bfd11da7298197a91e3349e699f7a10bb3e63e57ce8aa567c2130087",
+      "aihc-prim/GHC/Tuple.hs": "417b4f1b1b07c671cc859a6462bbe3b9c513dfc23dd59f9084f7563d0a7e5d84",
+      "aihc-prim/GHC/Types.hs": "bcaa971bb0b76b058e0c927d57544b31e8dd54ee57eeeb84ea5c261bfe5807d7",
+      "modules.tsv": "d5b309fbc1eb8e5ee9c9bc89c094b71e6aacc3ca8282769139253191eec7511b",
+      "packages.tsv": "d4a433328a1af5ecd4320c48908b8e856e5107cae5ff02c7070381bf75470da8"
+    }
   }
 }
