@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from . import __version__
 from .git_history import DEFAULT_TREE_PATHS, GitError, parse_cutoff
+from .git_dependencies import GitDependencyError, validate_git_dependencies
 from .stats import STATS_FORMATS
 
 CONFIG_SCHEMA_VERSION = 2
@@ -39,6 +40,10 @@ def load_config(path: Path) -> Dict[str, Any]:
         raise ConfigError("ghc_boot_libraries must be a list of package names")
     corpus_hashes: Dict[str, Optional[str]] = {}
     for benchmark in config["benchmarks"]:
+        try:
+            validate_git_dependencies(benchmark.get("git_dependencies", []))
+        except GitDependencyError as error:
+            raise ConfigError(f"benchmark {benchmark.get('id')}: {error}") from error
         if not benchmark.get("package"):
             raise ConfigError(f"benchmark {benchmark.get('id')} lacks a package (its cabal executable name)")
         source = (path.parent / benchmark["source"]).resolve()

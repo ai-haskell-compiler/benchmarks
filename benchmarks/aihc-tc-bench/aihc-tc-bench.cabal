@@ -1,0 +1,31 @@
+cabal-version: 3.8
+name: aihc-tc-bench
+version: 0.1.0.0
+synopsis: AIHC benchmark: polymorphic inference and class constraint solving
+license: Unlicense
+build-type: Simple
+
+executable aihc-tc-bench
+  main-is: Main.hs
+  other-modules: Wiring, ModuleGraph, Corpus, PhaseTiming, StructuralHash, TypeHash
+  build-depends: base, deepseq, text, aihc-parser ==5.0.0.0, aihc-resolve ==0.1.0.0, aihc-tc ==0.1.0.0, containers
+  default-language: GHC2021
+  ghc-options: -Wall
+
+test-suite graph-tests
+  type: exitcode-stdio-1.0
+  main-is: GraphTests.hs
+  hs-source-dirs: test, .
+  other-modules: ModuleGraph
+  build-depends: base, containers
+  default-language: Haskell2010
+  ghc-options: -Wall
+
+test-suite checksum-tests
+  type: exitcode-stdio-1.0
+  main-is: ChecksumTests.hs
+  hs-source-dirs: test, .
+  other-modules: StructuralHash, TypeHash
+  build-depends: base, text, aihc-parser ==5.0.0.0, aihc-resolve ==0.1.0.0, aihc-tc ==0.1.0.0
+  default-language: GHC2021
+  ghc-options: -Wall

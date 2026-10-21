@@ -107,7 +107,10 @@ sizes. Both compilers run the same size in a configuration, so the
 ratio between them still compares the same work, but two profiles or two
 backends of one benchmark do not, and their times are not comparable with
 each other. The sizes are recalibrated as the compiler gets faster, which
-starts a new history for the benchmark. Both
+starts a new history for the benchmark. The resolver and type-checker
+benchmarks always compile the real Prelude and its dependency closure; that
+mandatory work currently exceeds the half-second target, even with no
+additional Stackage packages. Their per-cell package sets retain that work. Both
 compilers apply the level to the whole build: on the GHC side that takes a
 `package *` stanza in the generated project file, since cabal's command-line
 `-O` and `--ghc-options` reach local packages only and would leave the
@@ -168,6 +171,55 @@ same version of, say, `snappy-hs`. Boot libraries are deliberately left
 unbounded: GHC ships its own and the versions differ per release, so pinning
 them in the `.cabal` would break every toolchain but the one the freeze file
 was written under.
+
+### Dependencies from Git
+
+A benchmark can use unreleased libraries by adding `git_dependencies` to its
+entry in `benchmark.json`. Each entry pins one repository to a full,
+40-character lowercase commit SHA and maps package names to directories
+relative to that repository's root:
+
+```json
+"git_dependencies": [
+  {
+    "url": "https://github.com/ai-haskell-compiler/aihc",
+    "commit": "<full-40-character-commit-sha>",
+    "packages": {
+      "aihc-tc": "components/aihc-tc",
+      "aihc-resolve": "components/aihc-resolve"
+    }
+  }
+]
+```
+
+Replace the commit placeholder with the SHA to benchmark. Branches, tags and
+abbreviated SHAs are rejected. Use `"."` for a package at the repository root.
+Declare the libraries in the benchmark's `.cabal` `build-depends` as usual;
+its freeze file and `aihc.lock` should be generated with those local packages
+available. Only listed packages override Hackage, so this example continues
+to resolve `aihc-parser` from Hackage.
+
+The runner fetches the pinned commit into `.cache/git-dependencies` and stages
+fresh source copies for every compiler configuration before starting the
+compile timer. GHC receives the selected directories as local Cabal packages;
+AIHC receives a `--workspace` containing them. Dependency compilation stays
+inside the timed step, with the configuration's optimization settings. The
+whole repository layout is retained for relative source and include paths,
+but unlisted packages are not added to the workspace. Git submodules are not
+fetched. A cached commit can be reused without network access.
+
+URLs, commits and package selections are part of the benchmark's experiment
+identity. Changing a pin starts a new result series for that benchmark. The
+dependency pin is independent of the AIHC compiler commit being measured.
+Fetch or source-validation failures are reported as compile failures without
+compile-time measurements.
+
+The [`aihc-resolve-bench` and `aihc-tc-bench` workloads](docs/frontend-benchmarks.md)
+use this support to benchmark name resolution and type inference at a fixed
+AIHC library commit, with `aihc-parser-5.0.0.0` from Hackage. They process
+complete Stackage libraries and their core dependencies in dependency order,
+grouping modules into SCC units. `nix build .#frontend-corpus` builds their
+pinned runtime inputs.
 
 ## Benchmarking with `./bench`
 

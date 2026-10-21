@@ -112,6 +112,45 @@
       "expected_stdout": "bytes=2046030 fnv1a=076b875085ec04f0\n",
       "process_timeout_seconds": 300,
       "unsupported_backends": ["wasm"]
+    },
+    {
+      "id": "aihc-resolve-bench-v1",
+      "package": "aihc-resolve-bench",
+      "source": "benchmarks/aihc-resolve-bench",
+      "profile_argument": true,
+      "corpus_env": "AIHC_BENCH_FRONTEND_CORPUS",
+      "corpus_sources": ["corpus/frontend", "corpus/parser", "corpus/stackage"],
+      "git_dependencies": [
+        {
+          "url": "https://github.com/ai-haskell-compiler/aihc",
+          "commit": "6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d",
+          "packages": {
+            "aihc-resolve": "components/aihc-resolve"
+          }
+        }
+      ],
+      "expected_stdout": "ok\n",
+      "process_timeout_seconds": 120
+    },
+    {
+      "id": "aihc-tc-bench-v1",
+      "package": "aihc-tc-bench",
+      "source": "benchmarks/aihc-tc-bench",
+      "profile_argument": true,
+      "corpus_env": "AIHC_BENCH_FRONTEND_CORPUS",
+      "corpus_sources": ["corpus/frontend", "corpus/parser", "corpus/stackage"],
+      "git_dependencies": [
+        {
+          "url": "https://github.com/ai-haskell-compiler/aihc",
+          "commit": "6ceb5ca6b5e6308fb48ee61a557aa6274aa54c2d",
+          "packages": {
+            "aihc-resolve": "components/aihc-resolve",
+            "aihc-tc": "components/aihc-tc"
+          }
+        }
+      ],
+      "expected_stdout": "ok\n",
+      "process_timeout_seconds": 120
     }
   ],
   "configurations": [

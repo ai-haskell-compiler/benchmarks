@@ -19,6 +19,7 @@ from . import progress
 from .config import expand_command
 from .database import Database
 from .git_history import GitError, create_worktree, fetch, path_exists, remove_worktree, rev_parse
+from .git_dependencies import GitDependencyError, package_names, stage_git_dependencies
 from .measurement import INVOCATION_METRIC_NAMES, MEASURED_STATUSES, compile_metrics, measure
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
@@ -566,6 +567,13 @@ def build_cells(
                 available = False
                 reason = "unsupported_backend"
             compile_command = expand_command(configuration["compile"], values) if available else None
+            if compile_command and benchmark.get("git_dependencies"):
+                workspace = artifact.parent / "dependencies" / "workspace"
+                if family == "aihc":
+                    compile_command.extend(["--workspace", str(workspace)])
+                else:
+                    for name in package_names(benchmark["git_dependencies"]):
+                        compile_command.extend(["--local-package", str(workspace / name)])
             if compile_command and family == "aihc":
                 if runtime_packaged:
                     compile_command = _without_gc_option(compile_command)
@@ -877,6 +885,14 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
                 shutil.copytree(original, copy, symlinks=True)
             else:
                 shutil.copy2(original, copy)
+        if cell.benchmark.get("git_dependencies"):
+            try:
+                stage_git_dependencies(
+                    cell.benchmark["git_dependencies"], root / ".cache" / "git-dependencies",
+                    cell.artifact.parent / "dependencies", timeout_seconds,
+                )
+            except (GitDependencyError, OSError) as error:
+                return cell, {"status": "compile_failed", "stderr": str(error)}
         start = time.perf_counter_ns()
         try:
             process = run_command(

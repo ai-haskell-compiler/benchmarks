@@ -38,12 +38,17 @@ class FreezeTests(unittest.TestCase):
         version. Boot libraries are exempt: each GHC ships its own, so a hard
         bound would break every release but the one the freeze file pins.
         """
-        boot = set(json.loads((REPO_ROOT / "benchmark.json").read_text())["ghc_boot_libraries"])
+        config = json.loads((REPO_ROOT / "benchmark.json").read_text())
+        boot = set(config["ghc_boot_libraries"])
         for cabal_file in REPO_ROOT.glob("benchmarks/*/*.cabal"):
+            # Local Git packages are pinned by commit rather than Hackage
+            # freeze constraints (cabal freeze omits local package versions).
+            benchmark = next(entry for entry in config["benchmarks"] if REPO_ROOT / entry["source"] == cabal_file.parent)
+            git_packages = {name for dependency in benchmark.get("git_dependencies", []) for name in dependency["packages"]}
             freeze = parse_freeze(cabal_file.parent / "cabal.project.freeze")
             text = cabal_file.read_text()
             for name in parse_build_depends(cabal_file):
-                if name in boot:
+                if name in boot or name in git_packages:
                     continue
                 self.assertIn(f"{name} =={freeze[name]}", text, f"{cabal_file.name} does not pin {name}")
 

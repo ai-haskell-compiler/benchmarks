@@ -99,6 +99,7 @@ _INDEX_STATE = re.compile(r"(?m)^index-state:\s*(.+?)\s*$")
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, type=Path, help="benchmark package directory")
+    parser.add_argument("--local-package", action="append", default=[], type=Path, help="prepared dependency package directory, repeatable")
     parser.add_argument("--build-dir", required=True, type=Path)
     parser.add_argument("--artifact", required=True, type=Path)
     parser.add_argument("--exe", required=True, help="cabal executable component name")
@@ -311,7 +312,16 @@ def project_body(args: argparse.Namespace) -> str:
 def generate_project_file(args: argparse.Namespace) -> Path:
     args.build_dir.mkdir(parents=True, exist_ok=True)
     project_file = args.build_dir / "cabal.project"
-    project_file.write_text(f"packages: {args.source}\n" + project_body(args), encoding="utf-8")
+    packages = [args.source, *args.local_package]
+    # Cabal accepts quoted package locations. Keep the existing spelling for
+    # simple paths and quote paths containing whitespace or metacharacters.
+    def location(path: Path) -> str:
+        value = str(path.resolve())
+        if re.fullmatch(r"[A-Za-z0-9_./:+-]+", value):
+            return value
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    project_file.write_text("packages: " + "\n          ".join(location(path) for path in packages) + "\n" + project_body(args), encoding="utf-8")
     return project_file
 
 

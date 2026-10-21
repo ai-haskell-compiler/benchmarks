@@ -107,6 +107,22 @@ def fake_ghc_pkg(directory: Path, name: str, packages: str) -> Path:
 
 
 class CompileWithCabalTests(unittest.TestCase):
+    def test_prepared_git_packages_are_in_the_generated_project(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            fake_ghc_pkg_dump(root, "ghc-pkg-9.14.1")
+            packages = [root / "dependencies/aihc-tc", root / "dependencies with spaces/aihc-resolve"]
+            args = parse_args([
+                "--source", str(root / "benchmark"), "--build-dir", str(root / "build"),
+                "--artifact", str(root / "out"), "--exe", "benchmark",
+                "--ghc", str(root / "ghc-9.14.1"), "--optimization", "O2",
+                "--local-package", str(packages[0]), "--local-package", str(packages[1]),
+            ])
+            project = generate_project_file(args).read_text()
+            self.assertIn(f"packages: {root / 'benchmark'}\n          {packages[0]}\n", project)
+            self.assertIn(f'          "{packages[1]}"\n', project)
+            self.assertIn("package *\n  optimization: 2\n", project)
+
     def test_sibling_tools_share_the_ghc_suffix(self):
         self.assertEqual(sibling_tool(Path("/t/bin/ghc-9.14.1"), "ghc-pkg"), Path("/t/bin/ghc-pkg-9.14.1"))
         self.assertEqual(sibling_tool(Path("/t/bin/ghc-9.14.1-wasm"), "hsc2hs"), Path("/t/bin/hsc2hs-9.14.1-wasm"))
