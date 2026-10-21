@@ -77,6 +77,13 @@
       "expected_stdout": "ok\n"
     },
     {
+      "id": "regex-log-extract-v1",
+      "package": "regex-log-extract",
+      "source": "benchmarks/regex-log-extract",
+      "profile_argument": true,
+      "expected_stdout": "ok\n"
+    },
+    {
       "id": "aihc-cpp-stackage-v1",
       "package": "aihc-cpp-stackage",
       "source": "benchmarks/aihc-cpp-stackage",

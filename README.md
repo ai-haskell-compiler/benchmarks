@@ -101,8 +101,9 @@ work in each cell, sized so an AIHC run lasts about half a second. An AIHC
 `-O2` build is tens of times faster than an `-O0` one and a Wasm build under
 Wasmtime several times slower than a native one, so a single size gave some
 cells milliseconds, where startup and timer noise are the measurement, and
-others tens of seconds. Native and LLVM builds share the native sizes; Wasm
-has its own. Both compilers run the same size in a configuration, so the
+others tens of seconds. Most benchmarks share sizes between native and LLVM
+builds; regex log extraction calibrates them separately. Wasm has its own
+sizes. Both compilers run the same size in a configuration, so the
 ratio between them still compares the same work, but two profiles or two
 backends of one benchmark do not, and their times are not comparable with
 each other. The sizes are recalibrated as the compiler gets faster, which
@@ -482,6 +483,63 @@ AIHC native build takes about half a second on an Apple M1: 33 pairs at
 To resize a profile, build the benchmark and run it with `--print <pairs>`,
 which prints the checksum for that many pairs, and copy the count and
 checksum into `work` in `Main.hs`.
+
+## Regex log extraction
+
+`regex-log-extract-v1` uses `regex-tdfa-1.3.2.7` to extract six fields
+from deterministic HTTP access logs: IP address, timestamp, method, path,
+status and byte count. The expression is compiled once per process and
+matched against strict `ByteString` lines with varying field lengths. Every
+fifth line has an invalid final byte, which tests late failures. All seven
+whole-match/capture offset-length pairs, or a failure marker, enter a
+64-bit checksum. The program prints `ok` only when the checksum agrees
+with GHC. Input generation and one-time regex compilation are included
+in the process measurement.
+
+Each profile and backend has its own line count. These counts target about
+half a second on an Apple M4 Pro. Calibration on 2026-10-20 used AIHC
+`1247d35bf`, GHC 9.12.4 for reference checksums, and Wasmtime 47.0.1.
+The times below are the minimum of five complete process runs after one
+warm-up, with RTS statistics enabled. Native and LLVM artifacts were
+stripped. Wasm artifacts were stripped and precompiled before measurement.
+
+| Profile | Native: lines / time | LLVM: lines / time | Wasm: lines / time |
+| --- | ---: | ---: | ---: |
+| O0 | 928 / 0.486s | 324 / 0.505s | 50 / 0.479s |
+| O1 | 942 / 0.500s | 900 / 0.506s | 39 / 0.501s |
+| O2 | 6,391 / 0.500s | 5,429 / 0.477s | 1,160 / 0.481s |
+| Os | 2,087 / 0.490s | 2,088 / 0.482s | 386 / 0.468s |
+
+[The calibration record](docs/regex-log-extract-calibration.json) includes
+all samples, checksums and toolchain details. GHC and an independent Python
+capture-offset calculation agree for every configured line count.
+
+This workload exposed a compiler bug and a library portability problem.
+Lazy patterns in do binds forced tuples too early, which caused a
+blackholed thunk error in the regex compiler.
+[AIHC #2780](https://github.com/ai-haskell-compiler/aihc/pull/2780)
+fixes that error. Older regex-tdfa releases declared the length of
+`memcpy` as `Int#`, which differs from WASI `size_t` on AIHC.
+Release 1.3.2.7 uses `copyMutableByteArray#` in both capture engines.
+The calibration compiler includes the blackhole fix and does not include
+the symbol-specific workaround from AIHC #2781.
+
+A separate O2 comparison on 2026-10-21 used the same 6,391 lines for all
+three builds. GHC 9.12.4 native took 0.085s, AIHC native took 0.515s
+(6.07 times GHC's runtime), and AIHC LLVM took 0.575s (6.77 times).
+GHC's dependencies were rebuilt at O2 with the repository's build helper.
+These are process times, including startup, and use the minimum of five
+runs after one warm-up. The machine had other active processes, so treat
+the results as approximate. This compares AIHC LLVM with GHC native;
+GHC LLVM and Wasm comparisons were not run.
+[The comparison record](docs/regex-log-extract-comparison.json) contains
+all samples and the measurement method.
+
+To resize a configuration, run `--print <positive line count>` with its
+AIHC build, obtain the reference checksum with GHC, and update `work` and
+`checksums` in `Main.hs`. For Wasm, precompile with `wasmtime compile` and
+time `wasmtime run -S cli -S http --allow-precompiled`. Confirm that the
+final profile/backend invocation prints `ok`, then record its timings.
 
 ## Comparing two builds
 

@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-21",
+  "machine": "Apple M4 Pro",
+  "ghc": "9.12.4",
+  "aihc_commit": "1247d35bf7779cae5352c625c276fce515c0497d",
+  "regex_tdfa": "1.3.2.7",
+  "lines": 6391,
+  "checksum": "7274849593290202218",
+  "method": "Minimum of five complete process runs after one warm-up, interleaved by compiler. All builds use O2; GHC uses the repository compile_with_cabal.py helper with -fasm and -rtsopts, including dependency rebuilds at O2. Artifacts stripped. RTS statistics enabled. Shared host with other active processes; timings are approximate. AIHC LLVM is compared with GHC native, not GHC LLVM. No GHC Wasm comparison was run.",
+  "results": {
+    "ghc-native-O2": {
+      "seconds": [
+        0.08740187500000007,
+        0.08480679200000019,
+        0.08999270899999967,
+        0.08654554199999964,
+        0.08739908299999932
+      ],
+      "minimum": 0.08480679200000019,
+      "relative_to_ghc_native": 1.0
+    },
+    "aihc-native-O2": {
+      "seconds": [
+        0.5187696659999999,
+        0.5173752500000002,
+        0.5151802090000004,
+        0.5192259579999998,
+        0.5166892079999998
+      ],
+      "minimum": 0.5151802090000004,
+      "relative_to_ghc_native": 6.074751760448612
+    },
+    "aihc-llvm-O2": {
+      "seconds": [
+        0.585369375,
+        0.5892920409999998,
+        0.5828732089999997,
+        0.5822797089999998,
+        0.5745202919999999
+      ],
+      "minimum": 0.5745202919999999,
+      "relative_to_ghc_native": 6.774460847428336
+    }
+  }
+}
