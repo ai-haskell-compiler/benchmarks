@@ -1,0 +1,11 @@
+cabal-version: 2.4
+name: regex-log-extract
+version: 0.1.0.0
+synopsis: AIHC benchmark: capture fields from HTTP access logs with regex-tdfa
+license: NONE
+build-type: Simple
+
+executable regex-log-extract
+  main-is: Main.hs
+  build-depends: base, array, bytestring, regex-base ==0.94.0.3, regex-tdfa ==1.3.2.7
+  default-language: Haskell2010
