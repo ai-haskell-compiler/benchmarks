@@ -1,27 +1,19 @@
+-- The benchmark replaces the haskeline version of this module. Only the
+-- MicroHs REPL uses it, and the benchmark does not run the REPL. Without
+-- haskeline, the plan has no terminfo flag, so the plan does not depend on
+-- the flags of a lock file.
 module System.Console.SimpleReadline(
---  getInputLine,
   getInputLineHist,
   getInputLineHistComp,
   ) where
-import qualified System.Console.Haskeline as H
-import System.Console.Haskeline hiding (getInputLine)
-
-{-
-getInputLine :: String -> IO (Maybe String)
-getInputLine prompt =
-  runInputT defaultSettings (H.getInputLine prompt)
--}
+import System.IO
 
 getInputLineHist :: FilePath -> String -> IO (Maybe String)
-getInputLineHist hist prompt =
-  runInputT settings (H.getInputLine prompt)
-  where settings = defaultSettings { historyFile = Just hist }
+getInputLineHist _ prompt = do
+  putStr prompt
+  hFlush stdout
+  eof <- isEOF
+  if eof then return Nothing else Just <$> getLine
 
 getInputLineHistComp :: ((String, String) -> IO [String]) -> FilePath -> String -> IO (Maybe String)
-getInputLineHistComp comp hist prompt =
-  runInputT settings (H.getInputLine prompt)
-  where settings = setComplete hcomp $ defaultSettings { historyFile = Just hist }
-        hcomp :: CompletionFunc IO
-        hcomp pp@(pre, _) = do
-          alts <- comp pp
-          return (pre, map (\ s -> Completion s s False) alts)
+getInputLineHistComp _ = getInputLineHist

@@ -61,6 +61,6 @@ executable microhs-self-compile
                       System.IO.TimeMilli
                       System.IO.Transducers
                       System.Compress
-  build-depends:      base, array, bytestring, deepseq, directory, filepath, haskeline, process, text, time
+  build-depends:      base, array, bytestring, deepseq, directory, filepath, process, text, time
   default-language:   Haskell2010
   default-extensions: ScopedTypeVariables TypeSynonymInstances MultiParamTypeClasses FlexibleInstances FlexibleContexts

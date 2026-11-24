@@ -1,6 +1,6 @@
--- Written by cabal freeze under GHC 9.14.1, with one line added by hand:
--- haskeline -terminfo. The terminfo package needs a curses library that the
--- toolchain environment does not have, and only the MicroHs REPL uses it.
+-- Written by cabal freeze under GHC 9.14.1. The haskeline and terminfo pins
+-- are removed by hand: the benchmark replaces the REPL line editor, so it
+-- does not depend on haskeline.
 active-repositories: hackage.haskell.org:merge
 constraints: any.array ==0.5.8.0,
              any.base ==4.22.0.0,
@@ -15,8 +15,6 @@ constraints: any.array ==0.5.8.0,
              any.ghc-boot-th ==9.14.1,
              any.ghc-internal ==9.1401.0,
              any.ghc-prim ==0.13.1,
-             any.haskeline ==0.8.3.0,
-             haskeline -terminfo,
              any.mtl ==2.3.1,
              any.os-string ==2.0.8,
              any.pretty ==1.1.3.6,
@@ -24,7 +22,6 @@ constraints: any.array ==0.5.8.0,
              any.rts ==1.0.3,
              any.stm ==2.5.3.1,
              any.template-haskell ==2.24.0.0,
-             any.terminfo ==0.4.1.7,
              any.text ==2.1.3,
              any.time ==1.15,
              any.transformers ==0.6.1.2,
