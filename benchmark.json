@@ -113,6 +113,7 @@
       "corpus_sources": ["corpus/microhs"],
       "run_directory": "{corpus}",
       "run_arguments": ["-q", "-imhs", "-isrc", "-ilib", "MicroHs.Main", "-o", "{output}"],
+      "output_name": "mhs.c",
       "expected_stdout": "",
       "expected_output_sha256": "49c9ba4d0cd281d620aa5d65022bfc30a685e5a3db485e255414456b3990d615",
       "process_timeout_seconds": 300,

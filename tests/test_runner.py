@@ -202,7 +202,7 @@ class RunnerTests(unittest.TestCase):
             "id": "tool", "package": "tool", "source": "pins",
             "package_env": "TOOL_PACKAGE", "corpus_env": "TOOL_CORPUS",
             "run_directory": "{corpus}", "run_arguments": ["-q", "{corpus}/lib", "-o", "{output}"],
-            "expected_stdout": "", "expected_output_sha256": "a" * 64,
+            "expected_stdout": "", "expected_output_sha256": "a" * 64, "output_name": "tool.c",
         })
         self.config["configurations"][1]["corpus_options"] = ["--dir", "{corpus}"]
         (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
@@ -220,7 +220,7 @@ class RunnerTests(unittest.TestCase):
             package, corpus, by_cell = self._released_executable(root)
             package.chmod(0o755)
         native = by_cell[("tool", "aihc-native-O2")]
-        output = native.artifact.parent / "output"
+        output = native.artifact.parent / "tool.c"
         self.assertEqual(native.run_command, [str(native.artifact), "-q", f"{corpus}/lib", "-o", str(output)])
         self.assertEqual(native.run_cwd, corpus)
         self.assertEqual((native.output_file.path, native.output_file.sha256), (output, "a" * 64))
@@ -228,7 +228,7 @@ class RunnerTests(unittest.TestCase):
         wasm = by_cell[("tool", "aihc-wasm-O2")]
         self.assertEqual(
             wasm.run_command[wasm.run_command.index("--dir"):],
-            ["--dir", str(corpus), str(wasm.precompiled), "-q", f"{corpus}/lib", "-o", str(wasm.artifact.parent / "output")],
+            ["--dir", str(corpus), str(wasm.precompiled), "-q", f"{corpus}/lib", "-o", str(wasm.artifact.parent / "tool.c")],
         )
         # Both families build a copy of the package with the pins laid over it.
         ghc = by_cell[("tool", "ghc-native-O2")]

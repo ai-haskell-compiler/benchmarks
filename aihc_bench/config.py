@@ -181,6 +181,9 @@ def _validate_run(benchmark: Dict[str, Any]) -> None:
     directory = benchmark.get("run_directory")
     if directory is not None and (not isinstance(directory, str) or not directory):
         raise ConfigError(f"benchmark {identifier}: run_directory must be a non-empty command template part")
+    name = benchmark.get("output_name")
+    if name is not None and (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", name) or name in (".", "..")):
+        raise ConfigError(f"benchmark {identifier}: output_name must be a plain file name")
     digest = benchmark.get("expected_output_sha256")
     if digest is not None:
         if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):

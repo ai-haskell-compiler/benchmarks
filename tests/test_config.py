@@ -225,6 +225,7 @@ class ConfigTests(unittest.TestCase):
                 ("run_arguments", ["-o", "result.c"]),
                 ("expected_output_sha256", "ABC"),
                 ("run_directory", ""),
+                ("output_name", "../escape.c"),
             ):
                 original = tool[key] if key in tool else None
                 tool[key] = broken

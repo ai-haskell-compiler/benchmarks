@@ -557,7 +557,9 @@ def build_cells(
             stats_dir = root / ".cache" / "stats" / experiment_id / platform_id / commit["sha"]
             stats_file = stats_dir / f"{identity}.stats"
             corpus = _corpus_directory(benchmark)
-            output_path = artifact.parent / "output"
+            # The program may read meaning into the name: mhs writes C only
+            # to a file whose name ends in .c.
+            output_path = artifact.parent / benchmark.get("output_name", "output")
             values = {
                 "root": str(root),
                 "worktree": str(worktree),

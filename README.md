@@ -485,7 +485,7 @@ lays over a copy of the package. `mhs` runs in the corpus directory, because
 it records the source paths in what it generates:
 
 ```text
-mhs -q -imhs -isrc -ilib MicroHs.Main -o <output>
+mhs -q -imhs -isrc -ilib MicroHs.Main -o <directory>/mhs.c
 ```
 
 `-q` stops a warning on stdout about a missing `mhs.conf`. Thus, stdout is

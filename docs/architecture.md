@@ -241,7 +241,9 @@ executable of the MicroHs Hackage package. Four keys make this possible:
   `{corpus}`.
 - `expected_output_sha256` is the SHA-256 of the file `{output}`. The runner
   deletes the file before each run and checks it after the run, in addition
-  to `expected_stdout`.
+  to `expected_stdout`. `output_name` sets the file name (default `output`),
+  because a program can read meaning into it: `mhs` writes C only to a file
+  whose name ends in `.c`.
 
 A benchmark may also carry its own `process_timeout_seconds`, overriding the
 suite-wide one for a sweep that legitimately runs for seconds; being part of
