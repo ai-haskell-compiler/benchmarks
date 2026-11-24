@@ -104,12 +104,18 @@
       "process_timeout_seconds": 120
     },
     {
-      "id": "microhs-self-compile-v1",
-      "package": "microhs-self-compile",
+      "id": "microhs-self-compile-v2",
+      "package": "mhs",
       "source": "benchmarks/microhs-self-compile",
+      "package_env": "AIHC_BENCH_MICROHS_PACKAGE",
+      "package_sources": ["corpus/microhs"],
       "corpus_env": "AIHC_BENCH_MICROHS_CORPUS",
       "corpus_sources": ["corpus/microhs"],
-      "expected_stdout": "bytes=2046030 fnv1a=076b875085ec04f0\n",
+      "run_directory": "{corpus}",
+      "run_arguments": ["-q", "-imhs", "-isrc", "-ilib", "MicroHs.Main", "-o", "{output}"],
+      "output_name": "mhs.c",
+      "expected_stdout": "",
+      "expected_output_sha256": "49c9ba4d0cd281d620aa5d65022bfc30a685e5a3db485e255414456b3990d615",
       "process_timeout_seconds": 300,
       "unsupported_backends": ["wasm"]
     },

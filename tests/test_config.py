@@ -195,6 +195,50 @@ class ConfigTests(unittest.TestCase):
                 load_config(write_config(root, {**BASE, "corpus_options": "--dir {corpus}"}))
             self.assertTrue(load_config(write_config(root, {**BASE, "corpus_options": ["--dir", "{corpus}"]})))
 
+    def test_a_package_benchmark_takes_its_package_from_the_flake(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = write_config(root, BASE)
+            document = json.loads(config_path.read_text(encoding="utf-8"))
+            # The benchmark directory holds only pins: no .cabal file.
+            (root / "pins").mkdir()
+            (root / "pins" / "cabal.project.freeze").write_text("constraints: any.text ==2.1.3\n", encoding="utf-8")
+            (root / "corpus" / "tool").mkdir(parents=True)
+            (root / "corpus" / "tool" / "package.nix").write_text("one\n", encoding="utf-8")
+            document["benchmarks"].append({
+                "id": "tool", "package": "tool", "source": "pins",
+                "package_env": "TOOL_PACKAGE", "package_sources": ["corpus/tool"],
+                "run_arguments": ["-o", "{output}"], "expected_stdout": "",
+                "expected_output_sha256": "0" * 64,
+            })
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            before = experiment_ids(load_config(config_path))
+            (root / "corpus" / "tool" / "package.nix").write_text("two\n", encoding="utf-8")
+            after = experiment_ids(load_config(config_path))
+            self.assertNotEqual(before["tool"], after["tool"])
+            self.assertEqual(before["sample"], after["sample"])
+            tool = document["benchmarks"][1]
+            for key, broken in (
+                ("package_sources", []),
+                ("package_sources", ["corpus/missing"]),
+                ("run_arguments", "-o {output}"),
+                ("run_arguments", ["-o", "result.c"]),
+                ("expected_output_sha256", "ABC"),
+                ("run_directory", ""),
+                ("output_name", "../escape.c"),
+            ):
+                original = tool[key] if key in tool else None
+                tool[key] = broken
+                config_path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(ConfigError, msg=f"{key}={broken!r}"):
+                    load_config(config_path)
+                if original is None:
+                    del tool[key]
+                else:
+                    tool[key] = original
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            self.assertTrue(load_config(config_path))
+
     def test_precompile_is_validated(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -224,6 +224,27 @@ own directory and the shared snapshot pin under `corpus/stackage` -- so a
 change to the pin, an assembly script or a stand-in header restarts the
 history of the benchmarks that read it and no other. A benchmark without
 `corpus_sources` hashes all of `corpus/`.
+## Released executables
+
+A benchmark can measure a program as it is released, such as the `mhs`
+executable of the MicroHs Hackage package. Four keys make this possible:
+
+- `package_env` names a directory that the flake builds and exports: a Cabal
+  package. Each compiler builds a writable copy of it, with the files of the
+  benchmark directory (`source`) laid over the copy. Thus, the benchmark
+  directory holds only pins, such as `cabal.project.freeze`.
+  `package_sources` lists the directories the package is built from. The
+  experiment ID hashes them, as it hashes `corpus_sources`.
+- `run_arguments` is the command line of the program, in place of the corpus
+  directory as the only argument. It can name `{corpus}` and `{output}`.
+- `run_directory` is the working directory of the program, for example
+  `{corpus}`.
+- `expected_output_sha256` is the SHA-256 of the file `{output}`. The runner
+  deletes the file before each run and checks it after the run, in addition
+  to `expected_stdout`. `output_name` sets the file name (default `output`),
+  because a program can read meaning into it: `mhs` writes C only to a file
+  whose name ends in `.c`.
+
 A benchmark may also carry its own `process_timeout_seconds`, overriding the
 suite-wide one for a sweep that legitimately runs for seconds; being part of
 the benchmark definition, it too affects only that benchmark's identity. The

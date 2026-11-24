@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from .git_history import GitError, create_worktree, remove_worktree
-from .measurement import INVOCATION_METRICS, _sample_record
+from .measurement import INVOCATION_METRICS, _sample_record, run_status
 from .process import ProcessMeasurement, run_measured
 from .runner import Cell, build_cells, compile_cells, compiler_root, _prepare_aihc_store
 from .toolchain import CompilerDoesNotBuild, build_compiler
@@ -182,17 +182,20 @@ def measure_interleaved(
         for entry in runnable:
             for index in range(2):
                 cell, _ = keyed[index][(entry["benchmark"], entry["configuration"])]
+                if cell.output_file is not None:
+                    cell.output_file.clear()
                 sample = invoke(
                     cell.run_command or [],
-                    root,
+                    cell.run_cwd or root,
                     float(cell.benchmark.get("process_timeout_seconds", default_timeout)),
                     environment_overrides=cell.run_environment,
                     stats_file=cell.stats_file,
                     stats_format=cell.stats_format,
                 )
                 side = entry["sides"][index]
-                if sample.timed_out or sample.exit_code != 0 or sample.stdout != cell.benchmark["expected_stdout"].encode("utf-8"):
-                    side["status"] = "timed_out" if sample.timed_out else ("run_failed" if sample.exit_code != 0 else "validation_failed")
+                status = run_status(sample, cell.benchmark["expected_stdout"].encode("utf-8"), cell.output_file)
+                if status:
+                    side["status"] = status
                     side["stderr"] = sample.stderr[-2000:].decode("utf-8", errors="replace")
                     continue
                 if round_number >= 0:

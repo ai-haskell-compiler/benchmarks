@@ -20,7 +20,7 @@ from .config import expand_command
 from .database import Database
 from .git_history import GitError, create_worktree, fetch, path_exists, remove_worktree, rev_parse
 from .git_dependencies import GitDependencyError, package_names, stage_git_dependencies
-from .measurement import INVOCATION_METRIC_NAMES, MEASURED_STATUSES, compile_metrics, measure
+from .measurement import INVOCATION_METRIC_NAMES, MEASURED_STATUSES, OutputFile, compile_metrics, measure
 from .process import run_command, run_measured
 from .schema import environment_record, new_run_id, result_envelope
 from .wasm_sysroot import wasm_environment_for_commit
@@ -65,6 +65,14 @@ class Cell:
     #: The benchmark directory an AIHC cell compiles is a scratch copy made
     #: just before the timed compile (source, copy); see ``compile_cells``.
     source_copy: Optional[Tuple[Path, Path]] = None
+    #: Files copied over the scratch copy after it is made: the benchmark
+    #: directory of a ``package_env`` benchmark, whose package comes from the
+    #: flake and whose pins (``cabal.project.freeze``) come from this suite.
+    source_overlay: Optional[Path] = None
+    #: The working directory of the measured program; the suite root if unset.
+    run_cwd: Optional[Path] = None
+    #: The file the program writes and every run must reproduce.
+    output_file: Optional[OutputFile] = None
 
 
 def run_commit(
@@ -515,6 +523,9 @@ def build_cells(
             continue
         experiment_id = experiments[benchmark["id"]]
         source = (root / benchmark["source"]).resolve()
+        # A package_env benchmark builds a package the flake provides, with
+        # the files of its own directory laid over a copy of that package.
+        package = Path(_environment_directory(benchmark, "package_env", "package")) if benchmark.get("package_env") else None
         for configuration in config["configurations"]:
             family = configuration["compiler_family"]
             version_root = f"ghc-{configuration['compiler_version']}" if family == "ghc" else commit["sha"]
@@ -536,11 +547,19 @@ def build_cells(
             # and ``nix run`` warned about a dirty tree on every run. AIHC
             # therefore compiles a scratch copy; GHC already builds out of
             # tree.
-            source_copy = (source, artifact.parent / "source") if family == "aihc" else None
+            if package is not None:
+                # Both families: the package is read-only in the Nix store, and
+                # the overlay must not change the flake's copy.
+                source_copy: Optional[Tuple[Path, Path]] = (package, artifact.parent / "source")
+            else:
+                source_copy = (source, artifact.parent / "source") if family == "aihc" else None
             precompiled = artifact.with_suffix(".cwasm") if configuration.get("precompile") else None
             stats_dir = root / ".cache" / "stats" / experiment_id / platform_id / commit["sha"]
             stats_file = stats_dir / f"{identity}.stats"
             corpus = _corpus_directory(benchmark)
+            # The program may read meaning into the name: mhs writes C only
+            # to a file whose name ends in .c.
+            output_path = artifact.parent / benchmark.get("output_name", "output")
             values = {
                 "root": str(root),
                 "worktree": str(worktree),
@@ -557,6 +576,7 @@ def build_cells(
                 "toolchains": toolchains,
                 "stats_file": str(stats_file),
                 "stats_dir": str(stats_dir),
+                "output": str(output_path),
                 **{key: str(value) for key, value in platform_values.items()},
             }
             available = configuration.get("available", True)
@@ -592,8 +612,12 @@ def build_cells(
                 run_environment["AIHC_RTS_STATS"] = str(stats_file)
             precompile_command = expand_command(configuration["precompile"], values) if available and precompiled else None
             run_command = expand_command(configuration["run"], values) if available else None
-            if run_command is not None and corpus:
+            if run_command is not None and "run_arguments" in benchmark:
+                run_command = _with_arguments(run_command, configuration, values, expand_command(benchmark["run_arguments"], values))
+            elif run_command is not None and corpus:
                 run_command = _with_corpus(run_command, configuration, values)
+            run_cwd = Path(benchmark["run_directory"].format_map(values)) if available and benchmark.get("run_directory") else None
+            output_file = OutputFile(output_path, benchmark["expected_output_sha256"]) if available and benchmark.get("expected_output_sha256") else None
             if run_command is not None and benchmark.get("profile_argument"):
                 run_command = _with_profile(run_command, configuration)
             if run_command is not None and wasi_http and family == "aihc" and configuration["backend"] == "wasm":
@@ -618,6 +642,9 @@ def build_cells(
                     precompiled=precompiled if available else None,
                     store_archive=store_archive if family == "aihc" and available else None,
                     source_copy=source_copy if available else None,
+                    source_overlay=source if available and package is not None else None,
+                    run_cwd=run_cwd,
+                    output_file=output_file,
                 )
             )
     return cells
@@ -775,13 +802,18 @@ def _corpus_directory(benchmark: Dict[str, Any]) -> str:
     ``AIHC_BENCH_CPP_CORPUS``), the same way it exports the toolchains. A
     benchmark without ``corpus_env`` has no corpus and gets an empty string.
     """
-    variable = benchmark.get("corpus_env")
+    return _environment_directory(benchmark, "corpus_env", "corpus")
+
+
+def _environment_directory(benchmark: Dict[str, Any], key: str, kind: str) -> str:
+    """The directory that the environment variable ``benchmark[key]`` names; empty without the key."""
+    variable = benchmark.get(key)
     if not variable:
         return ""
     directory = os.environ.get(variable, "")
     if not directory or not Path(directory).is_dir():
         raise MissingCorpus(
-            f"benchmark {benchmark['id']} reads the corpus named by {variable}, which is "
+            f"benchmark {benchmark['id']} reads the {kind} named by {variable}, which is "
             f"{'unset' if not directory else 'not a directory: ' + directory}; run through the flake so it is built and exported"
         )
     return directory
@@ -803,6 +835,23 @@ def _with_corpus(run_command: List[str], configuration: Dict[str, Any], values: 
     except ValueError:
         position = len(run_command)
     return run_command[:position] + options + run_command[position:] + [values["corpus"]]
+
+
+def _with_arguments(run_command: List[str], configuration: Dict[str, Any], values: Dict[str, str], arguments: List[str]) -> List[str]:
+    """Give the program the benchmark's own ``run_arguments``.
+
+    A program measured as it is released, such as ``mhs``, takes its own
+    command line, not a corpus directory as its only argument. The arguments
+    may name ``{corpus}`` and ``{output}``. As with ``_with_corpus``, the
+    configuration's ``corpus_options`` go in front of the program when the
+    benchmark reads a corpus.
+    """
+    options = expand_command(configuration.get("corpus_options", []), values) if values["corpus"] else []
+    try:
+        position = run_command.index(values["precompiled"] or values["artifact"])
+    except ValueError:
+        position = len(run_command)
+    return run_command[:position] + options + run_command[position:] + arguments
 
 
 def _with_wasi_http(run_command: List[str]) -> List[str]:
@@ -885,6 +934,13 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
                 shutil.copytree(original, copy, symlinks=True)
             else:
                 shutil.copy2(original, copy)
+            if cell.source_overlay:
+                # Files from the Nix store are read-only; the compilers write
+                # beside them (aihc.lock), so the copy is made writable.
+                for path in [copy, *copy.rglob("*")]:
+                    if not path.is_symlink():
+                        path.chmod(path.stat().st_mode | 0o200)
+                shutil.copytree(cell.source_overlay, copy, symlinks=True, dirs_exist_ok=True)
         if cell.benchmark.get("git_dependencies"):
             try:
                 stage_git_dependencies(
@@ -1118,11 +1174,12 @@ def measure_cells(
         )
         measurement = measure(
             cell.run_command or [],
-            root,
+            cell.run_cwd or root,
             cell.benchmark["expected_stdout"].encode("utf-8"),
             float(cell.benchmark.get("process_timeout_seconds", measurement_config["process_timeout_seconds"])),
             int(measurement_config["runs"]),
             invoke=invoke,
+            output_file=cell.output_file,
         )
         if "metrics" in measurement:
             measurement["metrics"].extend(compile_metrics(compile_result))

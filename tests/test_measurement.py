@@ -2,7 +2,10 @@ import itertools
 import unittest
 from pathlib import Path
 
-from aihc_bench.measurement import compile_metrics, measure
+import hashlib
+import tempfile
+
+from aihc_bench.measurement import OutputFile, compile_metrics, measure
 from aihc_bench.process import ProcessMeasurement
 
 
@@ -40,6 +43,27 @@ def metric(result, name):
 
 
 class MeasurementTests(unittest.TestCase):
+    def test_an_output_file_is_checked_after_every_run(self):
+        """A released program writes its result to a file, not to stdout."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "output"
+            expected = OutputFile(path, hashlib.sha256(b"generated").hexdigest())
+            contents = iter([b"generated", b"generated", b"wrong"])
+
+            def writer(command, cwd, timeout):
+                path.write_bytes(next(contents))
+                return FakeRunner([100])(command, cwd, timeout)
+
+            self.assertEqual(measure(["unused"], Path("."), b"ok\n", 1, 2, invoke=writer, output_file=expected)["status"], "measured")
+            failure = measure(["unused"], Path("."), b"ok\n", 1, 1, invoke=writer, output_file=expected)
+            self.assertEqual(failure["status"], "validation_failed")
+            self.assertEqual(failure["actual_output_file_sha256"], hashlib.sha256(b"wrong").hexdigest())
+            # The file of an earlier run does not count for a run that writes nothing.
+            path.write_bytes(b"generated")
+            silent = measure(["unused"], Path("."), b"ok\n", 1, 1, invoke=FakeRunner([100]), output_file=expected)
+            self.assertEqual(silent["status"], "validation_failed")
+            self.assertIsNone(silent["actual_output_file_sha256"])
+
     def test_runs_the_configured_number_of_times(self):
         result = measure(["unused"], Path("."), b"ok\n", 1, 3, invoke=FakeRunner([100, 100, 100]))
         self.assertEqual(result["status"], "measured")

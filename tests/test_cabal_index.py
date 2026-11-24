@@ -10,6 +10,11 @@ from unittest.mock import patch
 from aihc_bench.cabal_index import index_state_reached, newest_freeze_index_state, refresh_package_list, stale_package_list
 
 
+# A fixed moment before the pin of _config. A time relative to now, such as 30
+# days ago, passes the pin as the calendar moves, and the list then looks fresh.
+BEFORE_PIN = calendar.timegm(time.strptime("2026-09-03T00:00:00Z", "%Y-%m-%dT%H:%M:%SZ"))
+
+
 def _config(root: Path, index_state: str):
     source = root / "benchmarks" / "example"
     source.mkdir(parents=True)
@@ -52,7 +57,7 @@ class RefreshTests(unittest.TestCase):
             index = root / "01-index.tar"
             index.write_bytes(b"tar")
             (root / "01-index.timestamp").write_text("HEAD", encoding="utf-8")
-            old = time.time() - 30 * 24 * 60 * 60
+            old = BEFORE_PIN
             os.utime(index, (old, old))
             commands = []
 
@@ -84,7 +89,7 @@ class RefreshTests(unittest.TestCase):
             config = _config(root, "2026-10-03T14:53:23Z")
             index = root / "01-index.tar"
             index.write_bytes(b"tar")
-            old = time.time() - 30 * 24 * 60 * 60
+            old = BEFORE_PIN
             os.utime(index, (old, old))
             with (
                 patch("aihc_bench.cabal_index.package_list", return_value=index),
