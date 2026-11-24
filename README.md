@@ -470,8 +470,9 @@ MicroHs's `Makefile` does to regenerate `generated/mhs.c`. Every module of
 the compiler and of its own Prelude and base library is parsed,
 type-checked, desugared and translated to combinators, and the combinators
 are written out as one C array. The compiler is the `MicroHs-0.16.0.0`
-release, its `ghc/` and `src/` directories vendored verbatim under
-`benchmarks/microhs-self-compile/microhs` (Apache-2.0); the input is the same
+release, its `ghc/` and `src/` directories vendored under
+`benchmarks/microhs-self-compile/microhs` (Apache-2.0). The Hackage package
+has an executable and no library, so `Main.hs` cannot import it; the input is the same
 release's `lib`, `mhs` and `src`, built by the flake from the Hackage tarball:
 
 ```console
@@ -488,9 +489,11 @@ benchmark has its own `process_timeout_seconds`.
 
 MicroHs depends on `haskeline` for its REPL, which the benchmark never
 starts, and `haskeline` reaches for `terminfo`, which needs a curses library
-the toolchain environment does not have. Both toolchains build `haskeline`
-without it: the freeze file carries `haskeline -terminfo` for GHC, and
-`aihc.lock` records the same flag for AIHC.
+the toolchain environment does not have. One vendored file differs from the
+release: `ghc/System/Console/SimpleReadline.hs` reads a line with `getLine`
+instead of `haskeline`, so the package does not depend on `haskeline`. A flag
+in the freeze file or in `aihc.lock` would not be enough, because a compiler
+that cannot read the lock solves again with the default flags.
 
 The benchmark is not measured on Wasm: `unsupported_backends` lists `wasm`,
 and those cells are recorded unavailable (`unsupported_backend`) without
@@ -502,7 +505,8 @@ and the output no longer matches the native one.
 
 To move to another release, change `version` and the tarball hash in
 `corpus/microhs/corpus.nix`, replace the vendored directories with the
-release's `ghc/`, `src/MicroHs`, `src/Text` and `src/runtime/MachDeps.h`,
+release's `ghc/`, `src/MicroHs`, `src/Text` and `src/runtime/MachDeps.h`
+(keep the replacement `SimpleReadline.hs`),
 update the module list in the `.cabal` file from the release's, and
 regenerate the freeze file, `aihc.lock` and the expected output.
 
