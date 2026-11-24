@@ -258,9 +258,7 @@ def flag_constraints(freeze_file: Path, bound: set[str]) -> list[str]:
     """The freeze file's flag assignments, for every package that is built.
 
     A flag the benchmark sets reaches its dependency whichever toolchain
-    builds it: ``microhs-self-compile`` turns off ``haskeline``'s ``terminfo``
-    flag, which needs a curses library the toolchain environment does not
-    have. A rebuilt boot library takes its flags like any other package; only
+    builds it. A rebuilt boot library takes its flags like any other package; only
     the packages that stay as the compiler shipped them have none to set.
     """
     flags = parse_freeze_flags(freeze_file)

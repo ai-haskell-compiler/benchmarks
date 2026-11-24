@@ -187,6 +187,83 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("--dir", plain.run_command)
         self.assertEqual(plain.run_command[-1], str(plain.precompiled))
 
+    def _released_executable(self, root):
+        """A benchmark that builds a package from the flake and runs it with its own command line."""
+        package = root / "package"
+        package.mkdir()
+        (package / "tool.cabal").write_text("name: tool\n", encoding="utf-8")
+        (package / "Main.hs").write_text("main = pure ()\n", encoding="utf-8")
+        package.chmod(0o555)
+        (root / "pins").mkdir()
+        (root / "pins" / "cabal.project.freeze").write_text("constraints: any.text ==2.1.3\n", encoding="utf-8")
+        corpus = root / "corpus"
+        corpus.mkdir()
+        self.config["benchmarks"].append({
+            "id": "tool", "package": "tool", "source": "pins",
+            "package_env": "TOOL_PACKAGE", "corpus_env": "TOOL_CORPUS",
+            "run_directory": "{corpus}", "run_arguments": ["-q", "{corpus}/lib", "-o", "{output}"],
+            "expected_stdout": "", "expected_output_sha256": "a" * 64,
+        })
+        self.config["configurations"][1]["corpus_options"] = ["--dir", "{corpus}"]
+        (root / "example.hs").write_text("main = putStrLn \"ok\"\n")
+        environment = {"AIHC_BENCH_TOOLCHAINS": "/toolchains", "TOOL_PACKAGE": str(package), "TOOL_CORPUS": str(corpus)}
+        with patch.dict(os.environ, environment):
+            cells = build_cells(
+                self.config, "test-platform", {"sha": "abc123"}, root / "worktree", root,
+                {"example": "example-experiment", "tool": "tool-experiment"},
+            )
+        return package, corpus, {(cell.benchmark["id"], cell.configuration["id"]): cell for cell in cells}
+
+    def test_a_released_executable_runs_with_its_own_arguments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package, corpus, by_cell = self._released_executable(root)
+            package.chmod(0o755)
+        native = by_cell[("tool", "aihc-native-O2")]
+        output = native.artifact.parent / "output"
+        self.assertEqual(native.run_command, [str(native.artifact), "-q", f"{corpus}/lib", "-o", str(output)])
+        self.assertEqual(native.run_cwd, corpus)
+        self.assertEqual((native.output_file.path, native.output_file.sha256), (output, "a" * 64))
+        # The sandbox still gets the corpus, but the corpus is not an argument.
+        wasm = by_cell[("tool", "aihc-wasm-O2")]
+        self.assertEqual(
+            wasm.run_command[wasm.run_command.index("--dir"):],
+            ["--dir", str(corpus), str(wasm.precompiled), "-q", f"{corpus}/lib", "-o", str(wasm.artifact.parent / "output")],
+        )
+        # Both families build a copy of the package with the pins laid over it.
+        ghc = by_cell[("tool", "ghc-native-O2")]
+        copy = ghc.artifact.parent / "source"
+        self.assertEqual((ghc.source_copy, ghc.source_overlay), ((package, copy), (root / "pins").resolve()))
+        self.assertIn(str(copy), ghc.compile_command)
+        self.assertEqual(native.source_copy[0], package)
+        # A benchmark without these keys is unchanged.
+        plain = by_cell[("example", "aihc-native-O2")]
+        self.assertIsNone(plain.run_cwd)
+        self.assertIsNone(plain.output_file)
+        self.assertIsNone(plain.source_overlay)
+
+    def test_the_package_copy_is_writable_and_carries_the_pins(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package, _, by_cell = self._released_executable(root)
+            try:
+                cell = by_cell[("tool", "ghc-native-O2")]
+                copy = cell.artifact.parent / "source"
+
+                def fake_compile(command, cwd, timeout, environment=None):
+                    if command[0] != "llvm-strip":
+                        self.assertEqual(sorted(path.name for path in copy.iterdir()), ["Main.hs", "cabal.project.freeze", "tool.cabal"])
+                        (copy / "aihc.lock").write_text("written by the compiler\n", encoding="utf-8")
+                        Path(command[-1]).write_bytes(b"binary")
+                    return subprocess.CompletedProcess(command, 0, "", "")
+
+                with patch("aihc_bench.runner.run_command", side_effect=fake_compile):
+                    (_, outcome), = compile_cells([cell], root, 30)
+                self.assertEqual(outcome["status"], "compiled")
+                self.assertEqual(sorted(path.name for path in package.iterdir()), ["Main.hs", "tool.cabal"])
+            finally:
+                package.chmod(0o755)
+
     def test_profile_and_backend_are_the_programs_last_arguments(self):
         self.config["benchmarks"][0]["profile_argument"] = True
         with tempfile.TemporaryDirectory() as directory:
@@ -438,7 +515,7 @@ class RunnerTests(unittest.TestCase):
             self.assertTrue(by_id["ghc-native-O2"]["stripped"])
             self.assertGreater(by_id["ghc-native-O2"]["wall_time_ns"], 0)
 
-            def fake_measure(command, cwd, expected, timeout, runs, invoke):
+            def fake_measure(command, cwd, expected, timeout, runs, invoke, output_file=None):
                 return {"status": "measured", "metrics": [{"metric": "wall_time", "unit": "ns", "status": "ok", "estimate": 1, "samples": [1]}]}
 
             with patch("aihc_bench.runner.measure", side_effect=fake_measure):
@@ -1396,6 +1473,7 @@ class ContentionTests(unittest.TestCase):
             },
             commit_sha="f" * 40, run_command=["true"], run_environment={}, stats_file=None,
             stats_format=None, build_dir=Path("/tmp"), artifact=Path("/tmp/x"), store_archive=None,
+            run_cwd=None, output_file=None,
         )
         samples: list = []
         with patch("aihc_bench.runner.machine_load", return_value=4.5), patch(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import statistics
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
@@ -42,6 +43,43 @@ FASTEST_METRICS = frozenset({"wall_time", "cpu_time", "gc_time", "instructions",
 MEASURED_STATUSES = frozenset({"measured", "converged", "nonconverged", "budget"})
 
 
+@dataclass(frozen=True)
+class OutputFile:
+    """A file the program writes, which every run must reproduce exactly.
+
+    Most programs print their result, and ``expected_stdout`` checks it. A
+    program measured as it is released, such as ``mhs``, writes its result to
+    a file named on its command line instead. The runner deletes the file
+    before each run and compares the SHA-256 of what the run wrote.
+    """
+
+    path: Path
+    sha256: str
+
+    def clear(self) -> None:
+        self.path.unlink(missing_ok=True)
+
+    def digest(self) -> Optional[str]:
+        """The SHA-256 of the file, or ``None`` when the run did not write it."""
+        try:
+            return sha256_bytes(self.path.read_bytes())
+        except FileNotFoundError:
+            return None
+
+
+def run_status(sample: ProcessMeasurement, expected_stdout: bytes, output_file: Optional[OutputFile] = None) -> Optional[str]:
+    """Why a run does not count, or ``None`` when it does."""
+    if sample.timed_out:
+        return "timed_out"
+    if sample.exit_code != 0:
+        return "run_failed"
+    if sample.stdout != expected_stdout:
+        return "validation_failed"
+    if output_file is not None and output_file.digest() != output_file.sha256:
+        return "validation_failed"
+    return None
+
+
 def measure(
     command: Iterable[str],
     cwd: Path,
@@ -49,6 +87,7 @@ def measure(
     timeout_seconds: float,
     runs: int,
     invoke: Callable[[Iterable[str], Path, float], ProcessMeasurement] = run_measured,
+    output_file: Optional[OutputFile] = None,
 ) -> Dict[str, Any]:
     """Run the program ``runs`` times and keep every sample.
 
@@ -62,19 +101,22 @@ def measure(
     stats_error: Optional[str] = None
 
     for _ in range(runs):
+        if output_file is not None:
+            output_file.clear()
         sample = invoke(command, cwd, timeout_seconds)
-        if sample.timed_out:
-            return _failure("timed_out", samples, sample)
-        if sample.exit_code != 0:
-            return _failure("run_failed", samples, sample)
-        if sample.stdout != expected_stdout:
-            return _failure("validation_failed", samples, sample)
+        status = run_status(sample, expected_stdout, output_file)
+        if status:
+            failure = _failure(status, samples, sample)
+            if output_file is not None:
+                failure["actual_output_file_sha256"] = output_file.digest()
+            return failure
         stats_error = stats_error or sample.stats_error
         samples.append(_sample_record(sample))
 
     result: Dict[str, Any] = {
         "status": "measured",
         "output_sha256": output_hash,
+        **({"output_file_sha256": output_file.sha256} if output_file is not None else {}),
         "samples": samples,
         "metrics": [_metric(name, unit, field, deterministic, samples) for name, unit, field, deterministic in INVOCATION_METRICS],
     }

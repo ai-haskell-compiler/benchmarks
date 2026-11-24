@@ -64,6 +64,11 @@
       parserCorpus = import ./corpus/parser/corpus.nix {inherit pkgs;};
       frontendCorpus = import ./corpus/frontend/corpus.nix {inherit pkgs;};
       microhsCorpus = import ./corpus/microhs/corpus.nix {inherit pkgs;};
+      # The C libraries that benchmark packages bind to, for both compilers:
+      # ncurses for terminfo, which haskeline uses by default (MicroHs).
+      # Clang reads CPATH and LIBRARY_PATH, and GHC passes them to its C
+      # compiler and linker. pkg-config reads PKG_CONFIG_PATH.
+      cLibraries = [pkgs.ncurses];
       runtimeInputs = [pkgs.python3 pkgs.git pkgs.wrangler pkgs.wasmtime pkgs.wasm-tools pkgs.wit-bindgen pkgs.clang llvm.lld llvm.bintools llvm.bintools-unwrapped pkgs.binaryen pkgs.cabal-install];
       runner = pkgs.writeShellApplication {
         name = "aihc-bench";
@@ -76,6 +81,10 @@
           export AIHC_BENCH_PARSER_CORPUS=${parserCorpus}
           export AIHC_BENCH_FRONTEND_CORPUS=${frontendCorpus}
           export AIHC_BENCH_MICROHS_CORPUS=${microhsCorpus}
+          export AIHC_BENCH_MICROHS_PACKAGE=${microhsCorpus.package}
+          export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" cLibraries}''${CPATH:+:$CPATH}"
+          export LIBRARY_PATH="${pkgs.lib.makeLibraryPath cLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPathOutput "dev" "lib/pkgconfig" cLibraries}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
           export PYTHONPATH=${./.}
           exec python3 -m aihc_bench "$@"
         '';
@@ -90,6 +99,7 @@
       parser-corpus = parserCorpus;
       frontend-corpus = frontendCorpus;
       microhs-corpus = microhsCorpus;
+      microhs-package = microhsCorpus.package;
       wasmtime = pkgs.writeShellApplication {
         name = "aihc-bench-wasmtime";
         runtimeInputs = [pkgs.wasmtime];

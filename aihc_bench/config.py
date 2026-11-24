@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import platform as host_platform
+import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -39,6 +40,7 @@ def load_config(path: Path) -> Dict[str, Any]:
     if not isinstance(ghc_boot_libraries, list) or not all(isinstance(name, str) and name for name in ghc_boot_libraries):
         raise ConfigError("ghc_boot_libraries must be a list of package names")
     corpus_hashes: Dict[str, Optional[str]] = {}
+    package_hashes: Dict[str, Optional[str]] = {}
     for benchmark in config["benchmarks"]:
         try:
             validate_git_dependencies(benchmark.get("git_dependencies", []))
@@ -49,9 +51,23 @@ def load_config(path: Path) -> Dict[str, Any]:
         source = (path.parent / benchmark["source"]).resolve()
         if not source.is_dir():
             raise ConfigError(f"benchmark source is not a directory: {source}")
-        if not list(source.glob("*.cabal")):
+        package_env = benchmark.get("package_env")
+        if package_env is not None:
+            # The package comes from the flake; the benchmark directory only
+            # holds files laid over it, such as cabal.project.freeze.
+            if not isinstance(package_env, str) or not package_env:
+                raise ConfigError(f"benchmark {benchmark['id']}: package_env must name an environment variable")
+            package_sources = benchmark.get("package_sources")
+            if not isinstance(package_sources, list) or not package_sources or not all(isinstance(item, str) and item for item in package_sources):
+                raise ConfigError(f"benchmark {benchmark['id']}: package_env needs package_sources, the directories the package is built from")
+            for item in package_sources:
+                if not (path.parent / item).is_dir():
+                    raise ConfigError(f"benchmark {benchmark['id']}: package source is not a directory: {path.parent / item}")
+            package_hashes[benchmark["id"]] = _hash_directories(path.parent, package_sources)
+        elif not list(source.glob("*.cabal")):
             raise ConfigError(f"benchmark source has no .cabal file: {source}")
         benchmark["source_sha256"] = _hash_directory(source)
+        _validate_run(benchmark)
         timeout = benchmark.get("process_timeout_seconds")
         if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
             raise ConfigError(f"benchmark {benchmark['id']}: process_timeout_seconds must be a positive number")
@@ -81,6 +97,7 @@ def load_config(path: Path) -> Dict[str, Any]:
             if unknown:
                 raise ConfigError(f"benchmark {benchmark['id']}: unsupported_backends names backends no configuration has: {', '.join(unknown)}")
     config["_corpus_sha256"] = corpus_hashes
+    config["_package_sha256"] = package_hashes
     toolchain_hasher = hashlib.sha256()
     for toolchain_file in (path.parent / "flake.nix", path.parent / "flake.lock"):
         if toolchain_file.is_file():
@@ -151,6 +168,27 @@ def _hash_directories(root: Path, sources: Iterable[str]) -> Optional[str]:
     return hasher.hexdigest() if present else None
 
 
+def _validate_run(benchmark: Dict[str, Any]) -> None:
+    """Check how a benchmark's program is run and how its result is checked."""
+    identifier = benchmark["id"]
+    if not isinstance(benchmark.get("expected_stdout"), str):
+        raise ConfigError(f"benchmark {identifier}: expected_stdout must be a string")
+    arguments = benchmark.get("run_arguments")
+    if arguments is not None and (not isinstance(arguments, list) or not all(isinstance(part, str) for part in arguments)):
+        raise ConfigError(f"benchmark {identifier}: run_arguments must be a list of command template parts")
+    if arguments is not None and benchmark.get("profile_argument"):
+        raise ConfigError(f"benchmark {identifier}: run_arguments and profile_argument cannot be used together")
+    directory = benchmark.get("run_directory")
+    if directory is not None and (not isinstance(directory, str) or not directory):
+        raise ConfigError(f"benchmark {identifier}: run_directory must be a non-empty command template part")
+    digest = benchmark.get("expected_output_sha256")
+    if digest is not None:
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ConfigError(f"benchmark {identifier}: expected_output_sha256 must be a lowercase SHA-256")
+        if not any("{output}" in part for part in arguments or []):
+            raise ConfigError(f"benchmark {identifier}: expected_output_sha256 needs {{output}} in run_arguments")
+
+
 def _validate_configuration(configuration: Dict[str, Any]) -> None:
     identifier = configuration["id"]
     for key in ("compiler_family", "compiler_version", "backend", "gc", "optimization", "compile", "run"):
@@ -202,6 +240,8 @@ def benchmark_experiment_id(config: Dict[str, Any], benchmark: Dict[str, Any]) -
         # it is built from are part of its identity; other benchmarks, and
         # the benchmarks of other corpora, are not restarted by a change.
         "corpus_sha256": config.get("_corpus_sha256", {}).get(benchmark["id"]),
+        # A package from the flake is the program under measurement.
+        "package_sha256": config.get("_package_sha256", {}).get(benchmark["id"]),
         "configurations": config["configurations"],
         "toolchain_sha256": config.get("_toolchain_sha256"),
         "runner_version": config.get("_runner_version"),
