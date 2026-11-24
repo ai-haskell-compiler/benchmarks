@@ -1,0 +1,12 @@
+cabal-version: 2.4
+name: pubgrub-solve
+version: 0.1.0.0
+synopsis: AIHC benchmark: a PubGrub dependency solver on generated registries
+license: NONE
+build-type: Simple
+
+executable pubgrub-solve
+  main-is: Main.hs
+  other-modules: PubGrub
+  build-depends: base, containers
+  default-language: Haskell2010

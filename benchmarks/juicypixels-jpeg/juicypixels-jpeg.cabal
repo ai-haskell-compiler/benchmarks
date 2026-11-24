@@ -1,0 +1,11 @@
+cabal-version: 2.4
+name: juicypixels-jpeg
+version: 0.1.0.0
+synopsis: AIHC benchmark: JPEG round trip of a generated picture with JuicyPixels
+license: NONE
+build-type: Simple
+
+executable juicypixels-jpeg
+  main-is: Main.hs
+  build-depends: base, bytestring, JuicyPixels ==3.3.10
+  default-language: Haskell2010

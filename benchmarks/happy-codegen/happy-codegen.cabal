@@ -1,0 +1,11 @@
+cabal-version: 2.4
+name: happy-codegen
+version: 0.1.0.0
+synopsis: AIHC benchmark: generate LALR parsers for synthetic grammars with happy-lib
+license: NONE
+build-type: Simple
+
+executable happy-codegen
+  main-is: Main.hs
+  build-depends: base, happy-lib ==2.2
+  default-language: Haskell2010
