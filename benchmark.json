@@ -84,6 +84,34 @@
       "expected_stdout": "ok\n"
     },
     {
+      "id": "pubgrub-solve-v1",
+      "package": "pubgrub-solve",
+      "source": "benchmarks/pubgrub-solve",
+      "profile_argument": true,
+      "expected_stdout": "ok\n"
+    },
+    {
+      "id": "happy-codegen-v1",
+      "package": "happy-codegen",
+      "source": "benchmarks/happy-codegen",
+      "profile_argument": true,
+      "expected_stdout": "ok\n"
+    },
+    {
+      "id": "juicypixels-jpeg-v1",
+      "package": "juicypixels-jpeg",
+      "source": "benchmarks/juicypixels-jpeg",
+      "profile_argument": true,
+      "expected_stdout": "ok\n"
+    },
+    {
+      "id": "rasterific-scene-v1",
+      "package": "rasterific-scene",
+      "source": "benchmarks/rasterific-scene",
+      "profile_argument": true,
+      "expected_stdout": "ok\n"
+    },
+    {
       "id": "aihc-cpp-stackage-v1",
       "package": "aihc-cpp-stackage",
       "source": "benchmarks/aihc-cpp-stackage",

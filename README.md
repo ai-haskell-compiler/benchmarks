@@ -102,8 +102,8 @@ work in each cell, sized so an AIHC run lasts about half a second. An AIHC
 Wasmtime several times slower than a native one, so a single size gave some
 cells milliseconds, where startup and timer noise are the measurement, and
 others tens of seconds. Most benchmarks share sizes between native and LLVM
-builds; regex log extraction calibrates them separately. Wasm has its own
-sizes. Both compilers run the same size in a configuration, so the
+builds; regex log extraction and the four library workloads calibrate them
+separately. Wasm has its own sizes. Both compilers run the same size in a configuration, so the
 ratio between them still compares the same work, but two profiles or two
 backends of one benchmark do not, and their times are not comparable with
 each other. The sizes are recalibrated as the compiler gets faster, which
@@ -595,6 +595,92 @@ AIHC build, obtain the reference checksum with GHC, and update `work` and
 `checksums` in `Main.hs`. For Wasm, precompile with `wasmtime compile` and
 time `wasmtime run -S cli -S http --allow-precompiled`. Confirm that the
 final profile/backend invocation prints `ok`, then record its timings.
+
+## Library workloads
+
+Four benchmarks run real Haskell libraries, or a solver written for the
+suite, on generated input. Each prints `ok` only when a 64-bit FNV checksum
+of its output matches the one a GHC build produces, so a miscompiled
+library fails the run instead of producing a number.
+
+- `pubgrub-solve-v1` is a PubGrub dependency solver, written for the suite
+  in `benchmarks/pubgrub-solve/PubGrub.hs`, with unit propagation, conflict
+  resolution that learns incompatibilities, and backjumping. Each package's
+  version set includes 0 for "not selected", so terms are plain `IntSet`s and
+  negation is a complement. The program solves a sequence of instances in
+  turn: 5 to 7 queens with one banned column per row (some solvable, some
+  not), two seeded registries of 25 packages with ranged dependencies, and a
+  pigeonhole problem whose pigeons each use a seeded subset of the holes,
+  which is always unsolvable and makes resolution expensive. Every solution
+  is checked against every dependency, and outcomes, conflict counts and
+  selected versions enter the checksum. `--stats <n>` prints each
+  instance's outcome and conflict count.
+- `happy-codegen-v1` drives
+  [`happy-lib-2.2`](https://hackage.haskell.org/package/happy-lib-2.2), the
+  library behind Happy: it parses a generated `.y` grammar, mangles it,
+  builds the LALR(1) tables and produces the parser module, and hashes every
+  character of that module. The grammar has one statement form per family,
+  each with its own five-level expression language over shared tokens, so
+  the automaton grows with the family count and its cost grows faster than
+  linearly.
+- `juicypixels-jpeg-v1` encodes a generated square picture as JPEG at
+  quality 85 with
+  [`JuicyPixels-3.3.10`](https://hackage.haskell.org/package/JuicyPixels-3.3.10),
+  decodes it again and hashes the encoded bytes and every decoded pixel. The
+  picture mixes gradients, checkers and hashed noise and uses integer
+  arithmetic only. Run time moves in steps of the 16-pixel macroblock.
+- `rasterific-scene-v1` renders a generated scene with
+  [`Rasterific-0.7.5.4`](https://hackage.haskell.org/package/Rasterific-0.7.5.4)
+  and hashes every pixel: circles with radial gradients, cubic Beziers with
+  round joins and caps, dashed polylines with linear gradients, and rounded
+  rectangles under a fixed rotation matrix. The scene avoids `rotate`, arcs
+  and focused gradients, the parts of Rasterific that call `sin`, `cos` and
+  `atan2`, since libm results may differ between macOS, Linux and Wasm.
+
+JuicyPixels depends on `zlib` although JPEG does not use it. Both freeze
+files and both `aihc.lock` files build it from its bundled C sources
+(`+bundled-c-zlib`, `zlib-clib`) on every platform, as Wasm must anyway,
+rather than linking a system `libz` that the runner's environment may lack.
+The locks use format 1 (JSON), which every AIHC commit in the benchmark
+window reads; commits from 2026-11-23 write format 2.
+
+Sizes were calibrated on 2026-11-24 on an Apple M4 Pro with AIHC
+`baf3bf703` and Wasmtime 47.0.1, as the minimum of five complete process runs
+after one warm-up, with RTS statistics enabled. They target about half a
+second:
+
+| Benchmark | Size | Native O0 / O1 / O2 / Os | LLVM O0 / O1 / O2 / Os | Wasm O0 / O1 / O2 / Os |
+| --- | --- | ---: | ---: | ---: |
+| `pubgrub-solve` | instances | 84 / 1,820 / 2,385 / (1,820) | 21 / 1,802 / 2,413 / (1,802) | 16 / 590 / 873 / (590) |
+| `happy-codegen` | grammar families | 20 / 70 / 86 / 35 | 10 / 69 / 75 / 35 | 8 / 35 / 42 / 16 |
+| `juicypixels-jpeg` | picture side | 153 / 823 / 1,052 / 242 | 79 / 795 / 991 / 250 | 51 / 399 / 543 / 116 |
+| `rasterific-scene` | shapes | 44 / 127 / 457 / 26 | 14 / 122 / 437 / 27 | 10 / 32 / 147 / 33 |
+
+Rasterific draws on a 512-pixel canvas except at `-O0` and Wasm `-Os`,
+which use 128 pixels: clearing and hashing the larger canvas alone took 0.47
+to 1.9 seconds there. AIHC's `-Os` is far slower than its `-O1` on these
+pixel loops (an empty 512-pixel canvas took 0.47 seconds at Wasm `-Os` and
+0.02 seconds at Wasm `-O1`;
+[AIHC #3500](https://github.com/ai-haskell-compiler/aihc/issues/3500)). [The calibration
+record](docs/library-benchmarks-calibration.json) has every sample.
+
+Two profiles were not calibrated cleanly, because of compiler bugs found
+while adding these benchmarks:
+
+- `pubgrub-solve` does not compile at `-Os` on any backend: Lir generation
+  fails with a call arity mismatch for an unboxed worker
+  (`GHC.Word.$fNumWord64$c+_unboxed`; a 25-line program that reaches
+  `Main.$mix_unboxed` the same way fails too). Its `-Os` sizes (in
+  parentheses) reuse the `-O1` counts until it does
+  ([AIHC #3498](https://github.com/ai-haskell-compiler/aihc/issues/3498)).
+- `juicypixels-jpeg` compiles at `-Os`, but the decoder returns wrong
+  pixels on every backend, while encoding matches GHC byte for byte. Those
+  runs print `checksum mismatch`; the `-Os` sizes were timed on the wrong
+  output ([AIHC #3499](https://github.com/ai-haskell-compiler/aihc/issues/3499)).
+
+To resize a configuration, run its AIHC build with `--print <size>`
+(`--print <side> <shapes>` for Rasterific), obtain the checksum from a GHC
+build, and update `work` and `checksums` in `Main.hs`.
 
 ## Comparing two builds
 
