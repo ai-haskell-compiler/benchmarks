@@ -16,8 +16,9 @@
   "measurement": {
     "runs": 5,
     "process_timeout_seconds": 20,
-    "compile_timeout_seconds": 1800
+    "compile_timeout_seconds": 600
   },
+  "setup_timeout_seconds": 1800,
   "platforms": {
     "aarch64-darwin": {
       "aihc_native_target": "apple-arm64"

@@ -1,6 +1,8 @@
 import os
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -132,6 +134,34 @@ class LocaleTests(unittest.TestCase):
         program = "import os; print(os.environ['LC_ALL'])"
         result = run_command([sys.executable, "-c", program], Path("."), 30)
         self.assertEqual(result.stdout.strip(), utf8_locale())
+
+
+class RunCommandTimeoutTests(unittest.TestCase):
+    def test_a_timeout_kills_the_grandchildren_too(self):
+        """cabal and ghc run under compile_with_cabal.py, and hold its pipes:
+        a timeout that killed only the script waited for them to finish."""
+        grandchild = "import time; time.sleep(60)"
+        parent = (
+            "import subprocess, sys, time\n"
+            f"child = subprocess.Popen([sys.executable, '-c', {grandchild!r}])\n"
+            "print(child.pid, flush=True)\n"
+            "time.sleep(60)\n"
+        )
+        start = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            run_command([sys.executable, "-c", parent], Path("."), 1)
+        self.assertLess(time.monotonic() - start, 20)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if not _sleepers(grandchild):
+                break
+            time.sleep(0.1)
+        self.assertEqual(_sleepers(grandchild), [])
+
+
+def _sleepers(program: str) -> list:
+    listing = subprocess.run(["ps", "-eo", "pid,stat,args"], capture_output=True, text=True, check=True).stdout
+    return [line for line in listing.splitlines() if program in line and " Z" not in line]
 
 
 class OpenFilesLimitTests(unittest.TestCase):

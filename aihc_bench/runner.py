@@ -110,6 +110,9 @@ def run_commit(
         database.start_attempt(experiment_id, platform_id, commit["sha"], run_ids[benchmark], environment, machine_id)
     worktree = root / ".cache" / "aihc-worktree"
     measurement_config = config["measurement"]
+    # Preparing the commit (the compiler, its store, the Wasm linker) may take
+    # longer than any one benchmark compile is allowed to.
+    setup_timeout = float(config["setup_timeout_seconds"])
     compile_timeout = float(measurement_config["compile_timeout_seconds"])
 
     def envelope_for(benchmark: str, **fields: Any) -> Dict[str, Any]:
@@ -149,25 +152,25 @@ def run_commit(
     previous_environment = {name: os.environ.get(name) for name in ("AIHC_WASM_SYSROOT", "PATH")}
     try:
         with phases.timing("toolchain_check"):
-            pin_runner_environment(root, compile_timeout)
+            pin_runner_environment(root, setup_timeout)
         with phases.timing("worktree"):
             create_worktree(aihc_repository, worktree, commit["sha"])
         # The Wasm backend's sysroot and linker depend on the commit; see
         # wasm_sysroot. Every aihc invocation of this commit -- preparing the
         # store as much as the timed compiles -- reads them from the process
         # environment, so they are set here for the commit and restored after.
-        wasm_environment = wasm_environment_for_commit(aihc_repository, commit["sha"], root, compile_timeout)
+        wasm_environment = wasm_environment_for_commit(aihc_repository, commit["sha"], root, setup_timeout)
         os.environ.update(wasm_environment)
         with phases.timing("compiler_build"):
             try:
-                compiler = build_compiler(worktree, platform_id, compiler_root(root), compile_timeout)
+                compiler = build_compiler(worktree, platform_id, compiler_root(root), setup_timeout)
             except CompilerDoesNotBuild as error:
                 return unavailable("build_failed", error.detail)
 
         aihc_store = root / ".cache" / "aihc-stores" / suite / platform_id / commit["sha"]
         with phases.timing("aihc_store"):
             aihc_setup_errors = _prepare_aihc_store(
-                config, platform_id, worktree, root, aihc_store, compile_timeout, compiler=compiler.program
+                config, platform_id, worktree, root, aihc_store, setup_timeout, compiler=compiler.program
             )
             store_archive = _archive_store(aihc_store)
 
@@ -958,7 +961,12 @@ def compile_cells(cells: Iterable[Cell], root: Path, timeout_seconds: float) -> 
                 cell.compile_environment,
             )
         except subprocess.TimeoutExpired:
-            return cell, {"status": "compile_timed_out"}
+            # A compile that runs this long is a failure of the compiler, not
+            # a measurement: it would hold up every other cell of the commit.
+            return cell, {
+                "status": "compile_timed_out",
+                "stderr": f"the compile did not finish within {timeout_seconds:g} seconds",
+            }
         wall_time_ns = time.perf_counter_ns() - start
         if process.returncode == -signal.SIGKILL:
             # Nothing a compiler does ends in SIGKILL: the runner's own
