@@ -25,7 +25,8 @@ def write_config(root, configuration):
     config_path.write_text(json.dumps({
         "schema_version": 2,
         "suite_id": "test",
-        "measurement": {"runs": 5},
+        "measurement": {"runs": 5, "compile_timeout_seconds": 600},
+        "setup_timeout_seconds": 1800,
         "platforms": {"aarch64-darwin": {}},
         "benchmarks": [{"id": "sample", "package": "sample", "source": "sample", "expected_stdout": "ok\n"}],
         "configurations": [configuration],

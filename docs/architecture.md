@@ -95,9 +95,20 @@ in, which are not rebuilt at all, and `aihc-base` on the AIHC side
 (`_prepare_aihc_store`), which no benchmark builds either.
 
 A timed compile is correspondingly longer -- it now builds a dozen libraries
-before it reaches the benchmark -- so `compile_timeout_seconds` is 1800 rather
-than 900, enough headroom for the boot set at `-O2` on a slow machine while
-still catching a compile that has hung.
+before it reaches the benchmark. Even so, `measurement.compile_timeout_seconds`
+is 600: a compile that takes ten minutes is recorded as `compile_timed_out`, a
+failure, not a result. Compiles run one at a time, and a run uploads nothing
+until every cell of the commit is done, so a few slow compiles held a whole
+commit back. On 2026-11-24 AIHC's LLVM builds took up to 45 minutes each,
+and no worker finished a commit overnight. Preparing the commit (building the
+compiler, its store and the Wasm linker, refreshing cabal's index) has its own
+`setup_timeout_seconds` of 1800, which stays out of the experiment identity.
+
+`run_command` starts every command in a session of its own and kills the whole
+process group on timeout. `subprocess.run` kills only the direct child and then
+waits for the pipes to close. Under `compile_with_cabal.py` those pipes are
+held by cabal and ghc, so the old timeout returned only once the build had
+finished anyway.
 
 That makes each compile's starting state part of the measurement. GHC has it
 already: cabal gets a private store per configuration under the build

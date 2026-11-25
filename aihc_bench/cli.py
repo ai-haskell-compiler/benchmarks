@@ -167,10 +167,10 @@ def _run(
     # cabal_index.refresh_package_list), and AIHC's, so no measured
     # commit performs the refresh itself (see warm_hackage_index).
     progress.report("prepare")
-    list_error = refresh_package_list(config, root, float(config["measurement"]["compile_timeout_seconds"]))
+    list_error = refresh_package_list(config, root, float(config["setup_timeout_seconds"]))
     if list_error:
         print(f"warning: cabal's package list is behind, GHC baselines may not resolve: {list_error.splitlines()[0]}")
-    index_error = warm_hackage_index(config, platform_id, repository, root, float(config["measurement"]["compile_timeout_seconds"]))
+    index_error = warm_hackage_index(config, platform_id, repository, root, float(config["setup_timeout_seconds"]))
     if index_error:
         print(f"warning: could not warm the Hackage index, measuring against whatever is cached: {index_error.splitlines()[0]}")
     completed = 0
@@ -382,7 +382,7 @@ def _doctor(
     # The same check ``run`` makes before every commit, so a machine fault it
     # stops on can be reproduced and confirmed fixed here.
     try:
-        pinned = pin_runner_environment(root, float(config["measurement"]["compile_timeout_seconds"]))
+        pinned = pin_runner_environment(root, float(config["setup_timeout_seconds"]))
         print(f"tools:      {len(pinned)} store paths rooted and verified")
     except MachineFault as error:
         print(f"tools:      {error}")

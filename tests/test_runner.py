@@ -842,7 +842,7 @@ class RunCommitFaultTests(unittest.TestCase):
     """What the machine gets wrong is never recorded; what the commit gets wrong is."""
 
     commit = {"sha": "c" * 40, "ordinal": 1, "committed_at": "2026-10-02T00:00:00Z", "subject": "s"}
-    config = {"measurement": {"compile_timeout_seconds": 30}, "aihc_compiler_marker": "bin/aihc/aihc.cabal"}
+    config = {"measurement": {"compile_timeout_seconds": 30}, "setup_timeout_seconds": 30, "aihc_compiler_marker": "bin/aihc/aihc.cabal"}
 
     def run_commit(self, directory, **patches):
         database = Database(Path(directory) / "state.sqlite3")

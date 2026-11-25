@@ -126,6 +126,12 @@ def load_config(path: Path) -> Dict[str, Any]:
     runs = measurement.get("runs")
     if not isinstance(runs, int) or isinstance(runs, bool) or runs < 1:
         raise ConfigError("measurement.runs must be a positive integer")
+    for name, value in (
+        ("measurement.compile_timeout_seconds", measurement.get("compile_timeout_seconds")),
+        ("setup_timeout_seconds", config.get("setup_timeout_seconds")),
+    ):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            raise ConfigError(f"{name} must be a positive number")
     return config
 
 

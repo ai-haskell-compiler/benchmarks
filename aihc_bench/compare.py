@@ -104,7 +104,7 @@ def prepare_side(
     log: Callable[[str], None],
 ) -> List[Tuple[Cell, Dict[str, Any]]]:
     """Build the compiler for one side and compile every selected cell."""
-    timeout = float(config["measurement"]["compile_timeout_seconds"])
+    timeout = float(config["setup_timeout_seconds"])
     if side.owned and side.sha:
         create_worktree(aihc_repository, side.worktree, side.sha)
     log(f"[{side.label}] building the compiler")
@@ -128,7 +128,7 @@ def prepare_side(
         compiler=compiler.program,
     )
     log(f"[{side.label}] compiling {len(cells)} cells")
-    compiled = compile_cells(cells, root, timeout)
+    compiled = compile_cells(cells, root, float(config["measurement"]["compile_timeout_seconds"]))
     for cell, outcome in compiled:
         if outcome["status"] != "compiled":
             log(f"[{side.label}] {cell.benchmark['id']} / {cell.configuration['id']}: {outcome['status']} {outcome.get('reason', '')}".rstrip())

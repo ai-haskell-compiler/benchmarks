@@ -223,16 +223,46 @@ def run_command(
     timeout_seconds: float,
     environment_overrides: Optional[Dict[str, str]] = None,
 ) -> subprocess.CompletedProcess:
+    """Run a command to completion, killing its whole process tree on timeout.
+
+    ``subprocess.run(timeout=...)`` kills only the direct child and then
+    waits for its pipes to close, which the grandchildren still hold open:
+    a cabal build timed out in ``compile_with_cabal.py`` kept cabal and ghc
+    running, and the call returned only when they finished, so the timeout
+    never cut a slow compile short. The command gets a session of its own
+    and the timeout kills that whole process group instead.
+    """
     environment = _base_environment()
     environment.update(environment_overrides or {})
-    return subprocess.run(
+    with subprocess.Popen(
         list(command),
         cwd=str(cwd),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        timeout=timeout_seconds,
         env=environment,
-        check=False,
-    )
+        start_new_session=True,
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
+        except BaseException:
+            # A timeout, or the runner itself being interrupted: the new
+            # session no longer receives the terminal's SIGINT, so nothing
+            # else would stop the tree.
+            _kill_process_group(process)
+            raise
+    return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+
+
+def _kill_process_group(process: subprocess.Popen) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        process.kill()
+    try:
+        # Collect what was written; a descendant that left the group could
+        # still hold a pipe, so this does not wait on it for long.
+        process.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
