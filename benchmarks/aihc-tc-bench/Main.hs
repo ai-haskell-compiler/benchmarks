@@ -68,7 +68,7 @@ sweep corpus roots = do
         pure ("packages=" ++ show (length packages) ++ " modules=" ++ show modules ++ " units=" ++ show units ++ " cyclic=" ++ show cyclic ++ " bindings=" ++ show bindings ++ " digest=" ++ show checksum)
       go interfaces !modules !units !cyclic !bindings !checksum ((name, deps) : rest) = do
         imported <- mapM (\dependency -> maybe (die "package dependency not checked") pure (Map.lookup dependency interfaces)) deps
-        parsed <- loadModules timings corpus name
+        parsed <- loadModules timings corpus roots name
         let package = Package name (PackageId name)
         dependencyExports <- timed timings "export_collection" $ \() -> evaluate (mconcat (map fst imported))
         dependencyTypes <- timed timings "interface_merging" $ \() -> evaluate (mergeTcInterfaces TrustMergedFacts (map snd imported))

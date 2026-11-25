@@ -91,3 +91,5 @@ Other compiler tasks used the machine during these measurements.
 | Os | 4 | 0.487 | 277 | 0.494 |
 | O1 | 5 | 0.588 | 205 | 0.486 |
 | O2 | 5 | 0.480 | 491 | 0.529 |
+
+These counts are historical. On 2026-11-25 both benchmarks were recalibrated per backend and profile with AIHC `3b5102082`; the counts are in `workSize` in each `Main.hs` and in [the calibration record](calibration-2026-11-25.json).

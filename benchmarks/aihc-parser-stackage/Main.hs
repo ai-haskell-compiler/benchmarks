@@ -68,26 +68,34 @@ main = do
 
 -- | Modules per backend and profile, and the tally a correct build prints for
 -- them. The counts are what take an AIHC build about half a second on an
--- Apple M4 Pro; native and LLVM builds share the native counts.
+-- Apple M4 Pro.
 work :: String -> String -> Maybe (Int, String)
 work backend profile
-  | backend `elem` ["native", "llvm"] = lookup profile nativeWork >>= withTally
+  | backend == "native" = lookup profile nativeWork >>= withTally
+  | backend == "llvm" = lookup profile llvmWork >>= withTally
   | backend == "wasm" = lookup profile wasmWork >>= withTally
   | otherwise = Nothing
   where
-    nativeWork = [("O0", 22), ("Os", 157), ("O1", 76), ("O2", 353)]
-    wasmWork = [("O0", 1), ("Os", 10), ("O1", 1), ("O2", 1)]
+    nativeWork = [("O0", 38), ("Os", 290), ("O1", 613), ("O2", 1257)]
+    llvmWork = [("O0", 13), ("Os", 239), ("O1", 500), ("O2", 959)]
+    wasmWork = [("O0", 5), ("Os", 26), ("O1", 40), ("O2", 300)]
     withTally count = (,) count <$> lookup count tallies
 
 -- | The tally of each module count 'work' uses.
 tallies :: [(Int, String)]
 tallies =
-  [ (1, "modules=1 ok=1 errored=0 imports=3 decls=4"),
-    (10, "modules=10 ok=10 errored=0 imports=112 decls=72"),
-    (22, "modules=22 ok=22 errored=0 imports=138 decls=220"),
-    (76, "modules=76 ok=76 errored=0 imports=433 decls=900"),
-    (157, "modules=157 ok=157 errored=0 imports=995 decls=2191"),
-    (353, "modules=353 ok=353 errored=0 imports=2412 decls=5464")
+  [ (5, "modules=5 ok=5 errored=0 imports=25 decls=57"),
+    (13, "modules=13 ok=13 errored=0 imports=55 decls=116"),
+    (26, "modules=26 ok=26 errored=0 imports=147 decls=354"),
+    (38, "modules=38 ok=38 errored=0 imports=203 decls=458"),
+    (40, "modules=40 ok=40 errored=0 imports=212 decls=469"),
+    (239, "modules=239 ok=239 errored=0 imports=1436 decls=3227"),
+    (290, "modules=290 ok=290 errored=0 imports=1763 decls=4135"),
+    (300, "modules=300 ok=300 errored=0 imports=1880 decls=4285"),
+    (500, "modules=500 ok=500 errored=0 imports=2969 decls=6690"),
+    (613, "modules=613 ok=613 errored=0 imports=3676 decls=8623"),
+    (959, "modules=959 ok=959 errored=0 imports=5973 decls=13239"),
+    (1257, "modules=1257 ok=1257 errored=0 imports=7706 decls=17214")
   ]
 
 -- | @count@ elements spread evenly over the list: the middle one of each of

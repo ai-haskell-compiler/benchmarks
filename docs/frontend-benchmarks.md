@@ -39,11 +39,18 @@ implicit Prelude and the compiler's wired type modules. Adding more complex
 libraries will require Cabal component finalization and preprocessing; the
 builder must not silently guess those settings.
 
-The pool has 156 modules across four packages. Every configured workload compiles
-the full, unmodified real `Prelude` from the pinned `aihc-base` sources and
-its transitive dependency closure. Prelude is never replaced, trimmed, cached
-as a semantic interface, or excluded from the timed work. Even an explicit
-`--packages` selection automatically includes `aihc-base`.
+The pool has 156 modules across four packages. `modules.tsv` lists them in
+dependency order: packages in dependency order, and within a package every
+module after the modules it may depend on, with each cyclic group kept
+together. Dependencies are over-approximated the way the benchmark's own
+module graph does it: imports, implicit Prelude and every wired type module.
+Each cell processes a prefix of that list. The builder accepts only prefixes
+that are closed under those dependencies, so no cell resolves or checks a
+module without the modules it imports. The 12 wired type modules and the two
+modules they import form one cycle, so the smallest closed prefix has 14
+modules (all of them from `aihc-prim`); the next lengths add one SCC at a
+time, and the 156-module prefix is the whole pool, real `Prelude` included.
+No module is replaced, trimmed, or cached as a semantic interface.
 
 `packages.tsv` records
 package dependencies; `modules.tsv` records each source path, language edition
@@ -99,21 +106,33 @@ incomplete constructor coverage is a compilation error.
 
 ## Profile/backend workloads
 
-The runner passes the corpus directory, profile and backend, using the support
-merged from `origin/main`. `workloads.json` independently specifies roots,
-sweep count and reference output for all 24 frontend cells. Native, LLVM and
-Wasm selections differ within each profile; profiles differ within each backend.
-Their root combinations include `aihc-base` alone, with `split`, with `colour`,
-or with both. The real Prelude is compulsory in all combinations.
+The runner passes the corpus directory, profile and backend.
+`workloads.json` specifies the module prefix, sweep count and reference
+output for all 24 frontend cells; the corpus builder turns it into
+`workloads.tsv`.
 
-The target is approximately **0.5 seconds of AIHC process runtime**. That target
-is subordinate to compiling the real Prelude. The mandatory Prelude/core work
-currently exceeds it, so all cells use **one complete sweep**. The calibration
-script explicitly reports `minimum_workload_above_target` when even one sweep
-is too slow; it never removes Prelude or silently cuts a source/module/SCC to
-meet the target. The choices provide distinct real package sets, not a claim
-that every cell has reached 0.5 seconds. Timings across differing sets are not
-comparable; GHC and AIHC use the same set within a cell.
+The target is approximately **0.5 seconds of AIHC process runtime**. On
+2026-11-25 (AIHC `3b5102082`, Apple M4 Pro, CPU seconds) even the 14-module
+minimum exceeded it in all but two cells:
+
+| Prefix of 14 | O0 | O1 | O2 | Os |
+| --- | ---: | ---: | ---: | ---: |
+| resolve native | 4.5 | 0.50 | 0.33 | 1.1 |
+| resolve LLVM | 14.5 | 0.51 | 0.30 | 1.0 |
+| resolve Wasm | 43 | 4.9 | 0.83 | 9.3 |
+| tc native | 28 | 2.3 | 1.7 | 8.1 |
+| tc LLVM | 102 | 2.2 | 1.8 | 8.3 |
+| tc Wasm | 163 | 12 | 5.6 | 44 |
+
+Resolve native `O2` therefore processes 130 modules and resolve LLVM `O2`
+105; every other cell processes the 14-module minimum, once. The `O0` type
+checker cells under LLVM and Wasm still take longer than the 120-second
+process timeout on that machine and are expected to time out until the
+compiler's `-O0` code gets faster. Until 2026-11-25 every cell processed
+the full real `Prelude` and its closure (139 to 156 modules), which took up
+to a minute natively at `O0` and timed out under LLVM and Wasm. Timings
+across differing prefixes are not comparable; GHC and AIHC use the same
+prefix within a cell.
 
 ## Running and recalibrating
 
@@ -121,21 +140,22 @@ comparable; GHC and AIHC use the same set within a cell.
 nix build .#frontend-corpus
 aihc-resolve-bench ./result O2 native
 aihc-tc-bench ./result O2 native
-aihc-tc-bench ./result --packages aihc-base --repeat 1
+aihc-tc-bench ./result --modules 14 --repeat 1
 python3 scripts/calibrate-frontend.py --phase tc --profile O2 --backend native \
   --corpus ./result --write -- /path/to/aihc-tc-bench
 ```
 
 The calibration command must use an AIHC executable built with the selected
 profile/backend. For Wasm, pass Wasmtime, its corpus directory grant, and the
-precompiled artifact after `--`. It checks each tally, measures fresh processes,
-adjusts sweep counts toward 0.5 seconds and optionally updates the selected
-cell. Profile/backend changes do not choose a compiler flag at runtime.
+precompiled artifact after `--`. It measures fresh processes over the
+closed prefixes, picks the prefix (and, once the whole pool is under target,
+the sweep count) closest to 0.5 seconds, and optionally writes the cell with
+the tally the executable printed. Check that tally against a GHC build
+before committing it. Profile/backend changes do not choose a compiler flag at runtime.
 
 Runtime includes reading sources, parsing, dependency planning, resolution,
 checking where applicable, and result consumption. No network or compiler
-checkout is needed at runtime. The process timeout remains 120 seconds;
-profiles/backends not executed locally may still exceed it with the full Prelude.
+checkout is needed at runtime. The process timeout remains 120 seconds.
 
 ### Measuring individual phases
 
@@ -146,14 +166,16 @@ executables built with AIHC `-O2` and the native backend:
 ```console
 python3 scripts/measure-frontend-phases.py \
   --resolve /path/to/aihc-resolve-bench --tc /path/to/aihc-tc-bench \
-  --corpus ./result --label 'AIHC -O2/native' --output phases.json
+  --corpus ./result --references docs/frontend-base-references.json \
+  --label 'AIHC -O2/native' --output phases.json
 ```
 
-This diagnostic command measures `aihc-prim` and `aihc-base` alone: 139
+The script checks every run against the tallies in `--references`;
+[docs/frontend-base-references.json](frontend-base-references.json) holds
+those of the default selection. This diagnostic command measures `aihc-prim` and `aihc-base` alone: 139
 modules in 98 SCCs, including the full real Prelude. It explicitly selects
 this common input instead of the profile/backend's additional corpus packages.
-Add `--packages aihc-base,colour,split` to measure the configured `O2/native`
-input instead. The script discards one warmup, takes five fresh-process samples
+Add `--packages aihc-base,colour,split` to measure the whole pool. The script discards one warmup, takes five fresh-process samples
 with timings enabled,
 then five with timings disabled, and records raw samples, arithmetic means,
 checksums and executable hashes. `--compiler` additionally records the compiler
@@ -163,12 +185,13 @@ with GHC `-O2 -fasm` executables for the native GHC comparison.
 For an explicitly requested diagnostic that omits the automatic Prelude root,
 the executable accepts `--exact-packages <roots> --repeat 1`. The timing script
 also accepts `--exact-packages` with `--references <file.json>` containing
-`resolve` and `tc` expected output strings. Normal `--packages` and configured
-profile/backend selections still require Prelude. A full primitive-only corpus
+`resolve` and `tc` expected output strings. `--packages` always adds
+`aihc-base`, and so the real Prelude, to its roots. A full primitive-only corpus
 must contain all 27 exposed modules from the pinned `aihc-prim` Cabal library;
 the normal corpus includes only the 20 needed by the Prelude import closure.
 See [the structural-digest measurements](frontend-structural-results.md) for
-both compilers on the full primitive-only and configured workloads. Earlier
+both compilers on the full primitive-only workload and the whole pool (the
+configured workloads before 2026-11-25). Earlier
 [Show-based measurements](frontend-phase-results.md) are historical.
 
 The disjoint monotonic wall intervals cover source I/O and text decoding,

@@ -101,16 +101,20 @@ work in each cell, sized so an AIHC run lasts about half a second. An AIHC
 `-O2` build is tens of times faster than an `-O0` one and a Wasm build under
 Wasmtime several times slower than a native one, so a single size gave some
 cells milliseconds, where startup and timer noise are the measurement, and
-others tens of seconds. Most benchmarks share sizes between native and LLVM
-builds; regex log extraction and the four library workloads calibrate them
-separately. Wasm has its own sizes. Both compilers run the same size in a configuration, so the
+others tens of seconds. Native, LLVM and Wasm builds each have their own
+sizes: an AIHC LLVM `-O0` build runs two to four times slower than a native
+one, so sharing the native sizes left LLVM `-O0` cells at one to three
+seconds. Both compilers run the same size in a configuration, so the
 ratio between them still compares the same work, but two profiles or two
 backends of one benchmark do not, and their times are not comparable with
 each other. The sizes are recalibrated as the compiler gets faster, which
-starts a new history for the benchmark. The resolver and type-checker
-benchmarks always compile the real Prelude and its dependency closure; that
-mandatory work currently exceeds the half-second target, even with no
-additional Stackage packages. Their per-cell package sets retain that work. Both
+starts a new history for the benchmark; the last full recalibration (every
+benchmark but MicroHs, whose input is fixed) is recorded in
+[docs/calibration-2026-11-25.json](docs/calibration-2026-11-25.json). A few
+cells cannot reach the target because their smallest input is already
+slower: the resolver and type-checker benchmarks, whose smallest input is
+the 14 wired primitive modules of the real core library, and the `-O0`
+fgl queries under LLVM and Wasm, whose floor is one query per family. Both
 compilers apply the level to the whole build: on the GHC side that takes a
 `package *` stanza in the generated project file, since cabal's command-line
 `-O` and `--ghc-options` reach local packages only and would leave the
@@ -530,10 +534,9 @@ The library's work is in `Data.Text` iteration, mutable unboxed arrays
 Three of the metrics are quadratic in the word length (Levenshtein,
 Damerau-Levenshtein and Jaro each fill a dynamic-programming table of
 `|a| * |b|` cells), `overlap` and `jaccard` build a character-count map per
-word, and `hamming` is linear. The pair count is per profile, sized so an
-AIHC native build takes about half a second on an Apple M1: 33 pairs at
-`-O0`, 32 at `-O1`, 76 at `-Os` and 420 at `-O2`. GHC `-O2` takes about
-0.04 seconds for the `-O2` count.
+word, and `hamming` is linear. The pair count is per backend and profile,
+sized so an AIHC build takes about half a second on an Apple M4 Pro; the
+2026-11-25 counts run from 10 pairs (Wasm `-O0`) to 9,420 (native `-O2`).
 
 To resize a profile, build the benchmark and run it with `--print <pairs>`,
 which prints the checksum for that many pairs, and copy the count and
@@ -552,20 +555,20 @@ with GHC. Input generation and one-time regex compilation are included
 in the process measurement.
 
 Each profile and backend has its own line count. These counts target about
-half a second on an Apple M4 Pro. Calibration on 2026-10-20 used AIHC
-`1247d35bf`, GHC 9.12.4 for reference checksums, and Wasmtime 47.0.1.
-The times below are the minimum of five complete process runs after one
-warm-up, with RTS statistics enabled. Native and LLVM artifacts were
-stripped. Wasm artifacts were stripped and precompiled before measurement.
+half a second on an Apple M4 Pro. They were first calibrated on 2026-10-20
+with AIHC `1247d35bf`, GHC 9.12.4 for reference checksums, and Wasmtime
+47.0.1, and recalibrated on 2026-11-25 with AIHC `3b5102082` and GHC 9.14.1
+(see [docs/calibration-2026-11-25.json](docs/calibration-2026-11-25.json)),
+by which time `-O1` and `-O2` had become up to 28 times faster:
 
-| Profile | Native: lines / time | LLVM: lines / time | Wasm: lines / time |
+| Profile | Native lines | LLVM lines | Wasm lines |
 | --- | ---: | ---: | ---: |
-| O0 | 928 / 0.486s | 324 / 0.505s | 50 / 0.479s |
-| O1 | 942 / 0.500s | 900 / 0.506s | 39 / 0.501s |
-| O2 | 6,391 / 0.500s | 5,429 / 0.477s | 1,160 / 0.481s |
-| Os | 2,087 / 0.490s | 2,088 / 0.482s | 386 / 0.468s |
+| O0 | 1,504 | 375 | 292 |
+| O1 | 25,902 | 14,740 | 5,923 |
+| O2 | 34,734 | 21,891 | 9,276 |
+| Os | 4,899 | 4,661 | 1,016 |
 
-[The calibration record](docs/regex-log-extract-calibration.json) includes
+[The first calibration record](docs/regex-log-extract-calibration.json) includes
 all samples, checksums and toolchain details. GHC and an independent Python
 capture-offset calculation agree for every configured line count.
 
@@ -651,10 +654,10 @@ second:
 
 | Benchmark | Size | Native O0 / O1 / O2 / Os | LLVM O0 / O1 / O2 / Os | Wasm O0 / O1 / O2 / Os |
 | --- | --- | ---: | ---: | ---: |
-| `pubgrub-solve` | instances | 84 / 1,820 / 2,385 / (1,820) | 21 / 1,802 / 2,413 / (1,802) | 16 / 590 / 873 / (590) |
+| `pubgrub-solve` | instances | 84 / 1,820 / 2,385 / 257 | 21 / 1,802 / 2,413 / 238 | 16 / 590 / 873 / 48 |
 | `happy-codegen` | grammar families | 20 / 70 / 86 / 35 | 10 / 69 / 75 / 35 | 8 / 35 / 42 / 16 |
-| `juicypixels-jpeg` | picture side | 153 / 823 / 1,052 / 242 | 79 / 795 / 991 / 250 | 51 / 399 / 543 / 116 |
-| `rasterific-scene` | shapes | 44 / 127 / 457 / 26 | 14 / 122 / 437 / 27 | 10 / 32 / 147 / 33 |
+| `juicypixels-jpeg` | picture side | 153 / 823 / 1,052 / 279 | 79 / 795 / 991 / 250 | 51 / 399 / 543 / 116 |
+| `rasterific-scene` | shapes | 44 / 127 / 457 / 37 | 14 / 122 / 437 / 27 | 10 / 32 / 147 / 33 |
 
 Rasterific draws on a 512-pixel canvas except at `-O0` and Wasm `-Os`,
 which use 128 pixels: clearing and hashing the larger canvas alone took 0.47
@@ -664,19 +667,16 @@ pixel loops (an empty 512-pixel canvas took 0.47 seconds at Wasm `-Os` and
 [AIHC #3500](https://github.com/ai-haskell-compiler/aihc/issues/3500)). [The calibration
 record](docs/library-benchmarks-calibration.json) has every sample.
 
-Two profiles were not calibrated cleanly, because of compiler bugs found
-while adding these benchmarks:
-
-- `pubgrub-solve` does not compile at `-Os` on any backend: Lir generation
-  fails with a call arity mismatch for an unboxed worker
-  (`GHC.Word.$fNumWord64$c+_unboxed`; a 25-line program that reaches
-  `Main.$mix_unboxed` the same way fails too). Its `-Os` sizes (in
-  parentheses) reuse the `-O1` counts until it does
-  ([AIHC #3498](https://github.com/ai-haskell-compiler/aihc/issues/3498)).
-- `juicypixels-jpeg` compiles at `-Os`, but the decoder returns wrong
-  pixels on every backend, while encoding matches GHC byte for byte. Those
-  runs print `checksum mismatch`; the `-Os` sizes were timed on the wrong
-  output ([AIHC #3499](https://github.com/ai-haskell-compiler/aihc/issues/3499)).
+Two profiles were not calibrated cleanly at first, because of compiler bugs
+found while adding these benchmarks: `pubgrub-solve` did not compile at
+`-Os` ([AIHC #3498](https://github.com/ai-haskell-compiler/aihc/issues/3498)),
+and `juicypixels-jpeg` decoded wrong pixels at `-Os`
+([AIHC #3499](https://github.com/ai-haskell-compiler/aihc/issues/3499)). Both
+work at AIHC `3b5102082`; on 2026-11-25 the `pubgrub-solve` `-Os` counts,
+which had reused the `-O1` ones and ran for four to five seconds, were
+calibrated on their own, native `-Os` of `juicypixels-jpeg` and
+`rasterific-scene` were enlarged, and the other library cells were confirmed
+within about 20% of the target.
 
 To resize a configuration, run its AIHC build with `--print <size>`
 (`--print <side> <shapes>` for Rasterific), obtain the checksum from a GHC

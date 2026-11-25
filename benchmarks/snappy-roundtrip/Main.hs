@@ -35,12 +35,12 @@ payload blockCount = ByteString.pack (concatMap block [0 .. blockCount - 1])
     toByte salt seed = fromIntegral ((seed `shiftR` 33) .&. 0xff) `xor` salt
 
 -- | Blocks per backend and profile. See 'payload'.
--- Each count targets 0.5 seconds with AIHC on an Apple M4 Pro; native and
--- LLVM builds share the native counts.
+-- Each count targets 0.5 seconds with AIHC on an Apple M4 Pro.
 workSize :: String -> String -> Maybe Int
 workSize backend profile
-  | backend `elem` ["native", "llvm"] = lookup profile [("O0", 3540), ("Os", 10421), ("O1", 4290), ("O2", 62401)]
-  | backend == "wasm" = lookup profile [("O0", 558), ("Os", 2268), ("O1", 917), ("O2", 24164)]
+  | backend == "native" = lookup profile [("O0", 5861), ("Os", 16754), ("O1", 65000), ("O2", 64866)]
+  | backend == "llvm" = lookup profile [("O0", 1550), ("Os", 15886), ("O1", 59583), ("O2", 64464)]
+  | backend == "wasm" = lookup profile [("O0", 1162), ("Os", 4395), ("O1", 35180), ("O2", 36392)]
   | otherwise = Nothing
 
 main :: IO ()

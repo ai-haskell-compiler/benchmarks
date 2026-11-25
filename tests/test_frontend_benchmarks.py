@@ -68,20 +68,18 @@ class FrontendBenchmarkTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout, "SCC scheduling checks passed\n")
 
-    def test_each_profile_and_backend_selects_its_own_package_set(self):
+    def test_every_profile_and_backend_has_a_module_prefix(self):
         workloads = json.loads((ROOT / "corpus/frontend/workloads.json").read_text())
+        self.assertEqual(set(workloads), {"resolve", "tc"})
         for phase, backends in workloads.items():
             self.assertEqual(set(backends), {"native", "llvm", "wasm"})
             for backend, profiles in backends.items():
                 self.assertEqual(set(profiles), {"O0", "Os", "O1", "O2"})
-                self.assertEqual(len({tuple(cell["packages"]) for cell in profiles.values()}), 4)
                 for cell in profiles.values():
-                    self.assertIn("aihc-base", cell["packages"])
+                    self.assertEqual(set(cell), {"modules", "iterations", "expected"})
+                    self.assertGreater(cell["modules"], 0)
                     self.assertGreater(cell["iterations"], 0)
-                    self.assertRegex(cell["expected"], r"^packages=\d+ modules=\d+ units=\d+ cyclic=\d+ (resolutions|bindings)=\d+ digest=\d+$")
-            for profile in ("O0", "Os", "O1", "O2"):
-                selections = {tuple(profiles[profile]["packages"]) for profiles in backends.values()}
-                self.assertEqual(len(selections), 3)
+                    self.assertRegex(cell["expected"], rf"^packages=\d+ modules={cell['modules']} units=\d+ cyclic=\d+ (resolutions|bindings)=\d+ digest=\d+$")
 
     def test_phase_timing_is_opt_in_and_intervals_account_for_total(self):
         ghc = shutil.which("ghc")

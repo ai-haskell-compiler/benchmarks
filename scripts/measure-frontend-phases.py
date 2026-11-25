@@ -36,15 +36,13 @@ def main():
     args = parser.parse_args()
     if args.samples < 1:
         parser.error('--samples must be positive')
-    root = Path(__file__).resolve().parents[1]
-    workloads = json.loads((root / 'corpus/frontend/workloads.json').read_text())
     exact = args.exact_packages is not None
     roots = sorted(set(filter(None, (args.exact_packages if exact else args.packages or 'aihc-base').split(','))))
     if not exact:
         roots = sorted(set(['aihc-base', *roots]))
-    if not roots or (exact and not args.references):
-        parser.error('provide nonempty roots and --references for an exact diagnostic selection')
-    references = json.loads(args.references.read_text()) if args.references else None
+    if not roots or not args.references:
+        parser.error('provide nonempty roots and --references with the expected tallies')
+    references = json.loads(args.references.read_text())
     report = {
         'recorded_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         'label': args.label, 'platform': platform.platform(),
@@ -58,12 +56,9 @@ def main():
     if args.compiler:
         report['compiler'] = fingerprint(args.compiler)
     for phase, exe in [('resolve', args.resolve), ('tc', args.tc)]:
-        candidates = ([references[phase]] if references else
-                      [cell['expected'] for profiles in workloads[phase].values()
-                       for cell in profiles.values() if sorted(cell['packages']) == roots])
-        if not candidates:
-            parser.error('package roots must match a selection in corpus/frontend/workloads.json')
-        expected = candidates[0]
+        # Configured cells select module prefixes, not packages, so the
+        # references of a package selection come from the caller.
+        expected = references[phase]
         command = [str(exe.resolve()), str(args.corpus.resolve()),
                    '--exact-packages' if exact else '--packages', ','.join(roots), '--repeat', '1']
 

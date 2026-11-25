@@ -17,14 +17,17 @@ data Sizes = Sizes
   }
 
 -- | Fixed query counts per backend and profile.
--- Each family targets 0.1 seconds with AIHC on an Apple M4 Pro; native and
--- LLVM builds share the native counts.
+-- Each family targets 0.1 seconds with AIHC on an Apple M4 Pro, except where
+-- the fixture tables (300 entries, 48 flow pairs) cap it and the other
+-- families make up the difference.
 workSize :: String -> String -> Maybe Sizes
 workSize backend profile
-  | backend `elem` ["native", "llvm"] =
-      lookup profile [("O0", Sizes 18 13 2 7 1), ("Os", Sizes 42 26 5 14 2), ("O1", Sizes 27 20 3 10 1), ("O2", Sizes 167 78 21 45 13)]
+  | backend == "native" =
+      lookup profile [("O0", Sizes 32 23 4 12 2), ("Os", Sizes 80 50 10 27 4), ("O1", Sizes 211 156 23 78 8), ("O2", Sizes 300 171 46 98 28)]
+  | backend == "llvm" =
+      lookup profile [("O0", Sizes 1 1 1 1 1), ("Os", Sizes 76 47 9 25 4), ("O1", Sizes 196 145 22 72 7), ("O2", Sizes 300 161 43 93 27)]
   | backend == "wasm" =
-      lookup profile [("O0", Sizes 3 2 1 1 1), ("Os", Sizes 11 6 1 3 1), ("O1", Sizes 4 3 1 1 1), ("O2", Sizes 39 18 5 10 3)]
+      lookup profile [("O0", Sizes 1 1 1 1 1), ("Os", Sizes 14 8 2 4 2), ("O1", Sizes 37 28 9 9 9), ("O2", Sizes 125 58 16 32 10)]
   | otherwise = Nothing
 
 check :: String -> (query -> Int) -> [(query, Int)] -> IO ()

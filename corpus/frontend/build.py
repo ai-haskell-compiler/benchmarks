@@ -64,6 +64,7 @@ def assemble(packages, core, out, parser_script):
     pending = [module for _, module in roots] + WIRED
     root_names = {module: name for name, module in roots}
     visited = set()
+    imports = {}
     while pending:
         module = pending.pop()
         if module in visited:
@@ -82,11 +83,14 @@ def assemble(packages, core, out, parser_script):
         else:
             raise ValueError(f"no provider for imported module {module}")
         text = source.read_text()
-        pending.extend(IMPORT.findall(text))
+        found = IMPORT.findall(text)
         if "NoImplicitPrelude" not in extensions and "NoImplicitPrelude" not in text:
-            pending.append("Prelude")
+            found.append("Prelude")
+        pending.extend(found)
+        imports[key] = sorted(set(found + WIRED) - {module})
     lines = []
-    for (name, module), (source, edition, extensions) in sorted(sources.items()):
+    for name, module in dependency_order(sources, imports, metadata):
+        source, edition, extensions = sources[(name, module)]
         relative = name + "/" + module.replace('.', '/') + ".hs"
         destination = out / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -98,9 +102,72 @@ def assemble(packages, core, out, parser_script):
     return len(sources)
 
 
+def dependency_order(sources, imports, metadata):
+    """Every module after the modules it may depend on, packages in dependency order.
+
+    Dependencies are over-approximated like the benchmark's own module graph:
+    imports, implicit Prelude and every wired type module. A cyclic group is
+    kept contiguous, so a prefix of the order that ends on a group boundary
+    is closed under dependencies; write_workloads checks the prefixes used.
+    """
+    package_order = []
+    def visit_package(name, path=()):
+        if name in package_order:
+            return
+        if name in path:
+            raise ValueError(f"cyclic package dependency at {name}")
+        for dependency in sorted(metadata[name][0]):
+            visit_package(dependency, path + (name,))
+        package_order.append(name)
+    for name in sorted(metadata):
+        visit_package(name)
+    order = []
+    for package in package_order:
+        members = sorted(module for name, module in sources if name == package)
+        local = set(members)
+        edges = {module: [d for d in imports[(package, module)] if d in local] for module in members}
+        index, low, stack, on_stack, counter = {}, {}, [], set(), [0]
+        def strongconnect(module):
+            # Iterative Tarjan: SCCs come out dependencies first.
+            work = [(module, iter(edges[module]))]
+            index[module] = low[module] = counter[0]
+            counter[0] += 1
+            stack.append(module)
+            on_stack.add(module)
+            while work:
+                node, children = work[-1]
+                child = next(children, None)
+                if child is not None:
+                    if child not in index:
+                        index[child] = low[child] = counter[0]
+                        counter[0] += 1
+                        stack.append(child)
+                        on_stack.add(child)
+                        work.append((child, iter(edges[child])))
+                    elif child in on_stack:
+                        low[node] = min(low[node], index[child])
+                    continue
+                work.pop()
+                if work:
+                    low[work[-1][0]] = min(low[work[-1][0]], low[node])
+                if low[node] == index[node]:
+                    group = []
+                    while True:
+                        member = stack.pop()
+                        on_stack.discard(member)
+                        group.append(member)
+                        if member == node:
+                            break
+                    order.extend((package, member) for member in sorted(group))
+        for module in members:
+            if module not in index:
+                strongconnect(module)
+    return order
+
+
 def write_workloads(path, out):
     cells = json.loads(path.read_text())
-    packages = {line.split('\t')[0] for line in (out / 'packages.tsv').read_text().splitlines()}
+    modules = [line.split('\t') for line in (out / 'modules.tsv').read_text().splitlines()]
     if set(cells) != {'resolve', 'tc'}:
         raise ValueError('expected resolve and tc workloads')
     lines = []
@@ -114,12 +181,31 @@ def write_workloads(path, out):
                 count = cell['iterations']
                 if isinstance(count, bool) or not isinstance(count, int) or count < 1:
                     raise ValueError('iterations must be a positive integer')
-                if 'aihc-base' not in cell['packages'] or not set(cell['packages']) <= packages:
-                    raise ValueError('unknown or empty package selection')
+                prefix = cell['modules']
+                if isinstance(prefix, bool) or not isinstance(prefix, int) or not 1 <= prefix <= len(modules):
+                    raise ValueError('modules must be a prefix length within the corpus')
+                if not prefix_is_closed(out, modules, prefix):
+                    raise ValueError(f'{phase} {backend} {profile}: a module prefix of {prefix} splits a dependency')
                 if not cell['expected'] or any(c in cell['expected'] for c in '\t\n\r'):
                     raise ValueError('expected a single-line reference tally')
-                lines.append('\t'.join([phase, backend, profile, str(count), ','.join(cell['packages']), cell['expected']]) + '\n')
+                lines.append('\t'.join([phase, backend, profile, str(count), str(prefix), cell['expected']]) + '\n')
     (out / 'workloads.tsv').write_text(''.join(lines))
+
+
+def prefix_is_closed(out, modules, prefix):
+    """Whether the first PREFIX modules.tsv entries contain every corpus module they may import."""
+    names = {entry[1]: entry[1].split('/', 1)[1][:-3].replace('/', '.') for entry in modules}
+    corpus = set(names.values())
+    selected = {names[entry[1]] for entry in modules[:prefix]}
+    for entry in modules[:prefix]:
+        module = names[entry[1]]
+        text = (out / entry[1]).read_text()
+        found = set(IMPORT.findall(text)) | set(WIRED)
+        if "NoImplicitPrelude" not in entry[3].split(':') and "NoImplicitPrelude" not in text:
+            found.add("Prelude")
+        if any(dependency in corpus and dependency not in selected for dependency in found - {module}):
+            return False
+    return True
 
 
 if __name__ == '__main__':
