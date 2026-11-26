@@ -29,13 +29,23 @@ wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "
 builtinModules :: [T.Text]
 builtinModules = "GHC.IsList" : wiredTypeModules
 
--- Configured workloads always include Prelude; exact selection is an explicit
--- diagnostic mode, e.g. to inspect the primitive package on its own.
-data PackageSelection = WithPrelude [T.Text] | ExactPackages [T.Text]
+-- Configured workloads take a prefix of modules.tsv, which the corpus builder
+-- writes in dependency order, so every prefix it accepts is closed under
+-- imports. Package selections, with or without Prelude, are diagnostics.
+data PackageSelection = WithPrelude [T.Text] | ExactPackages [T.Text] | ModulePrefix Int
 
-selectionRoots :: PackageSelection -> [T.Text]
-selectionRoots (WithPrelude roots) = "aihc-base" : roots
-selectionRoots (ExactPackages roots) = roots
+-- The modules.tsv entries a selection may draw from: all of them, or a prefix.
+manifestEntries :: FilePath -> PackageSelection -> IO [(T.Text, T.Text, T.Text, T.Text)]
+manifestEntries corpus selection = do
+  manifest <- TIO.readFile (corpus ++ "/modules.tsv")
+  listed <- forM (T.lines manifest) $ \line -> case T.splitOn "\t" line of
+    [name, path, edition, settings] -> pure (name, path, edition, settings)
+    _ -> die "invalid modules.tsv entry"
+  case selection of
+    ModulePrefix count
+      | count > length listed -> die "module prefix exceeds the corpus"
+      | otherwise -> pure (take count listed)
+    _ -> pure listed
 
 loadPackages :: Timings -> FilePath -> PackageSelection -> IO [(T.Text, [T.Text])]
 loadPackages timings corpus selection = do
@@ -58,21 +68,22 @@ loadPackages timings corpus selection = do
           | otherwise = case Map.lookup name byName of
               Nothing -> die ("unknown corpus package: " ++ T.unpack name)
               Just deps -> closure (Set.insert name seen) (deps ++ rest)
-    selected <- closure Set.empty (selectionRoots selection)
+    roots <- case selection of
+      WithPrelude extra -> pure ("aihc-base" : extra)
+      ExactPackages exact -> pure exact
+      ModulePrefix _ -> List.nub . map (\(name, _, _, _) -> name) <$> manifestEntries corpus selection
+    selected <- closure Set.empty roots
     let result = [(name, deps) | (name, deps) <- concatMap unitMembers graph, name `Set.member` selected]
     evaluate (rnf result)
     pure result
 
-loadModules :: Timings -> FilePath -> T.Text -> IO [(Module, [Extension])]
-loadModules timings corpus package = do
-  manifest <- timed timings "source_io_decode" $ \() -> do
-    text <- TIO.readFile (corpus ++ "/modules.tsv")
-    evaluate (rnf text)
-    pure text
+loadModules :: Timings -> FilePath -> PackageSelection -> T.Text -> IO [(Module, [Extension])]
+loadModules timings corpus selection package = do
+  listed <- timed timings "source_io_decode" $ \() -> do
+    entries <- manifestEntries corpus selection
+    evaluate (rnf entries)
+    pure entries
   entries <- timed timings "dependency_planning" $ \() -> do
-    listed <- forM (T.lines manifest) $ \line -> case T.splitOn "\t" line of
-      [name, path, edition, settings] -> pure (name, path, edition, settings)
-      _ -> die "invalid modules.tsv entry"
     let selected = [entry | entry@(name, _, _, _) <- listed, name == package]
     evaluate (rnf selected)
     pure selected
@@ -89,10 +100,14 @@ loadModules timings corpus package = do
           (errors, modu) = parseModule config input
       evaluate (rnf errors `seq` rnf modu `seq` rnf extensions)
       if null errors then pure (modu, extensions) else die (T.unpack path ++ ": " ++ show errors)
-  if package == "aihc-base" && not (any ((== Just "Prelude") . moduleName . fst) parsed)
+  if isWithPrelude selection && package == "aihc-base" && not (any ((== Just "Prelude") . moduleName . fst) parsed)
     then die "the real Prelude is missing from the corpus"
     else pure ()
   if null parsed then die ("no modules for " ++ T.unpack package) else pure parsed
+
+isWithPrelude :: PackageSelection -> Bool
+isWithPrelude (WithPrelude _) = True
+isWithPrelude _ = False
 
 moduleGraph :: [ModuleUnit] -> Either String [Unit T.Text ModuleUnit]
 moduleGraph units = dependencyUnits
@@ -102,8 +117,9 @@ moduleGraph units = dependencyUnits
       ++ map importDeclModule (moduleImports (moduleUnitAst unit))
       ++ ["Prelude" | ImplicitPrelude `elem` moduleUnitExtensions unit, name /= "Prelude"]
 
--- Each cell selects complete packages and repeats a fresh frontend sweep.
--- Package choices and reference tallies live with the pinned corpus inputs.
+-- Each cell selects a dependency-closed prefix of the corpus modules and
+-- repeats a fresh frontend sweep over it. Prefix lengths, sweep counts and
+-- reference tallies live with the pinned corpus inputs.
 runWorkload :: String -> (FilePath -> PackageSelection -> IO String) -> IO ()
 runWorkload phase sweep = do
   args <- getArgs
@@ -113,25 +129,33 @@ runWorkload phase sweep = do
       let matches = [fields | line <- T.lines manifest, let fields = T.splitOn "\t" line,
                      take 3 fields == map T.pack [phase, backend, profile]]
       case matches of
-        [[_, _, _, iterations, roots, expected]] -> do
+        [[_, _, _, iterations, modules, expected]] -> do
           count <- positiveCount (T.unpack iterations)
-          _ <- repeatSweep corpus (WithPrelude (T.splitOn "," roots)) count (Just (T.unpack expected))
+          prefix <- positiveCount (T.unpack modules)
+          _ <- repeatSweep corpus (ModulePrefix prefix) count (Just (T.unpack expected))
           putStrLn "ok"
         _ -> die "unknown or duplicate frontend workload"
+    [corpus, "--modules", modules, "--repeat", iterations] -> do
+      prefix <- positiveCount modules
+      count <- positiveCount iterations
+      result <- repeatSweep corpus (ModulePrefix prefix) count Nothing
+      putStrLn result
     [corpus, flag, roots, "--repeat", iterations] | flag `elem` ["--packages", "--exact-packages"] -> do
       count <- positiveCount iterations
       let selection = (if flag == "--exact-packages" then ExactPackages else WithPrelude) (T.splitOn "," (T.pack roots))
       result <- repeatSweep corpus selection count Nothing
       putStrLn result
-    _ -> die "usage: frontend-bench <corpus> <O0|Os|O1|O2> <native|llvm|wasm> | <corpus> <--packages|--exact-packages> <comma-separated names> --repeat <count>"
+    _ -> die "usage: frontend-bench <corpus> <O0|Os|O1|O2> <native|llvm|wasm> | <corpus> --modules <count> --repeat <count> | <corpus> <--packages|--exact-packages> <comma-separated names> --repeat <count>"
   where
     positiveCount :: String -> IO Int
     positiveCount value = case readMaybe value of
       Just count | count > 0 -> pure count
-      _ -> die "iterations must be a positive integer"
+      _ -> die "counts must be positive integers"
     repeatSweep corpus selection count expected = do
-      let roots = case selection of WithPrelude names -> names; ExactPackages names -> names
-      if null roots || any T.null roots then die "empty package selection" else pure ()
+      case selection of
+        WithPrelude names | any T.null names -> die "empty package selection"
+        ExactPackages names | null names || any T.null names -> die "empty package selection"
+        _ -> pure ()
       let go 0 result = pure result
           go n _ = do
             result <- sweep corpus selection

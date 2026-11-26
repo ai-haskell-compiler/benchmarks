@@ -125,12 +125,13 @@ checksum count = foldl' metrics 14695981039346656037 (pairs count)
 --
 -- The runner passes the profile and the backend, and each pair of them
 -- measures a different number of pairs. The counts are what take an AIHC
--- build about half a second on an Apple M4 Pro; native and LLVM builds share
--- the native counts. @--print@ prints the checksum of a new count.
+-- build about half a second on an Apple M4 Pro; each backend has its own
+-- counts. @--print@ prints the checksum of a new count.
 work :: String -> String -> Maybe (Int, Word64)
 work backend profile
-  | backend `elem` ["native", "llvm"] = lookup profile [("O0", 30), ("Os", 109), ("O1", 37), ("O2", 5765)] >>= withChecksum
-  | backend == "wasm" = lookup profile [("O0", 6), ("Os", 22), ("O1", 6), ("O2", 1348)] >>= withChecksum
+  | backend == "native" = lookup profile [("O0", 46), ("Os", 222), ("O1", 6161), ("O2", 9420)] >>= withChecksum
+  | backend == "llvm" = lookup profile [("O0", 15), ("Os", 190), ("O1", 4978), ("O2", 9268)] >>= withChecksum
+  | backend == "wasm" = lookup profile [("O0", 10), ("Os", 38), ("O1", 858), ("O2", 4417)] >>= withChecksum
   | otherwise = Nothing
   where
     withChecksum count = (,) count <$> lookup count checksums
@@ -138,13 +139,18 @@ work backend profile
 -- | The checksum of each pair count 'work' uses.
 checksums :: [(Int, Word64)]
 checksums =
-  [ (6, 10622944386971976380),
-    (22, 14766389033292212708),
-    (30, 17580702691337827161),
-    (37, 16124759367494292225),
-    (109, 10081844726478726807),
-    (1348, 11986428750995824896),
-    (5765, 6182484483643650695)
+  [ (10, 13056069390399021988),
+    (15, 11722962743175683270),
+    (38, 825167881511299110),
+    (46, 5971729258379750177),
+    (190, 2849018165428523716),
+    (222, 8342560216852441988),
+    (858, 2942040023421397496),
+    (4417, 13094681849556672118),
+    (4978, 12862525404587672419),
+    (6161, 50228809813957153),
+    (9268, 6980955639027173225),
+    (9420, 10510527582186312058)
   ]
 
 main :: IO ()

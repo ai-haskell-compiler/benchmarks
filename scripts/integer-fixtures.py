@@ -188,32 +188,46 @@ def random_prime(rng, bits):
             return candidate
 
 
-#: Work per case list: (balanced semiprimes, bits per balanced factor, other cases, prime searches, search bits).
-#: Each list is run once; the sizes are chosen so AIHC on an Apple M4 Pro takes about half a second.
+#: Work per case list: (balanced semiprimes, bits per balanced factor, other
+#: cases, prime searches, search bits, ECM cases). Each list is run once; the
+#: sizes are chosen so AIHC on an Apple M4 Pro takes about half a second.
+#: Lists without ECM cases leave out every case that forces arithmoi's prime
+#: sieve, which on its own costs more than half a second at -O0 (natively and
+#: under Wasmtime) and under Wasmtime at -Os.
 ARITHMOI_LISTS = {
-    "O0": (4, 26, 4, 2, 128),
-    "Os": (4, 26, 4, 2, 128),
-    "O1": (4, 26, 4, 2, 128),
-    "O2": (387, 30, 8, 4, 192),
-    "WasmO2": (79, 30, 8, 4, 192),
+    "NativeO0": (0, 30, 167, 83, 128, False),
+    "NativeOs": (365, 30, 8, 4, 192, True),
+    "NativeO1": (556, 30, 8, 4, 192, True),
+    "NativeO2": (766, 30, 8, 4, 192, True),
+    "LlvmO0": (0, 30, 36, 18, 128, False),
+    "LlvmOs": (308, 30, 8, 4, 192, True),
+    "LlvmO1": (507, 30, 8, 4, 192, True),
+    "LlvmO2": (718, 30, 8, 4, 192, True),
+    "WasmO0": (0, 30, 28, 14, 128, False),
+    "WasmOs": (0, 30, 113, 56, 128, False),
+    "WasmO1": (196, 30, 8, 4, 192, True),
+    "WasmO2": (279, 30, 8, 4, 192, True),
 }
 
-#: The case list of each backend and profile. Below -O2 every list is the
-#: smallest one: forcing arithmoi's prime sieve alone takes longer than half a
-#: second there, natively and under Wasmtime alike. Native and LLVM builds
-#: share the native lists.
+#: The case list of each backend and profile.
 ARITHMOI_CELLS = {
-    "native": {"O0": "O0", "Os": "Os", "O1": "O1", "O2": "O2"},
-    "wasm": {"O0": "O0", "Os": "Os", "O1": "O1", "O2": "WasmO2"},
+    backend: {profile: backend.capitalize() + profile for profile in ("O0", "Os", "O1", "O2")}
+    for backend in ("native", "llvm", "wasm")
 }
 
 
-def arithmoi_cases(rng, balanced, balanced_bits, others, searches, search_bits):
+def arithmoi_cases(rng, balanced, balanced_bits, others, searches, search_bits, ecm=True):
     """Integers with a known factorisation, and numbers with a known next prime.
 
     Every factorisation is known by construction: the primes are chosen first
     and multiplied, so no factoring algorithm is involved in the reference.
+    Without ``ecm`` the list leaves out the cases that need elliptic curve
+    factorisation (balanced semiprimes and products of three 19-bit primes):
+    those force arithmoi's prime sieve, which below -O2 costs more than the
+    whole half-second target.
     """
+    if not ecm and balanced:
+        raise ValueError("balanced semiprimes need ECM")
     factorisations = []
 
     def product(primes):
@@ -232,7 +246,7 @@ def arithmoi_cases(rng, balanced, balanced_bits, others, searches, search_bits):
     for _ in range(others):
         product([random_prime(rng, 16), random_prime(rng, 40)])
     # Three primes of about 19 bits.
-    for _ in range(others):
+    for _ in range(others if ecm else 0):
         product([random_prime(rng, 19) for _ in range(3)])
     # Prime powers.
     for exponent in (2, 3, 4, 5, 7, 11, 13, 17)[:others]:
@@ -257,7 +271,8 @@ def arithmoi_cases(rng, balanced, balanced_bits, others, searches, search_bits):
     cases = [f"Factor {value} {render_factors(factors)}" for value, factors in factorisations]
     for _ in range(searches):
         begin = rng.getrandbits(search_bits) | (1 << (search_bits - 1))
-        cases.append(f"NextPrime {begin} {next_prime(begin)}")
+        # arithmoi's nextPrime is the smallest prime at or above its argument.
+        cases.append(f"NextPrime {begin} {begin if is_prime(begin) else next_prime(begin)}")
     return cases
 
 
@@ -276,9 +291,8 @@ def arithmoi_fixture():
         "-- | The fixed cases of a backend and profile, sized so that one pass takes about half a second.\n"
         "cases :: String -> String -> Maybe [Case]\n"
         "cases backend profile\n"
-        f'  | backend `elem` ["native", "llvm"] = lookup profile {table(ARITHMOI_CELLS["native"])}\n'
-        f'  | backend == "wasm" = lookup profile {table(ARITHMOI_CELLS["wasm"])}\n'
-        "  | otherwise = Nothing\n\n"
+        + "".join(f'  | backend == "{backend}" = lookup profile {table(cells)}\n' for backend, cells in ARITHMOI_CELLS.items())
+        + "  | otherwise = Nothing\n\n"
         + "\n".join(lists)
     )
 

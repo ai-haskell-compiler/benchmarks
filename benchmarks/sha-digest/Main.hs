@@ -32,11 +32,12 @@ message messageChunks = Lazy.fromChunks (replicate messageChunks chunk)
 -- | Chunks of message per backend and profile. The runner passes the
 -- profile and the backend, and each pair of them hashes a different amount.
 -- The counts are what take an AIHC build about half a second on an Apple M4
--- Pro; native and LLVM builds share the native counts.
+-- Pro.
 work :: String -> String -> Maybe (Int, [String])
 work backend profile
-  | backend `elem` ["native", "llvm"] = lookup profile [("O0", 29), ("Os", 105), ("O1", 33), ("O2", 6198)] >>= withDigests
-  | backend == "wasm" = lookup profile [("O0", 4), ("Os", 16), ("O1", 5), ("O2", 4751)] >>= withDigests
+  | backend == "native" = lookup profile [("O0", 42), ("Os", 196), ("O1", 2343), ("O2", 9060)] >>= withDigests
+  | backend == "llvm" = lookup profile [("O0", 11), ("Os", 200), ("O1", 3280), ("O2", 11161)] >>= withDigests
+  | backend == "wasm" = lookup profile [("O0", 9), ("Os", 43), ("O1", 704), ("O2", 7070)] >>= withDigests
   | otherwise = Nothing
   where
     withDigests count = (,) count <$> lookup count expectedDigests
@@ -46,60 +47,88 @@ work backend profile
 -- run rather than producing a number.
 expectedDigests :: [(Int, [String])]
 expectedDigests =
-  [ ( 4,
-      [ "eb4f8894672de3863f8b90c6495105501d4be3ce",
-        "fb6d044d793cc55f66aca4cb2e39f11e27045ba7bb9603f494254ebcf6d0d502",
-        "c45f4fd65dd89e7171f082b4c61390296d4f74e4d799124d3ae2698912891b7a7ee9c08f3bb46a24bca71be15a4285b3023dbcdfae7e23a0a7bbf1d890a8d187",
-        "c77cf45e26a8527bcfcc7eb3028b1fc8696fb03be5e1019f93a3b0c9a63a8683"
+  [ ( 9,
+      [ "a313ff792b1543382a20c6ae7a4794d77b05462b",
+        "6adb58c3bde9d645855675be6f0f4eebe8cb96dced843e9e16ebd72a920c5986",
+        "5f5e69bad290fa0f8a6d230aec2ce0cfd260c01862db7780676500090e46c0fe9e0b7596c5094968986dc9c2cc5540c7ed41433c09a56d0e2ab53b6c2ae4a333",
+        "348a3f17d5b0fde8216a9f5b21450f59499970d26683fed79b8b8b95dceb94be"
       ]
     ),
-    ( 5,
-      [ "db2172ac4fef7c993c8b473215eea16beef757c3",
-        "2c57b3fde9911eaae78ee043ca1a925f909c386d1caace5dc8aa5a896b8bae09",
-        "2e7108c45fcc4c245ef5d7a50090f7e8bd7d2b11fa3bb428433aedd77f9f88c735f0eb5b79ef9cd1e00f385d1eb4852727d4bb2b5c66efe468c6473dd58e838f",
-        "4c14f8357067ad279275103ba808ddee36347d4233cf174d6e04dfba6329b62a"
+    ( 11,
+      [ "20ce255a06c8eeff3109e2334ea051d826b10053",
+        "d9ed4e80f7dee3bf85a202f3a577d5c74965aba77a15e2f64671058e53c58323",
+        "49ad47bd9a46e35a349a720596fc87b014f107de6ff958a1baea73f5e49985718e825d4ec466a54c624896ea4a692c535183034ce1d2fbfdabadb629e77ae27d",
+        "70d486ea9efd917b9df34955e214e8780f12adb6d0e30ffb4b25a1a6576dd8f6"
       ]
     ),
-    ( 16,
-      [ "dd813ebce913853756424e58dcc47a64d5cf51d0",
-        "5bfcc5a057edebaf319910a81c22fac851b1addd290c61f6a49a7a3897694d50",
-        "e9e1e4e0acfff4d5a48387b8eabf4d6ffc5fc218ed1dc7adb4d0f11cd9597d4b999eba4189817a1b8e3ae6be24b915023af2422d84eb67d36fba92cc4f4b3f08",
-        "a48d98c6e513e9f79a34d677ace50bb4000dc0b9ddb7d3de041206166b4e70d3"
+    ( 42,
+      [ "ebb0eb456d93fd3232bb5670b5529f2aafd0a6fc",
+        "f1f929c8723abb30949b2242d23f894b6a6918b37209cb83a2fb1216bbe218fb",
+        "6422c253a83b738b37bb4755294e5becea41b135aab4e367b9ebf1ed887fd383bf05219d5fad44f43de168fa9fc2d6460aecd93b18fbaffbf23d9b46f2b8e818",
+        "30bdccfa0b95485c8e3a9309b797d83cf22e7f7c0a30a75a09fbd6bde203c4a9"
       ]
     ),
-    ( 29,
-      [ "7519c513e95fc20cae52066765411b0a85d9e71f",
-        "b1ca44dad13e690be917ebba6ce451e2031b134fa3bbb142f9fd3600b75bd0ac",
-        "3030eaad75998ef0a5ef975a9ccbd448c8908953cadbf606a0d70aa9f13afb127cd3ef7b5cc09aa1e82365d768dbe2da122b82cf20cae8615bffc98d4fe7550d",
-        "ce988d8a6ef1c7f9ab2d5c4f6ef41a4edae0fc712a7d82752623d815538594d6"
+    ( 43,
+      [ "42e33e9b9e65c1e45cebd692919c40ce126b79f4",
+        "24944455ff9fa5b7dbd5fb3e66b95ee31a516adbb18462f99007c844d37852cf",
+        "f2854ff07ed9fd9d5ebd5e5200e7f82e408b064bc26f75c8f0076771c07c6bd226df999d6824b8a9957a98ce78e5d01f8f9794d4ef9ea7b1ede358185bb270e3",
+        "cf6625e15b99e8914f534df0a3c065f29472b3410c19536e34d53418a88c38d3"
       ]
     ),
-    ( 33,
-      [ "fd4981b1be7f896708cd418d978654017eee40f8",
-        "0897df2d389a686a8777967d422030a81523cc3e66c51712fdb8ebf179a816dc",
-        "9d8208ec8b9d9419424cd8d683d78d6690c461983f3cec24a5647292441a805dcd766c4e09494fe053fcf82e7c25d2b879d17b36cb47acb2828e0c0f282b993f",
-        "15121f29fc1828c7b4afc97ce363ce93c9eb5a1a70867d366f1883b0396d740f"
+    ( 196,
+      [ "a7509ea6f998338f7d2f2d11ee2e8432e01d4265",
+        "e400e00d9681f3cbf5faabcf445c813e6e871af842ae600356743da8095cd288",
+        "57c732f4397dfa0bb1e0171c12c718b74f969f62a331ba62fb604a3987162d0aa8b2dbc3a86d6b4d1078859475313ccb67eb2233eb6632fc333c661ed88a529a",
+        "8d3468850a4d533523d03133199cb52ef36d18ce2a3e244ca10e5d4ab26e453f"
       ]
     ),
-    ( 105,
-      [ "6526c2187b63fe2937e5850d2e6da2f9d4dc28d6",
-        "3430adb25e908e4fbe68b2dfcd01cf4ec56fb4c6ab8290aa3527fbc51ee1150d",
-        "e4122e3aa586e6b443c2dd5413a82be4e05e8d186690f826186b814557091c30fa157c6c13354495bde8126633ab12c118f8ce2a1c31d2062528e905fbada253",
-        "56f22e3caecc0b63eb641eebc23f2c7adc3f9301eab57f8f43cd7b2424ab332b"
+    ( 200,
+      [ "929af002eb6c5e36a879b18e54d1f8d13f8bd482",
+        "99eecbfd1cf1cebea121e5868965bb854fbb44ae4550d4116414da7d41f71128",
+        "aef03198b036e50ef12c9967c9af2e569351294d8871c417659c3503b00b79c31833640eda98e29548192595f5d6fc7d7b1c51b2ae7c4885465cd2ffe943f3c3",
+        "42dc471af259f4c2ab0dc1a83372b14d3434adb4866cfb77216f2d722ec30286"
       ]
     ),
-    ( 4751,
-      [ "f095409e733958e92c183bf80d23bdfb4001430d",
-        "1a428f1a5f64dbf78adf3a86dd51eeb28aada2029803e533c2ac4dde5c36ee8f",
-        "3476d52c1b48ad76ceaaae35a090b0267d88e3be2978ac89a4cc4ff5e4968226efce73f79a2045e106854b84b822f8584bc5b44d11de43d96f4739ae546edbe7",
-        "d7974eb1b6c91fb94f067601ad9e788f5f8d993af17a4b57905824a04558a193"
+    ( 704,
+      [ "6a001757bdbdc512c2a27e6d30ac9d47eb76bf56",
+        "b60aad93ce56f269f859e023a18de9a67def004ff1cbe1b3b3d86f4f51f9f4c9",
+        "e44c205c0edf78c8db567b71ee728f0e31657eab5d548640a75fee101fab0441a2446002bc1b48503be6b9bef30f73780c47e0a8ef79fafa76f580f226f65eb9",
+        "50575fe52d451019fcafd8936aabe854364c30c4ee1e5562bda3fe10a5b8a3f8"
       ]
     ),
-    ( 6198,
-      [ "2ffbd3212323f8e84135c5cc419b88b3f05dc5b5",
-        "7d72f9edb251431a275629d1de444af553470447df0326384645b4e179db4147",
-        "c8d1cfa2d35dbad117603c765df375b462d85e419e818a2a24954039e969a43653a6b87a3db0205798463daee08bf902c2ebf2f7043a03dc643d5db6df0e9f39",
-        "e167cad1c3d132a481c912c477c6f4c2a6393b8eb4c4bd913c6e36a8a344ea2a"
+    ( 2343,
+      [ "13ea99183ec76d9dc7f643b8e6e3a290181affc1",
+        "fc18d3f12d3e5ac733c57058d0f71693e78a8985f5391fed561f730eeb057aad",
+        "f77e80a007aace561331f77d260a778ad270a6cac05f0ffdb9766dc294870ddb2318781aea7e7baf04486df76247b7436ce3fbe393ec9ab456692545a5762200",
+        "85c7c58acabe8b254df3a089034c582ca9e8e56c7b8aae0b8fe13938f6085fd3"
+      ]
+    ),
+    ( 3280,
+      [ "34c263a58a4f943c9e9f366bbaa9d87862cba5cb",
+        "f2fd81e0955b148ef94fb95a15a9470d02a2fd5f184d385ac5d37a081ea24a15",
+        "16545f9354e5ffcd62eeadf91dac7c1bac95d51b0045f8f7a08b3fdbaf7d010915f3adbbb95d527247c56fad07b277e776b47804c8c5353cb654e260b8875109",
+        "cded0bef2d2aff783416262e450e7169622e63d9dc05eb2f85e6ff5ba37d9f15"
+      ]
+    ),
+    ( 7070,
+      [ "a72deb7d81d8528f855068b1aad41a202556e8c7",
+        "f97ad47f2a3be88be38a4fb8f09d878b47712cd10ca5ed57ec52505ad90c73b5",
+        "7fb03f0daadc38566a49599401820b89ae741a01a35744301045ce5ba7f39517e9eabebfb9ec03dfb34f2623de6ae97979f594bc5dcb5b68492bbf11889553f0",
+        "3e26f8a1b2f62c77537c677bc87395cd7ad9b782c63dab15ee7d2e3cf8e9c216"
+      ]
+    ),
+    ( 9060,
+      [ "2e7c0552bf77385745b1e7078e431c39677dac5e",
+        "bca21619de2edf3754b40ac49f87d238a775d839387522cdfb57b78748d7dfea",
+        "ddee1ad3eb43922628735ff7afc04ff03e3c27c4bd251da9b425c6c8932b7b9775cae093226c7593c4e3df4f7ad4ca992aed1c230cc21b5f2a6922909e28dc23",
+        "62f852e33c18afc68cd900cf140971ad61b6ce98aa311b89091b214e01de456b"
+      ]
+    ),
+    ( 11161,
+      [ "5c2b878cc7d303f643a60c3e74bdb80278c10153",
+        "4ea1d1652ddc7cbd7463cbe153854c301a35bb942351fbc65293cbfed064e7f2",
+        "1d8dfe162ce2e2b3a919455048a42f88cbe23a2598c973054b7c2b8556a895d1ff511e269ed405d44fc5e268d891f4727c6006c7167582b96e2624f5d9b057e1",
+        "5e4c9463610fe31d5ed1f0c53e5c7380a50800ddc4d1162948aa5d134b098688"
       ]
     )
   ]

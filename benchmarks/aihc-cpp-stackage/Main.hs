@@ -62,28 +62,34 @@ main = do
 
 -- | Modules per backend and profile, and the tally a correct build prints for
 -- them. The counts are what take an AIHC build about half a second on an
--- Apple M4 Pro; native and LLVM builds share the native counts.
+-- Apple M4 Pro.
 work :: String -> String -> Maybe (Int, String)
 work backend profile
-  | backend `elem` ["native", "llvm"] = lookup profile nativeWork >>= withTally
+  | backend == "native" = lookup profile nativeWork >>= withTally
+  | backend == "llvm" = lookup profile llvmWork >>= withTally
   | backend == "wasm" = lookup profile wasmWork >>= withTally
   | otherwise = Nothing
   where
-    nativeWork = [("O0", 15), ("Os", 56), ("O1", 26), ("O2", 701)]
-    wasmWork = [("O0", 1), ("Os", 9), ("O1", 2), ("O2", 186)]
+    nativeWork = [("O0", 25), ("Os", 74), ("O1", 727), ("O2", 1145)]
+    llvmWork = [("O0", 7), ("Os", 71), ("O1", 554), ("O2", 1151)]
+    wasmWork = [("O0", 5), ("Os", 15), ("O1", 177), ("O2", 341)]
     withTally count = (,) count <$> lookup count tallies
 
 -- | The tally of each module count 'work' uses.
 tallies :: [(Int, String)]
 tallies =
-  [ (1, "modules=1 ok=1 errored=0 bytes=10017"),
-    (2, "modules=2 ok=2 errored=0 bytes=31774"),
-    (9, "modules=9 ok=9 errored=0 bytes=104369"),
+  [ (5, "modules=5 ok=5 errored=0 bytes=43016"),
+    (7, "modules=7 ok=7 errored=0 bytes=80932"),
     (15, "modules=15 ok=15 errored=0 bytes=207447"),
-    (26, "modules=26 ok=26 errored=0 bytes=276888"),
-    (56, "modules=56 ok=55 errored=1 bytes=894735"),
-    (186, "modules=186 ok=185 errored=1 bytes=3030745"),
-    (701, "modules=701 ok=698 errored=3 bytes=10502090")
+    (25, "modules=25 ok=25 errored=0 bytes=214765"),
+    (71, "modules=71 ok=70 errored=1 bytes=1166764"),
+    (74, "modules=74 ok=73 errored=1 bytes=1212836"),
+    (177, "modules=177 ok=175 errored=2 bytes=2756184"),
+    (341, "modules=341 ok=338 errored=3 bytes=4719540"),
+    (554, "modules=554 ok=550 errored=4 bytes=8039772"),
+    (727, "modules=727 ok=723 errored=4 bytes=10736869"),
+    (1145, "modules=1145 ok=1134 errored=11 bytes=16389479"),
+    (1151, "modules=1151 ok=1143 errored=8 bytes=17704959")
   ]
 
 -- | @count@ elements spread evenly over the list: the middle one of each of

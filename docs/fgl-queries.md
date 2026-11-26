@@ -69,6 +69,10 @@ The table gives the query counts and the median elapsed time of three runs after
 | O1 | 23 | 17 | 3 | 9 | 1 | 0.48 |
 | O2 | 140 | 65 | 18 | 38 | 11 | 0.53 |
 
+On 2026-11-25 every backend and profile was recalibrated with AIHC `3b5102082`; the counts are in `workSize` in `Main.hs` and in [the calibration record](calibration-2026-11-25.json).
+A family is capped by its fixture table (300 entries, 48 flow pairs), and the other families make up the difference.
+LLVM and Wasm `-O0` run one query per family, the smallest possible input, and still take about 0.53 and 0.65 seconds.
+
 The dominator and flow families are coarse at -O0 and -O1.
 One dominator tree costs about 50 milliseconds there and one flow about 100 milliseconds.
 Both compilers use the same query counts.

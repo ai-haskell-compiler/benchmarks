@@ -76,19 +76,29 @@ test-suite ignored
                 with self.assertRaisesRegex(ValueError, "conditional|preprocessor"):
                     self.assemble()
 
+    def test_manifest_lists_every_module_after_its_dependencies(self):
+        self.assemble()
+        modules = [line.split("\t")[1] for line in (self.out / "modules.tsv").read_text().splitlines()]
+        position = {path: index for index, path in enumerate(modules)}
+        self.assertLess(position["aihc-base/Prelude.hs"], position["example/Example.hs"])
+        self.assertLess(position["example/Example/Internal.hs"], position["example/Example.hs"])
+        self.assertTrue(all(path.startswith("aihc-prim/") for path in modules[:len(corpus.WIRED)]))
+
     def test_workload_manifest_requires_complete_valid_cells(self):
         self.assemble()
+        total = len((self.out / "modules.tsv").read_text().splitlines())
         cells = json.loads((ROOT / "corpus/frontend/workloads.json").read_text())
         for backends in cells.values():
             for profiles in backends.values():
                 for cell in profiles.values():
-                    cell["packages"] = ["aihc-base", "example"]
+                    cell["modules"] = total
         path = self.root / "workloads.json"
         path.write_text(json.dumps(cells))
         corpus.write_workloads(path, self.out)
         self.assertEqual(len((self.out / "workloads.tsv").read_text().splitlines()), 24)
-        for field, value, message in [("packages", ["missing"], "package selection"), ("iterations", 0, "positive integer"), ("expected", "two\nlines", "single-line")]:
-            with self.subTest(field=field):
+        for field, value, message in [("modules", total + 1, "prefix length"), ("modules", 1, "splits a dependency"),
+                                      ("iterations", 0, "positive integer"), ("expected", "two\nlines", "single-line")]:
+            with self.subTest(field=field, value=value):
                 original = cells["resolve"]["native"]["O0"][field]
                 cells["resolve"]["native"]["O0"][field] = value
                 path.write_text(json.dumps(cells))

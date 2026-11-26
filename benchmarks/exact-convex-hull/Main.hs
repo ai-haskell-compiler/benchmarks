@@ -8,12 +8,12 @@ import System.Environment (getArgs)
 import System.Exit (die)
 
 -- | Fixed input batches per backend and profile.
--- Each count targets 0.5 seconds with AIHC on an Apple M4 Pro; native and
--- LLVM builds share the native counts.
+-- Each count targets 0.5 seconds with AIHC on an Apple M4 Pro.
 workSize :: String -> String -> Maybe Int
 workSize backend profile
-  | backend `elem` ["native", "llvm"] = lookup profile [("O0", 355), ("Os", 481), ("O1", 476), ("O2", 889)]
-  | backend == "wasm" = lookup profile [("O0", 48), ("Os", 78), ("O1", 57), ("O2", 151)]
+  | backend == "native" = lookup profile [("O0", 655), ("Os", 1440), ("O1", 1817), ("O2", 2339)]
+  | backend == "llvm" = lookup profile [("O0", 156), ("Os", 1307), ("O1", 1417), ("O2", 1582)]
+  | backend == "wasm" = lookup profile [("O0", 137), ("Os", 333), ("O1", 365), ("O2", 460)]
   | otherwise = Nothing
 
 main :: IO ()

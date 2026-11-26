@@ -53,7 +53,7 @@ sweep corpus roots = do
         pure ("packages=" ++ show (length packages) ++ " modules=" ++ show modules ++ " units=" ++ show units ++ " cyclic=" ++ show cyclic ++ " resolutions=" ++ show references ++ " digest=" ++ show checksum)
       go scopes !modules !units !cyclic !references !checksum ((name, deps) : rest) = do
         imported <- mapM (\dependency -> maybe (die "package dependency not resolved") pure (Map.lookup dependency scopes)) deps
-        parsed <- loadModules timings corpus name
+        parsed <- loadModules timings corpus roots name
         let package = Package name (PackageId name)
         graph <- planModules timings package parsed
         (resolved, exports) <- resolveGraph timings package (mconcat imported) graph

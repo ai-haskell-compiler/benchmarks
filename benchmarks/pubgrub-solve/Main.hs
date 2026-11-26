@@ -120,8 +120,6 @@ checksum count = foldl' step (Right 14695981039346656037) [0 .. count - 1]
 
 -- | Instances per profile and backend, calibrated on an Apple M4 Pro for
 -- about half a second of AIHC. The GHC checksums reject wrong output.
--- AIHC could not build the Os profile when this was calibrated (a call
--- arity mismatch in Lir generation), so Os reuses the O1 counts until it can.
 -- See docs/library-benchmarks-calibration.json for measurements.
 work :: String -> String -> Maybe (Int, Word64)
 work backend profile
@@ -130,16 +128,19 @@ work backend profile
   | backend == "wasm" = lookup profile wasm >>= withChecksum
   | otherwise = Nothing
   where
-    native = [("O0", 84), ("O1", 1820), ("O2", 2385), ("Os", 1820)]
-    llvm = [("O0", 21), ("O1", 1802), ("O2", 2413), ("Os", 1802)]
-    wasm = [("O0", 16), ("O1", 590), ("O2", 873), ("Os", 590)]
+    native = [("O0", 84), ("O1", 1820), ("O2", 2385), ("Os", 257)]
+    llvm = [("O0", 21), ("O1", 1802), ("O2", 2413), ("Os", 238)]
+    wasm = [("O0", 16), ("O1", 590), ("O2", 873), ("Os", 48)]
     withChecksum n = (,) n <$> lookup n checksums
 
 checksums :: [(Int, Word64)]
 checksums =
   [ (16, 1286861817638841957),
     (21, 14314783863564026284),
+    (48, 10198406346857061875),
     (84, 1814792474558324814),
+    (238, 12905672794516530725),
+    (257, 10232228881505056638),
     (590, 13963330651850972121),
     (873, 17626551918583531882),
     (1802, 12359792640443182431),

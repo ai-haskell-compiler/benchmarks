@@ -1,0 +1,1356 @@
+{
+  "date": "2026-11-25",
+  "machine": "Apple M4 Pro",
+  "aihc_commit": "3b5102082",
+  "ghc": "9.14.1",
+  "wasmtime": "wasmtime 47.0.1",
+  "target_seconds": 0.5,
+  "method": "AIHC built with aihc build (Nix build of the commit above) into a build root per cell, Wasm precompiled with wasmtime compile -C cache=n and run with -S cli -S http --allow-precompiled. Other sessions loaded the machine (load average 8 to 65), so sizes were fitted on the child process's CPU time (user + system), which stayed within about 10% of wall time on a quiet machine; cpu_seconds and wall_seconds are each the minimum of three complete runs (one run for the frontend cells). Benchmarks with a --print or --modules mode were searched without rebuilding; the others were scaled linearly and rebuilt. Every checksum, digest and tally was taken from a GHC 9.14.1 build (SHA digests from Python's hashlib) and matched AIHC's output.",
+  "notes": {
+    "microhs-self-compile": "Not recalibrated: its input (all of MicroHs) is fixed.",
+    "aihc-resolve-bench": "Cells process a dependency-closed prefix of the corpus modules; the smallest, the 14-module wired primitive cycle, exceeds the target in every cell but native/LLVM O1 and O2.",
+    "aihc-tc-bench": "As for aihc-resolve-bench. LLVM and Wasm O0 were not timed here: on the 14-module minimum they took 102 and 163 CPU seconds earlier in the session and exceed the 120-second process timeout.",
+    "fgl-queries": "LLVM and Wasm O0 run one query per family, the smallest input.",
+    "arithmoi-factorise": "O0 and Wasm Os lists leave out the cases that reach the elliptic curve method, whose prime sieve alone exceeds the target there.",
+    "aihc-parser-stackage": "Wasm O2 at 168 modules traps ('cannot leave component instance', an AIHC Wasm runtime failure); 300 modules runs.",
+    "aihc-cpp-stackage": "Module counts below about 30 are lumpy: each count is an even stride through the pool, so the module set changes with the count."
+  },
+  "results": {
+    "aihc-cpp-stackage": {
+      "native-O0": {
+        "size": 25,
+        "cpu_seconds": 0.419,
+        "wall_seconds": 0.422,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": 727,
+        "cpu_seconds": 0.492,
+        "wall_seconds": 0.5,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": 1145,
+        "cpu_seconds": 0.455,
+        "wall_seconds": 0.458,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": 74,
+        "cpu_seconds": 0.479,
+        "wall_seconds": 0.485,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": 7,
+        "cpu_seconds": 0.493,
+        "wall_seconds": 0.619,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": 554,
+        "cpu_seconds": 0.43,
+        "wall_seconds": 0.432,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": 1151,
+        "cpu_seconds": 0.493,
+        "wall_seconds": 0.496,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": 71,
+        "cpu_seconds": 0.485,
+        "wall_seconds": 0.497,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": 5,
+        "cpu_seconds": 0.336,
+        "wall_seconds": 0.347,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": 177,
+        "cpu_seconds": 0.524,
+        "wall_seconds": 0.545,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": 341,
+        "cpu_seconds": 0.427,
+        "wall_seconds": 0.437,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": 15,
+        "cpu_seconds": 0.422,
+        "wall_seconds": 0.426,
+        "output": "ok"
+      }
+    },
+    "aihc-parser-stackage": {
+      "native-O0": {
+        "size": 38,
+        "cpu_seconds": 0.483,
+        "wall_seconds": 0.689,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": 613,
+        "cpu_seconds": 0.625,
+        "wall_seconds": 0.632,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": 1257,
+        "cpu_seconds": 0.523,
+        "wall_seconds": 0.526,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": 290,
+        "cpu_seconds": 0.526,
+        "wall_seconds": 0.542,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": 13,
+        "cpu_seconds": 0.424,
+        "wall_seconds": 0.437,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": 500,
+        "cpu_seconds": 0.444,
+        "wall_seconds": 0.446,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": 959,
+        "cpu_seconds": 0.453,
+        "wall_seconds": 0.456,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": 239,
+        "cpu_seconds": 0.449,
+        "wall_seconds": 0.452,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": 5,
+        "cpu_seconds": 0.423,
+        "wall_seconds": 0.465,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": 40,
+        "cpu_seconds": 0.509,
+        "wall_seconds": 0.541,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": 300,
+        "cpu_seconds": 0.598,
+        "wall_seconds": 0.606,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": 26,
+        "cpu_seconds": 0.506,
+        "wall_seconds": 0.512,
+        "output": "ok"
+      }
+    },
+    "aihc-resolve-bench": {
+      "native-O0": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 4.275,
+        "wall_seconds": 4.522,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 0.492,
+        "wall_seconds": 0.529,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": {
+          "modules": 130,
+          "sweeps": 1
+        },
+        "cpu_seconds": 0.609,
+        "wall_seconds": 0.685,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 1.085,
+        "wall_seconds": 1.168,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 14.848,
+        "wall_seconds": 18.408,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 0.573,
+        "wall_seconds": 0.609,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": {
+          "modules": 105,
+          "sweeps": 1
+        },
+        "cpu_seconds": 0.597,
+        "wall_seconds": 0.65,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 1.133,
+        "wall_seconds": 1.18,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 42.012,
+        "wall_seconds": 47.273,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 5.442,
+        "wall_seconds": 5.707,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 0.949,
+        "wall_seconds": 1.066,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 9.471,
+        "wall_seconds": 9.816,
+        "output": "ok"
+      }
+    },
+    "aihc-tc-bench": {
+      "native-O0": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 25.679,
+        "wall_seconds": 26.204,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 2.233,
+        "wall_seconds": 2.399,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 1.725,
+        "wall_seconds": 1.794,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 8.648,
+        "wall_seconds": 9.066,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "status": "not timed (exceeds the process timeout)"
+      },
+      "llvm-O1": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 2.399,
+        "wall_seconds": 2.542,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 2.15,
+        "wall_seconds": 2.488,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 9.458,
+        "wall_seconds": 11.483,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "status": "not timed (exceeds the process timeout)"
+      },
+      "wasm-O1": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 11.909,
+        "wall_seconds": 12.191,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 5.5,
+        "wall_seconds": 5.665,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": {
+          "modules": 14,
+          "sweeps": 1
+        },
+        "cpu_seconds": 44.306,
+        "wall_seconds": 44.608,
+        "output": "ok"
+      }
+    },
+    "arithmoi-factorise": {
+      "native-O0": {
+        "size": {
+          "balanced_semiprimes": 0,
+          "balanced_bits": 30,
+          "other_cases_each": 167,
+          "prime_searches": 83,
+          "search_bits": 128,
+          "ecm": false
+        },
+        "cpu_seconds": 0.482,
+        "wall_seconds": 0.501,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": {
+          "balanced_semiprimes": 556,
+          "balanced_bits": 30,
+          "other_cases_each": 8,
+          "prime_searches": 4,
+          "search_bits": 192,
+          "ecm": true
+        },
+        "cpu_seconds": 0.485,
+        "wall_seconds": 0.54,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": {
+          "balanced_semiprimes": 766,
+          "balanced_bits": 30,
+          "other_cases_each": 8,
+          "prime_searches": 4,
+          "search_bits": 192,
+          "ecm": true
+        },
+        "cpu_seconds": 0.48,
+        "wall_seconds": 0.482,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": {
+          "balanced_semiprimes": 365,
+          "balanced_bits": 30,
+          "other_cases_each": 8,
+          "prime_searches": 4,
+          "search_bits": 192,
+          "ecm": true
+        },
+        "cpu_seconds": 0.519,
+        "wall_seconds": 0.549,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": {
+          "balanced_semiprimes": 0,
+          "balanced_bits": 30,
+          "other_cases_each": 36,
+          "prime_searches": 18,
+          "search_bits": 128,
+          "ecm": false
+        },
+        "cpu_seconds": 0.427,
+        "wall_seconds": 0.524,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": {
+          "balanced_semiprimes": 507,
+          "balanced_bits": 30,
+          "other_cases_each": 8,
+          "prime_searches": 4,
+          "search_bits": 192,
+          "ecm": true
+        },
+        "cpu_seconds": 0.506,
+        "wall_seconds": 0.526,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": {
+          "balanced_semiprimes": 718,
+          "balanced_bits": 30,
+          "other_cases_each": 8,
+          "prime_searches": 4,
+          "search_bits": 192,
+          "ecm": true
+        },
+        "cpu_seconds": 0.5,
+        "wall_seconds": 0.502,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": {
+          "balanced_semiprimes": 308,
+          "balanced_bits": 30,
+          "other_cases_each": 8,
+          "prime_searches": 4,
+          "search_bits": 192,
+          "ecm": true
+        },
+        "cpu_seconds": 0.468,
+        "wall_seconds": 0.471,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": {
+          "balanced_semiprimes": 0,
+          "balanced_bits": 30,
+          "other_cases_each": 28,
+          "prime_searches": 14,
+          "search_bits": 128,
+          "ecm": false
+        },
+        "cpu_seconds": 0.452,
+        "wall_seconds": 0.454,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": {
+          "balanced_semiprimes": 196,
+          "balanced_bits": 30,
+          "other_cases_each": 8,
+          "prime_searches": 4,
+          "search_bits": 192,
+          "ecm": true
+        },
+        "cpu_seconds": 0.542,
+        "wall_seconds": 0.553,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": {
+          "balanced_semiprimes": 279,
+          "balanced_bits": 30,
+          "other_cases_each": 8,
+          "prime_searches": 4,
+          "search_bits": 192,
+          "ecm": true
+        },
+        "cpu_seconds": 0.526,
+        "wall_seconds": 0.532,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": {
+          "balanced_semiprimes": 0,
+          "balanced_bits": 30,
+          "other_cases_each": 113,
+          "prime_searches": 56,
+          "search_bits": 128,
+          "ecm": false
+        },
+        "cpu_seconds": 0.558,
+        "wall_seconds": 0.56,
+        "output": "ok"
+      }
+    },
+    "exact-convex-hull": {
+      "native-O0": {
+        "size": 655,
+        "cpu_seconds": 0.417,
+        "wall_seconds": 0.419,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": 1817,
+        "cpu_seconds": 0.408,
+        "wall_seconds": 0.411,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": 2339,
+        "cpu_seconds": 0.431,
+        "wall_seconds": 0.432,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": 1440,
+        "cpu_seconds": 0.445,
+        "wall_seconds": 0.449,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": 156,
+        "cpu_seconds": 0.457,
+        "wall_seconds": 0.459,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": 1417,
+        "cpu_seconds": 0.442,
+        "wall_seconds": 0.444,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": 1582,
+        "cpu_seconds": 0.441,
+        "wall_seconds": 0.443,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": 1307,
+        "cpu_seconds": 0.444,
+        "wall_seconds": 0.445,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": 137,
+        "cpu_seconds": 0.458,
+        "wall_seconds": 0.466,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": 365,
+        "cpu_seconds": 0.412,
+        "wall_seconds": 0.414,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": 460,
+        "cpu_seconds": 0.418,
+        "wall_seconds": 0.421,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": 333,
+        "cpu_seconds": 0.487,
+        "wall_seconds": 0.489,
+        "output": "ok"
+      }
+    },
+    "fgl-queries": {
+      "native-O0": {
+        "size": "Sizes 32 23 4 12 2",
+        "cpu_seconds": 0.472,
+        "wall_seconds": 0.473,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": "Sizes 211 156 23 78 8",
+        "cpu_seconds": 0.414,
+        "wall_seconds": 0.415,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": "Sizes 300 171 46 98 28",
+        "cpu_seconds": 0.446,
+        "wall_seconds": 0.448,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": "Sizes 80 50 10 27 4",
+        "cpu_seconds": 0.449,
+        "wall_seconds": 0.454,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": "Sizes 1 1 1 1 1",
+        "cpu_seconds": 0.48,
+        "wall_seconds": 0.488,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": "Sizes 196 145 22 72 7",
+        "cpu_seconds": 0.426,
+        "wall_seconds": 0.43,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": "Sizes 300 161 43 93 27",
+        "cpu_seconds": 0.483,
+        "wall_seconds": 0.495,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": "Sizes 76 47 9 25 4",
+        "cpu_seconds": 0.45,
+        "wall_seconds": 0.458,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": "Sizes 1 1 1 1 1",
+        "cpu_seconds": 0.647,
+        "wall_seconds": 0.662,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": "Sizes 37 28 9 9 9",
+        "cpu_seconds": 0.517,
+        "wall_seconds": 0.532,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": "Sizes 125 58 16 32 10",
+        "cpu_seconds": 0.446,
+        "wall_seconds": 0.448,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": "Sizes 14 8 2 4 2",
+        "cpu_seconds": 0.524,
+        "wall_seconds": 0.526,
+        "output": "ok"
+      }
+    },
+    "happy-codegen": {
+      "native-O0": {
+        "size": 20,
+        "cpu_seconds": 0.472,
+        "wall_seconds": 0.475,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": 70,
+        "cpu_seconds": 0.475,
+        "wall_seconds": 0.478,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": 86,
+        "cpu_seconds": 0.521,
+        "wall_seconds": 0.526,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": 35,
+        "cpu_seconds": 0.397,
+        "wall_seconds": 0.4,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": 10,
+        "cpu_seconds": 0.519,
+        "wall_seconds": 0.522,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": 69,
+        "cpu_seconds": 0.515,
+        "wall_seconds": 0.518,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": 75,
+        "cpu_seconds": 0.494,
+        "wall_seconds": 0.5,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": 35,
+        "cpu_seconds": 0.419,
+        "wall_seconds": 0.421,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": 8,
+        "cpu_seconds": 0.448,
+        "wall_seconds": 0.45,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": 35,
+        "cpu_seconds": 0.523,
+        "wall_seconds": 0.525,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": 42,
+        "cpu_seconds": 0.529,
+        "wall_seconds": 0.532,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": 16,
+        "cpu_seconds": 0.448,
+        "wall_seconds": 0.45,
+        "output": "ok"
+      }
+    },
+    "juicypixels-jpeg": {
+      "native-O0": {
+        "size": 153,
+        "cpu_seconds": 0.525,
+        "wall_seconds": 0.528,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": 823,
+        "cpu_seconds": 0.5,
+        "wall_seconds": 0.503,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": 1052,
+        "cpu_seconds": 0.508,
+        "wall_seconds": 0.51,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": 279,
+        "cpu_seconds": 0.492,
+        "wall_seconds": 0.494,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": 79,
+        "cpu_seconds": 0.485,
+        "wall_seconds": 0.487,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": 795,
+        "cpu_seconds": 0.516,
+        "wall_seconds": 0.519,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": 991,
+        "cpu_seconds": 0.503,
+        "wall_seconds": 0.507,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": 250,
+        "cpu_seconds": 0.41,
+        "wall_seconds": 0.412,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": 51,
+        "cpu_seconds": 0.394,
+        "wall_seconds": 0.399,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": 399,
+        "cpu_seconds": 0.539,
+        "wall_seconds": 0.543,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": 543,
+        "cpu_seconds": 0.507,
+        "wall_seconds": 0.516,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": 116,
+        "cpu_seconds": 0.512,
+        "wall_seconds": 0.518,
+        "output": "ok"
+      }
+    },
+    "pubgrub-solve": {
+      "native-O0": {
+        "size": 84,
+        "cpu_seconds": 0.576,
+        "wall_seconds": 0.579,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": 1820,
+        "cpu_seconds": 0.594,
+        "wall_seconds": 0.602,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": 2385,
+        "cpu_seconds": 0.585,
+        "wall_seconds": 0.598,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": 257,
+        "cpu_seconds": 0.478,
+        "wall_seconds": 0.487,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": 21,
+        "cpu_seconds": 0.573,
+        "wall_seconds": 0.575,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": 1802,
+        "cpu_seconds": 0.549,
+        "wall_seconds": 0.551,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": 2413,
+        "cpu_seconds": 0.534,
+        "wall_seconds": 0.536,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": 238,
+        "cpu_seconds": 0.472,
+        "wall_seconds": 0.481,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": 16,
+        "cpu_seconds": 0.469,
+        "wall_seconds": 0.486,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": 590,
+        "cpu_seconds": 0.549,
+        "wall_seconds": 0.56,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": 873,
+        "cpu_seconds": 0.538,
+        "wall_seconds": 0.54,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": 48,
+        "cpu_seconds": 0.489,
+        "wall_seconds": 0.491,
+        "output": "ok"
+      }
+    },
+    "rasterific-scene": {
+      "native-O0": {
+        "size": "(128, 44)",
+        "cpu_seconds": 0.501,
+        "wall_seconds": 0.504,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": "(512, 127)",
+        "cpu_seconds": 0.527,
+        "wall_seconds": 0.53,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": "(512, 457)",
+        "cpu_seconds": 0.507,
+        "wall_seconds": 0.509,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": "(512, 37)",
+        "cpu_seconds": 0.48,
+        "wall_seconds": 0.482,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": "(128, 14)",
+        "cpu_seconds": 0.488,
+        "wall_seconds": 0.491,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": "(512, 122)",
+        "cpu_seconds": 0.522,
+        "wall_seconds": 0.528,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": "(512, 437)",
+        "cpu_seconds": 0.517,
+        "wall_seconds": 0.524,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": "(512, 27)",
+        "cpu_seconds": 0.409,
+        "wall_seconds": 0.418,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": "(128, 10)",
+        "cpu_seconds": 0.516,
+        "wall_seconds": 0.52,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": "(512, 32)",
+        "cpu_seconds": 0.523,
+        "wall_seconds": 0.526,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": "(512, 147)",
+        "cpu_seconds": 0.513,
+        "wall_seconds": 0.515,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": "(128, 33)",
+        "cpu_seconds": 0.409,
+        "wall_seconds": 0.421,
+        "output": "ok"
+      }
+    },
+    "regex-log-extract": {
+      "native-O0": {
+        "size": 1504,
+        "cpu_seconds": 0.461,
+        "wall_seconds": 0.463,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": 25902,
+        "cpu_seconds": 0.475,
+        "wall_seconds": 0.484,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": 34734,
+        "cpu_seconds": 0.497,
+        "wall_seconds": 0.513,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": 4899,
+        "cpu_seconds": 0.495,
+        "wall_seconds": 0.502,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": 375,
+        "cpu_seconds": 0.468,
+        "wall_seconds": 0.474,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": 14740,
+        "cpu_seconds": 0.511,
+        "wall_seconds": 0.521,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": 21891,
+        "cpu_seconds": 0.512,
+        "wall_seconds": 0.521,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": 4661,
+        "cpu_seconds": 0.493,
+        "wall_seconds": 0.495,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": 292,
+        "cpu_seconds": 0.486,
+        "wall_seconds": 0.509,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": 5923,
+        "cpu_seconds": 0.537,
+        "wall_seconds": 0.557,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": 9276,
+        "cpu_seconds": 0.535,
+        "wall_seconds": 0.538,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": 1016,
+        "cpu_seconds": 0.527,
+        "wall_seconds": 0.53,
+        "output": "ok"
+      }
+    },
+    "rsa-verify": {
+      "native-O0": {
+        "size": 716,
+        "cpu_seconds": 0.456,
+        "wall_seconds": 0.459,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": 1277,
+        "cpu_seconds": 0.453,
+        "wall_seconds": 0.454,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": 1353,
+        "cpu_seconds": 0.462,
+        "wall_seconds": 0.463,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": 989,
+        "cpu_seconds": 0.466,
+        "wall_seconds": 0.467,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": 264,
+        "cpu_seconds": 0.465,
+        "wall_seconds": 0.467,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": 1241,
+        "cpu_seconds": 0.453,
+        "wall_seconds": 0.456,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": 1344,
+        "cpu_seconds": 0.451,
+        "wall_seconds": 0.453,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": 949,
+        "cpu_seconds": 0.453,
+        "wall_seconds": 0.455,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": 112,
+        "cpu_seconds": 0.457,
+        "wall_seconds": 0.465,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": 173,
+        "cpu_seconds": 0.442,
+        "wall_seconds": 0.444,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": 183,
+        "cpu_seconds": 0.449,
+        "wall_seconds": 0.451,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": 152,
+        "cpu_seconds": 0.453,
+        "wall_seconds": 0.455,
+        "output": "ok"
+      }
+    },
+    "sha-digest": {
+      "native-O0": {
+        "size": 42,
+        "cpu_seconds": 0.466,
+        "wall_seconds": 0.468,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": 2343,
+        "cpu_seconds": 0.418,
+        "wall_seconds": 0.423,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": 9060,
+        "cpu_seconds": 0.461,
+        "wall_seconds": 0.464,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": 196,
+        "cpu_seconds": 0.459,
+        "wall_seconds": 0.461,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": 11,
+        "cpu_seconds": 0.45,
+        "wall_seconds": 0.453,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": 3280,
+        "cpu_seconds": 0.5,
+        "wall_seconds": 0.507,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": 11161,
+        "cpu_seconds": 0.486,
+        "wall_seconds": 0.495,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": 200,
+        "cpu_seconds": 0.475,
+        "wall_seconds": 0.489,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": 9,
+        "cpu_seconds": 0.505,
+        "wall_seconds": 0.518,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": 704,
+        "cpu_seconds": 0.491,
+        "wall_seconds": 0.495,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": 7070,
+        "cpu_seconds": 0.461,
+        "wall_seconds": 0.468,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": 43,
+        "cpu_seconds": 0.47,
+        "wall_seconds": 0.478,
+        "output": "ok"
+      }
+    },
+    "snappy-roundtrip": {
+      "native-O0": {
+        "size": 5861,
+        "cpu_seconds": 0.445,
+        "wall_seconds": 0.448,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": 65000,
+        "cpu_seconds": 0.43,
+        "wall_seconds": 0.436,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": 64866,
+        "cpu_seconds": 0.42,
+        "wall_seconds": 0.426,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": 16754,
+        "cpu_seconds": 0.43,
+        "wall_seconds": 0.438,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": 1550,
+        "cpu_seconds": 0.464,
+        "wall_seconds": 0.466,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": 59583,
+        "cpu_seconds": 0.41,
+        "wall_seconds": 0.414,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": 64464,
+        "cpu_seconds": 0.424,
+        "wall_seconds": 0.432,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": 15886,
+        "cpu_seconds": 0.426,
+        "wall_seconds": 0.43,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": 1162,
+        "cpu_seconds": 0.461,
+        "wall_seconds": 0.464,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": 35180,
+        "cpu_seconds": 0.42,
+        "wall_seconds": 0.427,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": 36392,
+        "cpu_seconds": 0.43,
+        "wall_seconds": 0.434,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": 4395,
+        "cpu_seconds": 0.478,
+        "wall_seconds": 0.48,
+        "output": "ok"
+      }
+    },
+    "string-metrics": {
+      "native-O0": {
+        "size": 46,
+        "cpu_seconds": 0.481,
+        "wall_seconds": 0.5,
+        "output": "ok"
+      },
+      "native-O1": {
+        "size": 6161,
+        "cpu_seconds": 0.52,
+        "wall_seconds": 0.536,
+        "output": "ok"
+      },
+      "native-O2": {
+        "size": 9420,
+        "cpu_seconds": 0.497,
+        "wall_seconds": 0.51,
+        "output": "ok"
+      },
+      "native-Os": {
+        "size": 222,
+        "cpu_seconds": 0.48,
+        "wall_seconds": 0.505,
+        "output": "ok"
+      },
+      "llvm-O0": {
+        "size": 15,
+        "cpu_seconds": 0.513,
+        "wall_seconds": 0.523,
+        "output": "ok"
+      },
+      "llvm-O1": {
+        "size": 4978,
+        "cpu_seconds": 0.513,
+        "wall_seconds": 0.524,
+        "output": "ok"
+      },
+      "llvm-O2": {
+        "size": 9268,
+        "cpu_seconds": 0.485,
+        "wall_seconds": 0.487,
+        "output": "ok"
+      },
+      "llvm-Os": {
+        "size": 190,
+        "cpu_seconds": 0.457,
+        "wall_seconds": 0.464,
+        "output": "ok"
+      },
+      "wasm-O0": {
+        "size": 10,
+        "cpu_seconds": 0.548,
+        "wall_seconds": 0.561,
+        "output": "ok"
+      },
+      "wasm-O1": {
+        "size": 858,
+        "cpu_seconds": 0.518,
+        "wall_seconds": 0.537,
+        "output": "ok"
+      },
+      "wasm-O2": {
+        "size": 4417,
+        "cpu_seconds": 0.541,
+        "wall_seconds": 0.547,
+        "output": "ok"
+      },
+      "wasm-Os": {
+        "size": 38,
+        "cpu_seconds": 0.462,
+        "wall_seconds": 0.465,
+        "output": "ok"
+      }
+    }
+  }
+}
