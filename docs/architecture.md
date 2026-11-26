@@ -74,6 +74,15 @@ that dependency at `-O1` through the native backend in every profile and
 configuration. The stanza is part of a dependency's unit id, so each profile
 and backend builds its own store entry.
 
+The generated project also sets `jobs: $ncpus` and `semaphore: True`. Cabal
+already builds independent packages in parallel, but each GHC compiled its
+package's modules one at a time, while AIHC uses every core through `+RTS -N`.
+With the semaphore, cabal passes GHC a job server (`-jsem`) shared across the
+packages it builds, so modules compile in parallel without each package
+claiming every core. Neither field is part of a unit id. On a 12-core Mac it
+cut GHC native `-O2` compile time for arithmoi-factorise from 86 s to 60 s and
+for rasterific-scene from 194 s to 143 s.
+
 The boot libraries GHC ships -- `text`, `bytestring`, `containers` and the
 rest -- are compiled once, when the GHC release is built, at that release's
 optimization level. Left alone they would give the `O0` profile an optimized
@@ -87,15 +96,57 @@ they depend on (`template-haskell` reaches `ghc-boot-th`, `pretty` and
 `deepseq`), since a package cannot have an installed and a source instance in
 the same plan. A benchmark that only uses `base` is therefore unchanged.
 
-That rebuild happens inside the timed compile. Installing a dependency is
-part of what a compiler is being timed doing, and `text` is a dependency like
-any other: both compilers pay for every library a benchmark needs. The only
-thing prepared beforehand is each compiler's own core: the packages GHC wires
-in, which are not rebuilt at all, and `aihc-base` on the AIHC side
-(`_prepare_aihc_store`), which no benchmark builds either.
+### Core libraries
 
-A timed compile is correspondingly longer -- it now builds a dozen libraries
-before it reaches the benchmark. Even so, `measurement.compile_timeout_seconds`
+Most of that rebuild happens before the clock starts. `core_libraries` in
+`benchmark.json` names a package, `core/`, whose only job is to depend on the
+libraries nearly every benchmark shares: `array`, `binary`, `bytestring`,
+`containers`, `deepseq`, `exceptions`, `filepath`, `mtl`, `os-string`,
+`parsec`, `stm`, `text` and `transformers` (the boot libraries the benchmarks
+use) plus `primitive`, `vector` and `vector-stream`. Building it installs them
+into each compiler's store, and a benchmark's compile then finds them there.
+Its compile time covers its own code and the dependencies outside that set:
+`fgl` for `fgl-queries`, `JuicyPixels` and `zlib` for `juicypixels-jpeg`.
+
+Timing every library made a commit cost what its biggest dependency trees
+cost, twelve times over. Every AIHC cell rebuilt `text`, `containers` and
+`vector` for every benchmark, profile and backend. With GHC's baselines reused,
+compiling still took 4.4 to 6.4 hours of a commit on worker-nuc (2026-11-16 to
+2026-11-24). Those libraries are not what a benchmark asks about. A benchmark
+that wants a library's compile time measured, as `fgl-queries` does for `fgl`,
+simply does not list it as core.
+
+- AIHC: `_install_aihc_core` builds the core package into each commit's
+  store, once per target, collector and level, after `core-libs`.
+  `_archive_store` then snapshots the store with it, and every cell starts
+  from that snapshot.
+- GHC: `prepare_ghc_core_stores` builds the core package with each
+  configuration's own compile command into a store under
+  `.cache/ghc-core-stores`. GHC does not change with the commit, so the
+  store is kept until the command, the toolchains, the core package or
+  `compile_with_cabal.py` change, and it is built only when a GHC cell
+  actually has to compile (most commits reuse every baseline).
+  `with_ghc_core_stores` points each GHC cell at its configuration's store,
+  restored from its archive before the compile like AIHC's.
+
+A store entry is reused only when a benchmark's plan asks for exactly that
+unit, so the pins have to agree. `core/aihc.lock` carries the version,
+revision and flags of each core library and of what they depend on. Every
+benchmark's `aihc.lock` matches it (`tests/test_core_libraries.py`), so
+changing a core version means changing the benchmarks' locks with it. On the
+GHC side `--core-freeze` pins the core libraries in the generated project and
+takes the later of the two index states. It doesn't pin the ones GHC cannot
+rebuild: 9.14.1's `template-haskell` reaches `deepseq`, so `deepseq` stays as
+GHC shipped it, as it does for every benchmark. A mismatch does not break a
+benchmark. It just rebuilds that library inside the timed compile again,
+which is why the tests guard it.
+
+If a core build fails for one target or configuration, the runner warns and
+carries on. That configuration's cells then build the core libraries
+themselves, slower but still measured.
+
+A timed compile still builds the libraries outside the core set before it
+reaches the benchmark. Even so, `measurement.compile_timeout_seconds`
 is 600: a compile that takes ten minutes is recorded as `compile_timed_out`, a
 failure, not a result. Compiles run one at a time, and a run uploads nothing
 until every cell of the commit is done, so a few slow compiles held a whole
@@ -110,10 +161,11 @@ waits for the pipes to close. Under `compile_with_cabal.py` those pipes are
 held by cabal and ghc, so the old timeout returned only once the build had
 finished anyway.
 
-That makes each compile's starting state part of the measurement. GHC has it
-already: cabal gets a private store per configuration under the build
+That makes each compile's starting state part of the measurement. Without a
+core store, cabal gets a private store per configuration under the build
 directory, and `compile_one` deletes that directory before every compile, so
-each one starts empty. AIHC's store is shared by every cell of a commit, so
+each one starts empty. A GHC core store, and AIHC's store, are shared by
+every cell that uses them, so
 `_archive_store` snapshots it as preparation left it and `_restore_store`
 puts it back before each compile; otherwise the second benchmark to use
 `bytestring` in a configuration would find it already installed and its

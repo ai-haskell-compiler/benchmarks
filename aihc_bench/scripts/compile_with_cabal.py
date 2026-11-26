@@ -37,8 +37,13 @@ the level its own release was built with, so an ``O0`` profile otherwise
 linked an optimized ``text`` and ``containers`` while AIHC compiled its
 equivalents at ``-O0``. ``base`` and the rest of ``WIRED_IN_PACKAGES`` cannot
 move. The rebuild happens inside the timed compile, where every other
-dependency is built: ``text`` is a dependency like any other, and both
-compilers are timed installing it.
+dependency is built, unless the library is one of the core libraries.
+
+The core libraries (``--core-freeze``, the suite's ``core`` package) are the
+exception. The runner installs them into ``--store-dir`` before the clock
+starts, and this script pins them to the versions installed there, so a
+benchmark that uses ``text`` finds it already built and is timed on its own
+code and its other dependencies.
 
 The toolchain's ``ghc-pkg`` and ``hsc2hs`` are always passed explicitly, and
 the same tools are also put on ``PATH`` under their bare names. Cabal
@@ -70,6 +75,17 @@ from aihc_bench.freeze import parse_freeze, parse_freeze_flags  # noqa: E402
 #: Run GHC itself with every core available.  ``-N`` alone needs the threaded
 #: RTS, which every GHC the suite measures is built with.
 RTS_OPTIONS = "+RTS -N -RTS"
+
+# Cabal builds independent packages in parallel by default, but each GHC
+# compiles its package's modules one at a time, so a package with many modules
+# (or a dependency chain) leaves most cores idle; AIHC uses every core through
+# ``+RTS -N``. ``semaphore`` hands GHC a jobserver semaphore (``-jsem``) shared
+# with cabal's package jobs, so modules compile in parallel without N packages
+# each claiming N cores. Neither field is part of a unit id, so the prepared
+# core store is still reused. On a 12-core Mac this cut GHC native -O2 compile
+# time by about a third for arithmoi-factorise and a quarter for
+# rasterific-scene.
+PARALLELISM = "jobs: $ncpus\nsemaphore: True\n"
 
 # The cabal -O level for each benchmark profile. GHC has no size-oriented
 # level, so the Os profile records what GHC produces at -O1.
@@ -109,6 +125,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--cabal", default="cabal", help="cabal-install binary (default: cabal on PATH)")
     parser.add_argument("--optimization", required=True, choices=["O0", "O1", "O2", "Os"], help="benchmark profile; GHC has no size level, so Os builds with -O1")
     parser.add_argument("--ghc-option", action="append", default=[], help="extra -f.../-rtsopts flag, repeatable")
+    parser.add_argument("--store-dir", type=Path, help="cabal store (default: <build-dir>/store)")
+    parser.add_argument("--core-freeze", type=Path, help="freeze file of the core libraries prepared in --store-dir")
     args = parser.parse_args(argv)
     args.source = args.source.resolve()
     args.build_dir = args.build_dir.resolve()
@@ -117,6 +135,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     args.ghc_pkg = Path(args.ghc_pkg) if args.ghc_pkg else sibling_tool(args.ghc, "ghc-pkg")
     args.hsc2hs = Path(args.hsc2hs) if args.hsc2hs else sibling_tool(args.ghc, "hsc2hs")
     args.ghc_level = GHC_LEVELS[args.optimization]
+    args.store_dir = (args.store_dir or args.build_dir / "store").resolve()
+    args.core_freeze = args.core_freeze.resolve() if args.core_freeze else None
     return args
 
 
@@ -282,6 +302,37 @@ def package_stanza(ghc_level: str, ghc_options: list[str]) -> str:
     return f"package *\n  optimization: {ghc_level[1:]}\n  ghc-options: {options}\n"
 
 
+def core_constraints(core_freeze: Path, bound: set[str]) -> tuple[list[str], set[str]]:
+    """Pin every core library to the version prepared in the store.
+
+    A store entry is reused only when the plan asks for exactly the unit it
+    holds: same version, flags and dependencies. The boot libraries among the
+    core set would otherwise be solved afresh per benchmark (``boot_constraints``
+    leaves their version open), so a benchmark could pick a different ``text``
+    and rebuild it inside the timed compile. Returns the constraints and the
+    names they cover, which the benchmark's own pins then leave alone.
+
+    A core library the compiler cannot let go of (``bound``: GHC 9.14.1's
+    ``template-haskell`` reaches ``deepseq``) stays as GHC shipped it, as it
+    does for every benchmark, so it is not pinned.
+    """
+    pinned = {name: version for name, version in parse_freeze(core_freeze).items() if name not in bound}
+    flags = {name: assignment for name, assignment in parse_freeze_flags(core_freeze).items() if name not in bound}
+    constraints = [f"any.{name} =={version}" for name, version in sorted(pinned.items())]
+    constraints += [f"{name} {assignment}" for name, assignment in sorted(flags.items())]
+    return constraints, set(pinned)
+
+
+def later_index_state(*states: str | None) -> str | None:
+    """The latest of several ``index-state`` values; the core pins need theirs.
+
+    Both have the form ``hackage.haskell.org 2026-11-23T12:42:18Z`` (or a bare
+    timestamp), and ISO timestamps sort as text.
+    """
+    present = [state for state in states if state]
+    return max(present, key=lambda state: state.split()[-1]) if present else None
+
+
 def project_body(args: argparse.Namespace) -> str:
     """Everything below ``packages:``: the constraints, the bound relaxation
     they need, the index state and the ``package *`` stanza."""
@@ -290,17 +341,27 @@ def project_body(args: argparse.Namespace) -> str:
     boot_libraries = boot_library_packages(args.ghc_pkg)
     bound = compiler_bound_packages(global_packages(args.ghc_pkg))
     constraints = boot_constraints(boot_libraries)
+    core: set[str] = set()
     index_state = None
+    if args.core_freeze:
+        core_pins, core = core_constraints(args.core_freeze, bound)
+        constraints += core_pins
+        found = _INDEX_STATE.search(args.core_freeze.read_text(encoding="utf-8"))
+        index_state = found.group(1) if found else None
     if freeze_file.is_file():
-        constraints += project_constraints(freeze_file, installed_packages(args.ghc_pkg))
-        constraints += flag_constraints(freeze_file, bound)
-        index_state = _INDEX_STATE.search(freeze_file.read_text(encoding="utf-8"))
+        constraints += project_constraints(freeze_file, installed_packages(args.ghc_pkg) | core)
+        constraints += [
+            constraint for constraint in flag_constraints(freeze_file, bound) if constraint.split()[0] not in core
+        ]
+        found = _INDEX_STATE.search(freeze_file.read_text(encoding="utf-8"))
+        index_state = later_index_state(index_state, found.group(1) if found else None)
     if constraints:
         contents.append("constraints: " + ",\n             ".join(constraints) + "\n")
     if boot_libraries:
         contents.append(f"allow-newer: {boot_allow_newer(boot_libraries, bound)}\n")
     if index_state:
-        contents.append(f"index-state: {index_state.group(1)}\n")
+        contents.append(f"index-state: {index_state}\n")
+    contents.append(PARALLELISM)
     # Last: a ``package`` stanza is indentation-delimited, so anything written
     # after it would have to stay unindented to remain a top-level field.
     contents.append(package_stanza(args.ghc_level, args.ghc_option))
@@ -339,7 +400,9 @@ def cabal_command(args: argparse.Namespace, project_file: Path, verb: str) -> li
         # others; concurrent configurations also raced to create the shared
         # store's package db ("cannot create: ... package.db already exists").
         # This is a global flag, so it precedes the verb.
-        f"--store-dir={args.build_dir / 'store'}",
+        # The runner may pass a store it prepared with the core libraries
+        # (``--store-dir``) and restores before every compile.
+        f"--store-dir={args.store_dir}",
         verb,
         f"--project-file={project_file}",
         f"--builddir={args.build_dir / 'dist'}",

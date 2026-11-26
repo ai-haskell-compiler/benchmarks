@@ -13,7 +13,7 @@
       {"name": "array", "version": "0.5.8.0", "source": "hackage", "revision": 2},
       {"name": "binary", "version": "0.8.9.3", "source": "hackage", "revision": 0},
       {"name": "bytestring", "version": "0.12.2.0", "source": "hackage", "revision": 1},
-      {"name": "containers", "version": "0.8", "source": "hackage", "revision": 0},
+      {"name": "containers", "version": "0.8.1", "source": "hackage", "revision": 0},
       {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
       {"name": "sha-digest", "version": "0.1.0.0", "source": "local"}
     ],
@@ -27,7 +27,7 @@
       {"name": "array", "version": "0.5.8.0", "source": "hackage", "revision": 2},
       {"name": "binary", "version": "0.8.9.3", "source": "hackage", "revision": 0},
       {"name": "bytestring", "version": "0.12.2.0", "source": "hackage", "revision": 1},
-      {"name": "containers", "version": "0.8", "source": "hackage", "revision": 0},
+      {"name": "containers", "version": "0.8.1", "source": "hackage", "revision": 0},
       {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
       {"name": "sha-digest", "version": "0.1.0.0", "source": "local"}
     ],
@@ -41,7 +41,7 @@
       {"name": "array", "version": "0.5.8.0", "source": "hackage", "revision": 2},
       {"name": "binary", "version": "0.8.9.3", "source": "hackage", "revision": 0},
       {"name": "bytestring", "version": "0.12.2.0", "source": "hackage", "revision": 1},
-      {"name": "containers", "version": "0.8", "source": "hackage", "revision": 0},
+      {"name": "containers", "version": "0.8.1", "source": "hackage", "revision": 0},
       {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
       {"name": "sha-digest", "version": "0.1.0.0", "source": "local"}
     ]

@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from aihc_bench.scripts.compile_with_cabal import (
+    PARALLELISM,
     RTS_OPTIONS,
     boot_allow_newer,
     boot_constraints,
@@ -160,6 +161,7 @@ class CompileWithCabalTests(unittest.TestCase):
                 )
                 + "\n"
                 "index-state: hackage.haskell.org 2026-09-10T11:00:24Z\n"
+                f"{PARALLELISM}"
                 f"package *\n  optimization: 1\n  ghc-options: {RTS_OPTIONS}\n",
             )
 
@@ -279,6 +281,20 @@ class CompileWithCabalTests(unittest.TestCase):
             self.assertEqual(lines[-3], "package *")
             self.assertTrue(all(line.startswith("  ") for line in lines[-2:]), lines[-2:])
 
+    def test_ghc_compiles_modules_in_parallel(self):
+        """Cabal hands GHC a shared job semaphore, as top-level fields that
+        stay outside the ``package *`` stanza."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "pkg"
+            source.mkdir()
+            fake_ghc_pkg_dump(root, "ghc-pkg-9.14.1")
+            args = parse_args(["--source", str(source), "--build-dir", str(root / "build"), "--artifact", str(root / "out"), "--exe", "pkg", "--ghc", str(root / "ghc-9.14.1"), "--optimization", "O0"])
+            lines = generate_project_file(args).read_text(encoding="utf-8").splitlines()
+            stanza = lines.index("package *")
+            self.assertIn("jobs: $ncpus", lines[:stanza])
+            self.assertIn("semaphore: True", lines[:stanza])
+
     def test_list_bin_repeats_the_build_configuration(self):
         args = parse_args(["--source", "/src", "--build-dir", "/build", "--artifact", "/out", "--exe", "pkg", "--ghc", "/t/bin/ghc-9.14.1-wasm", "--optimization", "Os", "--ghc-option=-rtsopts"])
         build = cabal_command(args, Path("/build/cabal.project"), "build")
@@ -307,6 +323,39 @@ class CompileWithCabalTests(unittest.TestCase):
         # "unrecognized 'build' option".
         self.assertEqual(build[1], "--store-dir=/build/store")
         self.assertEqual(build[2], "build")
+
+    def test_a_prepared_store_replaces_the_private_one(self):
+        args = parse_args(["--source", "/src", "--build-dir", "/build", "--artifact", "/out", "--exe", "pkg", "--ghc", "/t/bin/ghc-9.14.1", "--optimization", "O2", "--store-dir", "/core/store"])
+        self.assertEqual(cabal_command(args, Path("/build/cabal.project"), "build")[1], "--store-dir=/core/store")
+
+    def test_core_libraries_are_pinned_to_the_prepared_versions(self):
+        """The store entries the runner prepared are reused only if the plan
+        asks for the same versions, so the core pins win over the benchmark's
+        own (bytestring here) and over leaving a boot library open (text). The
+        later index state is kept, since the core pins may need it; deepseq
+        stays as GHC ships it, because template-haskell reaches it."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "pkg"
+            source.mkdir()
+            (source / "cabal.project.freeze").write_text(FREEZE, encoding="utf-8")
+            core = root / "core.freeze"
+            core.write_text(
+                "constraints: any.bytestring ==0.12.3.0,\n"
+                "             any.deepseq ==1.5.2.0,\n"
+                "             any.text ==2.1.4\n"
+                "index-state: hackage.haskell.org 2026-11-23T12:42:18Z\n",
+                encoding="utf-8",
+            )
+            fake_ghc_pkg_dump(root, "ghc-pkg-9.14.1")
+            args = parse_args(["--source", str(source), "--build-dir", str(root / "build"), "--artifact", str(root / "out"), "--exe", "pkg", "--ghc", str(root / "ghc-9.14.1"), "--optimization", "O1", "--core-freeze", str(core)])
+            project = generate_project_file(args).read_text(encoding="utf-8")
+            constraints = project.split("constraints: ", 1)[1].split("\nallow-newer", 1)[0]
+            self.assertEqual(
+                [line.strip().rstrip(",") for line in constraints.splitlines()],
+                ["any.bytestring source", "any.text source", "any.bytestring ==0.12.3.0", "any.text ==2.1.4", "any.snappy-hs ==0.1.2.0"],
+            )
+            self.assertIn("index-state: hackage.haskell.org 2026-11-23T12:42:18Z\n", project)
 
     def test_ghc_is_given_the_whole_machine(self):
         """Compile time is measured multithreaded, so GHC itself runs with -N,

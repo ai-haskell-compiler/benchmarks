@@ -138,14 +138,17 @@ bounds on other boot libraries still hold: relaxing every bound let the
 solver keep `unix`'s `os-string` flag off, the branch that wants
 `filepath <1.5`, while choosing `filepath-1.5`, and `unix` failed to compile.
 
-Both compilers are timed installing every dependency a benchmark has,
-`text` included. The only libraries prepared beforehand are the compiler's
-own: the packages GHC wires in, and AIHC's core libraries -- `aihc-base`,
-`aihc-internal`, `aihc-prim`, `aihc-rts` and `aihc-template-haskell`, the set
-AIHC's own lock marks `"source": "core"`. Preparing `aihc-base` alone left the
-rest inside the timed compile, so a benchmark reaching `bytestring` rebuilt
-about 11 MB of core library in every cell while GHC never rebuilds its
-wired-in closure at all. Every artifact is stripped before its size is recorded: `llvm-strip` for native binaries and
+Both compilers are timed installing a benchmark's dependencies, except the
+core libraries. Those are `core/`'s dependencies: `text`, `binary`,
+`containers`, `vector` and the other libraries nearly every benchmark shares.
+They are built once, before the clock starts, into each compiler's store,
+beside each compiler's own core: the packages GHC wires in and AIHC's
+`aihc-base`, `aihc-internal`, `aihc-prim`, `aihc-rts` and
+`aihc-template-haskell`. So `fgl-queries` is timed compiling `fgl` and itself,
+not `containers`. A benchmark's `aihc.lock` and freeze file must pin the core
+libraries exactly as `core/` does, or it rebuilds them inside the timed compile;
+`tests/test_core_libraries.py` checks this. See "Core libraries" in
+`docs/architecture.md`. Every artifact is stripped before its size is recorded: `llvm-strip` for native binaries and
 `wasm-tools strip --all` for Wasm, which also handles the component AIHC
 emits. Stripping happens after the timed compile. GHC is measured with its
 native and LLVM backends, and with the `ghc-wasm-meta` cross-compiler for
@@ -417,10 +420,11 @@ modules without a parse error, imports and declarations across every tree --
 against the one recorded for its count and prints `ok`, so a miscompiled
 parser fails the run rather than producing a number.
 
-Before the timed compile the runner installs `aihc-base` and the dependencies
-GHC ships as boot libraries into a per-commit store, once per target and
-optimization level, so both toolchains pay for the same work inside the timed
-step: the benchmark and its non-boot Hackage dependencies.
+Before the timed compile the runner installs AIHC's core libraries and the
+suite's core libraries (`core/`) into a per-commit store, once per target and
+optimization level. GHC gets the same libraries in a prepared store, so both
+toolchains are timed doing the same work: the benchmark and its dependencies
+outside the core set.
 
 Every commit in a run resolves against one Hackage index. AIHC refetches
 its index once the derived table is a day old, and a sweep runs for days, so
