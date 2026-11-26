@@ -98,6 +98,16 @@ def load_config(path: Path) -> Dict[str, Any]:
                 raise ConfigError(f"benchmark {benchmark['id']}: unsupported_backends names backends no configuration has: {', '.join(unknown)}")
     config["_corpus_sha256"] = corpus_hashes
     config["_package_sha256"] = package_hashes
+    core = config.get("core_libraries")
+    if core is not None:
+        if not isinstance(core, str) or not core:
+            raise ConfigError("core_libraries must name the core package's directory")
+        core_dir = (path.parent / core).resolve()
+        for required in (f"{CORE_PACKAGE}.cabal", "aihc.lock", "cabal.project.freeze"):
+            if not (core_dir / required).is_file():
+                raise ConfigError(f"core_libraries: {core_dir} has no {required}")
+        config["_core_dir"] = str(core_dir)
+        config["_core_sha256"] = _hash_directory(core_dir)
     toolchain_hasher = hashlib.sha256()
     for toolchain_file in (path.parent / "flake.nix", path.parent / "flake.lock"):
         if toolchain_file.is_file():
@@ -133,6 +143,11 @@ def load_config(path: Path) -> Dict[str, Any]:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
             raise ConfigError(f"{name} must be a positive number")
     return config
+
+
+#: The package in ``core_libraries`` whose build installs the core libraries;
+#: see ``runner.prepare_ghc_core_stores`` and ``runner._install_aihc_core``.
+CORE_PACKAGE = "core-libraries"
 
 
 def _hash_directory(source: Path) -> str:
@@ -251,6 +266,9 @@ def benchmark_experiment_id(config: Dict[str, Any], benchmark: Dict[str, Any]) -
         "corpus_sha256": config.get("_corpus_sha256", {}).get(benchmark["id"]),
         # A package from the flake is the program under measurement.
         "package_sha256": config.get("_package_sha256", {}).get(benchmark["id"]),
+        # The core libraries are built before the clock starts, so which ones
+        # they are decides what a compile time covers.
+        "core_sha256": config.get("_core_sha256"),
         "configurations": config["configurations"],
         "toolchain_sha256": config.get("_toolchain_sha256"),
         "runner_version": config.get("_runner_version"),

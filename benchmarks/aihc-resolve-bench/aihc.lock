@@ -92,7 +92,7 @@
       {"name": "primitive", "version": "0.9.1.0", "source": "hackage", "revision": 1},
       {"name": "scientific", "version": "0.3.9.0", "source": "hackage", "revision": 0, "flags": {"integer-simple": false}},
       {"name": "stm", "version": "2.5.3.1", "source": "hackage", "revision": 1},
-      {"name": "text", "version": "2.1.4", "source": "hackage", "revision": 0},
+      {"name": "text", "version": "2.1.4", "source": "hackage", "revision": 0, "flags": {"pure-haskell": true, "simdutf": false}},
       {"name": "transformers", "version": "0.6.3.0", "source": "hackage", "revision": 2}
     ]
   }

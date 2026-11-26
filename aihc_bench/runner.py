@@ -10,13 +10,13 @@ import sys
 import tarfile
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from . import progress
-from .config import expand_command
+from .config import CORE_PACKAGE, ConfigError, expand_command
 from .database import Database
 from .git_history import GitError, create_worktree, fetch, path_exists, remove_worktree, rev_parse
 from .git_dependencies import GitDependencyError, package_names, stage_git_dependencies
@@ -189,6 +189,15 @@ def run_commit(
         )
         reused = reusable_baselines(database, config, experiments, platform_id, environment)
         cells = [cell for cell in cells if (cell.benchmark["id"], cell.configuration["id"]) not in reused]
+        with phases.timing("ghc_core"):
+            ghc_core = prepare_ghc_core_stores(
+                config,
+                platform_id,
+                root,
+                [cell.configuration for cell in cells if cell.compile_command and not cell.setup_error],
+                setup_timeout,
+            )
+        cells = with_ghc_core_stores(cells, ghc_core, config.get("_core_dir"))
         with phases.timing("compile"):
             compiled = compile_cells(cells, root, compile_timeout)
         # A reused baseline is a baseline: it compiled and ran here, inside
@@ -1318,14 +1327,16 @@ def _prepare_aihc_store(
     *,
     compiler: Path,
 ) -> Dict[str, str]:
-    """Prepare runtimes and install ``aihc-base`` per target, with ``compiler``.
+    """Prepare runtimes, the core libraries and the core package, per build.
 
     ``aihc build`` resolves and installs the dependencies of a benchmark's
-    Cabal package itself, inside the timed compile, and that is where they
-    belong: installing a dependency is part of what a compiler is being timed
-    doing, for ``text`` as much as for ``snappy-hs``. Only ``aihc-base`` is
-    installed here -- AIHC's ``base``, the counterpart of the packages GHC
-    wires into the compiler, which no benchmark builds either.
+    Cabal package itself, inside the timed compile. What it finds already in
+    the store it does not build again, so two sets are installed here first:
+    AIHC's own ``core-libs`` (``aihc-base`` and friends, the counterpart of
+    the packages GHC wires into the compiler) and the suite's core libraries
+    (``text``, ``containers``, ...; see ``_install_aihc_core``), which every
+    benchmark would otherwise rebuild at every profile. A benchmark's compile
+    time then covers its own code and the dependencies outside that set.
 
     Returns setup errors keyed by target. A target whose runtime or library
     preparation fails does not affect the others, so a missing Wasm sysroot
@@ -1396,7 +1407,191 @@ def _prepare_aihc_store(
                 # The timed compile builds it instead, as it did before this
                 # was prepared: slower and not comparable, but measurable.
                 setup_notes.setdefault(target, []).append(error.splitlines()[0])
+    core_package = config.get("_core_dir")
+    for target, garbage_collector, optimization, environment in builds:
+        if target in errors or not core_package:
+            continue
+        error = _install_aihc_core(
+            Path(core_package), compiler, worktree, store, target, garbage_collector, optimization, environment, timeout_seconds
+        )
+        if error:
+            # As above: the benchmarks then build the core libraries they
+            # use inside the timed compile.
+            print(f"warning: {error.splitlines()[0]}", file=sys.stderr)
+            setup_notes.setdefault(target, []).append(error.splitlines()[0])
     return errors
+
+
+def _install_aihc_core(
+    core_package: Path,
+    compiler: Path,
+    worktree: Path,
+    store: Path,
+    target: str,
+    garbage_collector: str,
+    optimization: str,
+    environment: Dict[str, str],
+    timeout_seconds: float,
+) -> Optional[str]:
+    """Build the core package into ``store``, which installs the core libraries.
+
+    The package's ``aihc.lock`` pins every core library to the version,
+    revision and flags the benchmarks' locks use, so a benchmark's plan asks
+    for exactly the store entries this leaves behind. The build happens in a
+    scratch copy: ``aihc build`` may rewrite the lock, and it insists that a
+    package's directory carries the package's name.
+    """
+    scratch = store.parent / f"{store.name}-core" / f"{target}-{garbage_collector}-{optimization}"
+    shutil.rmtree(scratch, ignore_errors=True)
+    copy = scratch / CORE_PACKAGE
+    shutil.copytree(core_package, copy)
+    command = [
+        str(compiler),
+        "build",
+        str(copy),
+        "--target",
+        target,
+        "--gc",
+        garbage_collector,
+        f"-{optimization}",
+        "-o",
+        str(scratch / "out"),
+        "--store",
+        str(store),
+        "--build-root",
+        str(scratch / "build"),
+        *AIHC_RTS_OPTIONS,
+    ]
+    if runtime_is_package(worktree):
+        command = _without_gc_option(command)
+    try:
+        return _run_setup_command(
+            command, worktree, timeout_seconds, environment, f"build of the core libraries for {target} at -{optimization}"
+        )
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+#: Where the GHC core stores live. Unlike AIHC's store they do not depend on
+#: the commit under test, so they outlive it; see ``prepare_ghc_core_stores``.
+GHC_CORE_STORES = "ghc-core-stores"
+
+
+def prepare_ghc_core_stores(
+    config: Dict[str, Any],
+    platform_id: str,
+    root: Path,
+    configurations: Iterable[Dict[str, Any]],
+    timeout_seconds: float,
+) -> Dict[str, Path]:
+    """A cabal store with the core libraries, per GHC configuration, archived.
+
+    Returns the archive (``_restore_store``'s input) by configuration id. A
+    store is built by compiling the core package with the configuration's own
+    compile command, so the libraries get exactly the flags a benchmark's
+    plan asks for, and kept for as long as nothing it depends on changes: the
+    command, the toolchains, the core package and the script that turns them
+    into a cabal project. GHC cells are compiled only when no baseline can be
+    reused, so most commits build none of these.
+
+    A configuration whose store fails to build is left out, with a warning:
+    its cells compile the core libraries inside the timed compile, as before.
+    """
+    core_package = config.get("_core_dir")
+    if not core_package:
+        return {}
+    core = Path(core_package)
+    script = Path(__file__).resolve().parent / "scripts" / "compile_with_cabal.py"
+    toolchains = os.environ.get("AIHC_BENCH_TOOLCHAINS", "")
+    platform_values = config["platforms"][platform_id]
+    archives: Dict[str, Path] = {}
+    for configuration in configurations:
+        if configuration["compiler_family"] != "ghc" or configuration["id"] in archives:
+            continue
+        identity = hashlib.sha256(
+            "\0".join(
+                [
+                    platform_id,
+                    repr(configuration["compile"]),
+                    toolchains,
+                    config.get("_core_sha256", ""),
+                    hashlib.sha256(script.read_bytes()).hexdigest(),
+                ]
+            ).encode("utf-8")
+        ).hexdigest()[:12]
+        directory = root / ".cache" / GHC_CORE_STORES / platform_id / f"{configuration['id']}-{identity}"
+        store = directory / "store"
+        archive = store.with_name(f"{store.name}-prepared.tar")
+        if archive.is_file():
+            archives[configuration["id"]] = archive
+            continue
+        error = _build_ghc_core_store(configuration, core, directory, store, root, toolchains, platform_values, timeout_seconds)
+        if error:
+            print(f"warning: core libraries for {configuration['id']}: {error.splitlines()[0]}", file=sys.stderr)
+            shutil.rmtree(directory, ignore_errors=True)
+            continue
+        archives[configuration["id"]] = _archive_store(store) or archive
+        # The archive is what cells restore; the store itself is rebuilt from
+        # it before each compile.
+        shutil.rmtree(directory / "build", ignore_errors=True)
+    return archives
+
+
+def _build_ghc_core_store(
+    configuration: Dict[str, Any],
+    core: Path,
+    directory: Path,
+    store: Path,
+    root: Path,
+    toolchains: str,
+    platform_values: Dict[str, Any],
+    timeout_seconds: float,
+) -> Optional[str]:
+    shutil.rmtree(directory, ignore_errors=True)
+    directory.mkdir(parents=True)
+    values = {
+        "root": str(root),
+        "source": str(core),
+        "package": CORE_PACKAGE,
+        "build_dir": str(directory / "build"),
+        "artifact": str(directory / "program"),
+        "artifact_dir": str(directory),
+        "toolchains": toolchains,
+        **{key: str(value) for key, value in platform_values.items()},
+    }
+    try:
+        command = expand_command(configuration["compile"], values)
+    except ConfigError as error:
+        return str(error)
+    command += ["--store-dir", str(store), "--core-freeze", str(core / "cabal.project.freeze")]
+    try:
+        process = run_command(command, root, timeout_seconds, _compile_environment(configuration))
+    except subprocess.TimeoutExpired:
+        return f"timed out after {timeout_seconds:g} seconds"
+    if process.returncode == -signal.SIGKILL:
+        raise MachineFault(f"building the core libraries for {configuration['id']} was killed ({killed_by_hint(process.returncode)})")
+    if process.returncode != 0:
+        return f"failed with exit code {process.returncode}:\n{(process.stderr or process.stdout)[-8192:]}"
+    return None
+
+
+def with_ghc_core_stores(cells: Iterable[Cell], archives: Dict[str, Path], core_package: Optional[str]) -> List[Cell]:
+    """Point each GHC cell at its configuration's prepared store.
+
+    The cell compiles against the store restored from the archive, with the
+    core libraries pinned to what it holds (``--core-freeze``); a cell whose
+    configuration has no store keeps its private one.
+    """
+    attached = []
+    for cell in cells:
+        archive = archives.get(cell.configuration["id"])
+        if cell.configuration["compiler_family"] != "ghc" or not cell.compile_command or archive is None or not core_package:
+            attached.append(cell)
+            continue
+        store = archive.with_name(archive.name[: -len("-prepared.tar")])
+        command = [*cell.compile_command, "--store-dir", str(store), "--core-freeze", str(Path(core_package) / "cabal.project.freeze")]
+        attached.append(replace(cell, compile_command=command, store_archive=archive))
+    return attached
 
 
 #: AIHC's counterpart of the packages GHC wires into the compiler. GHC never
