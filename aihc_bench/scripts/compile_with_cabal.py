@@ -76,6 +76,17 @@ from aihc_bench.freeze import parse_freeze, parse_freeze_flags  # noqa: E402
 #: RTS, which every GHC the suite measures is built with.
 RTS_OPTIONS = "+RTS -N -RTS"
 
+# Cabal builds independent packages in parallel by default, but each GHC
+# compiles its package's modules one at a time, so a package with many modules
+# (or a dependency chain) leaves most cores idle; AIHC uses every core through
+# ``+RTS -N``. ``semaphore`` hands GHC a jobserver semaphore (``-jsem``) shared
+# with cabal's package jobs, so modules compile in parallel without N packages
+# each claiming N cores. Neither field is part of a unit id, so the prepared
+# core store is still reused. On a 12-core Mac this cut GHC native -O2 compile
+# time by about a third for arithmoi-factorise and a quarter for
+# rasterific-scene.
+PARALLELISM = "jobs: $ncpus\nsemaphore: True\n"
+
 # The cabal -O level for each benchmark profile. GHC has no size-oriented
 # level, so the Os profile records what GHC produces at -O1.
 GHC_LEVELS = {"O0": "O0", "O1": "O1", "O2": "O2", "Os": "O1"}
@@ -350,6 +361,7 @@ def project_body(args: argparse.Namespace) -> str:
         contents.append(f"allow-newer: {boot_allow_newer(boot_libraries, bound)}\n")
     if index_state:
         contents.append(f"index-state: {index_state}\n")
+    contents.append(PARALLELISM)
     # Last: a ``package`` stanza is indentation-delimited, so anything written
     # after it would have to stay unindented to remain a top-level field.
     contents.append(package_stanza(args.ghc_level, args.ghc_option))

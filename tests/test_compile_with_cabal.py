@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from aihc_bench.scripts.compile_with_cabal import (
+    PARALLELISM,
     RTS_OPTIONS,
     boot_allow_newer,
     boot_constraints,
@@ -160,6 +161,7 @@ class CompileWithCabalTests(unittest.TestCase):
                 )
                 + "\n"
                 "index-state: hackage.haskell.org 2026-09-10T11:00:24Z\n"
+                f"{PARALLELISM}"
                 f"package *\n  optimization: 1\n  ghc-options: {RTS_OPTIONS}\n",
             )
 
@@ -278,6 +280,20 @@ class CompileWithCabalTests(unittest.TestCase):
             lines = generate_project_file(args).read_text(encoding="utf-8").splitlines()
             self.assertEqual(lines[-3], "package *")
             self.assertTrue(all(line.startswith("  ") for line in lines[-2:]), lines[-2:])
+
+    def test_ghc_compiles_modules_in_parallel(self):
+        """Cabal hands GHC a shared job semaphore, as top-level fields that
+        stay outside the ``package *`` stanza."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "pkg"
+            source.mkdir()
+            fake_ghc_pkg_dump(root, "ghc-pkg-9.14.1")
+            args = parse_args(["--source", str(source), "--build-dir", str(root / "build"), "--artifact", str(root / "out"), "--exe", "pkg", "--ghc", str(root / "ghc-9.14.1"), "--optimization", "O0"])
+            lines = generate_project_file(args).read_text(encoding="utf-8").splitlines()
+            stanza = lines.index("package *")
+            self.assertIn("jobs: $ncpus", lines[:stanza])
+            self.assertIn("semaphore: True", lines[:stanza])
 
     def test_list_bin_repeats_the_build_configuration(self):
         args = parse_args(["--source", "/src", "--build-dir", "/build", "--artifact", "/out", "--exe", "pkg", "--ghc", "/t/bin/ghc-9.14.1-wasm", "--optimization", "Os", "--ghc-option=-rtsopts"])

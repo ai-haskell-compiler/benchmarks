@@ -74,6 +74,15 @@ that dependency at `-O1` through the native backend in every profile and
 configuration. The stanza is part of a dependency's unit id, so each profile
 and backend builds its own store entry.
 
+The generated project also sets `jobs: $ncpus` and `semaphore: True`. Cabal
+already builds independent packages in parallel, but each GHC compiled its
+package's modules one at a time, while AIHC uses every core through `+RTS -N`.
+With the semaphore, cabal passes GHC a job server (`-jsem`) shared across the
+packages it builds, so modules compile in parallel without each package
+claiming every core. Neither field is part of a unit id. On a 12-core Mac it
+cut GHC native `-O2` compile time for arithmoi-factorise from 86 s to 60 s and
+for rasterific-scene from 194 s to 143 s.
+
 The boot libraries GHC ships -- `text`, `bytestring`, `containers` and the
 rest -- are compiled once, when the GHC release is built, at that release's
 optimization level. Left alone they would give the `O0` profile an optimized
