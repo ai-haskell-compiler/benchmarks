@@ -47,6 +47,31 @@ BASE = {
 
 
 class ConfigTests(unittest.TestCase):
+    def test_the_core_package_is_part_of_every_experiment(self):
+        """The core libraries are built outside the timed compile, so which
+        ones they are decides what a compile time covers."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = write_config(root, BASE)
+            without = experiment_ids(load_config(config_path))
+            core = root / "core"
+            core.mkdir()
+            for name in ("core-libraries.cabal", "aihc.lock", "cabal.project.freeze"):
+                (core / name).write_text("first", encoding="utf-8")
+            document = json.loads(config_path.read_text(encoding="utf-8"))
+            document["core_libraries"] = "core"
+            config_path.write_text(json.dumps(document), encoding="utf-8")
+            loaded = load_config(config_path)
+            self.assertEqual(loaded["_core_dir"], str(core.resolve()))
+            first = experiment_ids(loaded)
+            (core / "cabal.project.freeze").write_text("second", encoding="utf-8")
+            second = experiment_ids(load_config(config_path))
+            self.assertNotEqual(without["sample"], first["sample"])
+            self.assertNotEqual(first["sample"], second["sample"])
+            (core / "aihc.lock").unlink()
+            with self.assertRaisesRegex(ConfigError, "has no aihc.lock"):
+                load_config(config_path)
+
     def test_benchmark_source_content_changes_experiment_id(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

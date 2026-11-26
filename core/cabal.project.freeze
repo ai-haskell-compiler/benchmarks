@@ -1,0 +1,18 @@
+active-repositories: hackage.haskell.org:merge
+constraints: any.array ==0.5.8.0,
+             any.binary ==0.8.9.3,
+             any.bytestring ==0.12.2.0,
+             any.containers ==0.8.1,
+             any.deepseq ==1.5.2.0,
+             any.exceptions ==0.10.12,
+             any.filepath ==1.5.5.0,
+             any.mtl ==2.3.2,
+             any.os-string ==2.0.11,
+             any.parsec ==3.1.18.0,
+             any.primitive ==0.9.1.0,
+             any.stm ==2.5.3.1,
+             any.text ==2.1.4,
+             any.transformers ==0.6.3.0,
+             any.vector ==0.13.2.0,
+             any.vector-stream ==0.1.0.1
+index-state: hackage.haskell.org 2026-11-23T12:42:18Z

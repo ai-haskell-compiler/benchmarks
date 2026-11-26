@@ -1,0 +1,33 @@
+cabal-version: 2.4
+name: core-libraries
+version: 0.1.0.0
+synopsis: The libraries every benchmark gets prebuilt, outside the timed compile
+description:
+  Building this package installs the core libraries into a compiler's store
+  before any benchmark is compiled; see "Core libraries" in docs/architecture.md.
+  The versions are pinned in cabal.project.freeze (GHC) and aihc.lock (AIHC).
+  A benchmark that depends on one of them finds it installed, and its compile
+  time covers its own code and the libraries that are not listed here.
+build-type: Simple
+
+executable core-libraries
+  main-is: Main.hs
+  build-depends:
+    base,
+    array,
+    binary,
+    bytestring,
+    containers,
+    deepseq,
+    exceptions,
+    filepath,
+    mtl,
+    os-string,
+    parsec,
+    primitive,
+    stm,
+    text,
+    transformers,
+    vector,
+    vector-stream
+  default-language: Haskell2010
